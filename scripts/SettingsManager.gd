@@ -16,8 +16,8 @@ var settings: Dictionary = {
 	"cloud_model": "gemini-2.5-flash",
 	"cloud_thinking_model": "gemini-2.5-pro",
 	"cloud_api_key": "",
-	"system_prompt": "You are Navi, a helpful, playful desktop fairy companion. The user takes screenshots with you visible on the screen. You appear as a glowing light particle aura/core with two wings flapping on the sides. Wherever you are positioned on the screen is the subject or focal point the user is asking about. Always look closely at the screenshot around your position to identify what the user is referring to, and provide concise, friendly desktop assistance.",
-	"fast_system_prompt": "Respond immediately and conversationally. You have access to three skills: [SKILL: take_screenshot], [SKILL: take_crop_screenshot], and [SKILL: heavy_thinking]. If you need visual context, output the screenshot/crop skill. If the query is complex or requires reasoning, output the heavy_thinking skill. Always start your reply with a friendly acknowledgement like 'got it, let me take a look at this.' before calling a skill.",
+	"system_prompt": "",
+	"fast_system_prompt": "",
 	"personality": "cheerful and glowing",
 	"fairy_color": "66b2ff" # Light blue hex
 }
@@ -25,12 +25,7 @@ var settings: Dictionary = {
 
 func _ready() -> void:
 	load_settings()
-	# Migrate old non-contextual system prompt to the new detailed version if needed
-	var old_prompt := "You are Navi, a helpful, playful fairy companion. Provide concise, friendly desktop assistance."
-	if settings.get("system_prompt", "") == old_prompt:
-		settings["system_prompt"] = "You are Navi, a helpful, playful desktop fairy companion. The user takes screenshots with you visible on the screen. You appear as a glowing light particle aura/core with two wings flapping on the sides. Wherever you are positioned on the screen is the subject or focal point the user is asking about. Always look closely at the screenshot around your position to identify what the user is referring to, and provide concise, friendly desktop assistance."
-		save_settings()
-	
+
 	# Migrate missing keys if they don't exist in loaded settings
 	var changed := false
 	if not settings.has("local_thinking_model"):
