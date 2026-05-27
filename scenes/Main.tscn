@@ -1,0 +1,20 @@
+[gd_scene format=3 uid="uid://ta0ffgh8qeuu"]
+
+[ext_resource type="Script" uid="uid://dksdw1di5o25r" path="res://scripts/WindowController.gd" id="1_wndctrl"]
+[ext_resource type="Script" uid="uid://bccseqp2ig3wh" path="res://scripts/FollowController.gd" id="2_follow"]
+[ext_resource type="PackedScene" uid="uid://bl6xwg43cq8i1" path="res://scenes/FairyVisuals.tscn" id="3_fairy"]
+[ext_resource type="PackedScene" uid="uid://dbr4yssu4cqpb" path="res://scenes/ChatUI.tscn" id="4_chat"]
+[ext_resource type="PackedScene" path="res://scenes/SettingsUI.tscn" id="5_settings"]
+
+[node name="Main" type="Node2D" unique_id=60991302]
+script = ExtResource("1_wndctrl")
+
+[node name="FollowController" type="Node" parent="." unique_id=1368106618]
+script = ExtResource("2_follow")
+
+[node name="FairyVisuals" parent="." unique_id=343962056 instance=ExtResource("3_fairy")]
+position = Vector2(100, 100)
+
+[node name="ChatUI" parent="." unique_id=1320650395 instance=ExtResource("4_chat")]
+
+[node name="SettingsUI" parent="." unique_id=945193369 instance=ExtResource("5_settings")]

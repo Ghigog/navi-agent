@@ -1,0 +1,93 @@
+extends Node
+## Singleton manager handling persistent application configurations, stored in JSON format.
+## Manages defaults, configuration migration, disk reads/writes, and setting accessors.
+
+signal settings_updated 
+
+const SETTINGS_FILE := "user://settings.json"
+
+## Active application settings dictionary holding visual and model configuration states.
+var settings: Dictionary = {
+	"llm_provider": "local",
+	"local_url": "http://localhost:11434",
+	"local_model": "gemma4:e4b",
+	"local_thinking_model": "deepseek-r1:8b",
+	"cloud_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+	"cloud_model": "gemini-2.5-flash",
+	"cloud_thinking_model": "gemini-2.5-pro",
+	"cloud_api_key": "",
+	"system_prompt": "You are Navi, a helpful, playful desktop fairy companion. The user takes screenshots with you visible on the screen. You appear as a glowing light particle aura/core with two wings flapping on the sides. Wherever you are positioned on the screen is the subject or focal point the user is asking about. Always look closely at the screenshot around your position to identify what the user is referring to, and provide concise, friendly desktop assistance.",
+	"fast_system_prompt": "Respond immediately and conversationally. You have access to three skills: [SKILL: take_screenshot], [SKILL: take_crop_screenshot], and [SKILL: heavy_thinking]. If you need visual context, output the screenshot/crop skill. If the query is complex or requires reasoning, output the heavy_thinking skill. Always start your reply with a friendly acknowledgement like 'got it, let me take a look at this.' before calling a skill.",
+	"personality": "cheerful and glowing",
+	"fairy_color": "66b2ff" # Light blue hex
+}
+
+
+func _ready() -> void:
+	load_settings()
+	# Migrate old non-contextual system prompt to the new detailed version if needed
+	var old_prompt := "You are Navi, a helpful, playful fairy companion. Provide concise, friendly desktop assistance."
+	if settings.get("system_prompt", "") == old_prompt:
+		settings["system_prompt"] = "You are Navi, a helpful, playful desktop fairy companion. The user takes screenshots with you visible on the screen. You appear as a glowing light particle aura/core with two wings flapping on the sides. Wherever you are positioned on the screen is the subject or focal point the user is asking about. Always look closely at the screenshot around your position to identify what the user is referring to, and provide concise, friendly desktop assistance."
+		save_settings()
+	
+	# Migrate missing keys if they don't exist in loaded settings
+	var changed := false
+	if not settings.has("local_thinking_model"):
+		settings["local_thinking_model"] = "deepseek-r1:8b"
+		changed = true
+	if not settings.has("cloud_thinking_model"):
+		settings["cloud_thinking_model"] = "gemini-2.5-pro"
+		changed = true
+	if not settings.has("fast_system_prompt"):
+		settings["fast_system_prompt"] = "Respond immediately and conversationally. You have access to three skills: [SKILL: take_screenshot], [SKILL: take_crop_screenshot], and [SKILL: heavy_thinking]. If you need visual context, output the screenshot/crop skill. If the query is complex or requires reasoning, output the heavy_thinking skill. Always start your reply with a friendly acknowledgement before calling a skill."
+		changed = true
+	if changed:
+		save_settings()
+
+
+## Loads settings from the local JSON config file, merging loaded data into defaults to ensure new options exist.
+func load_settings() -> void:
+	if not FileAccess.file_exists(SETTINGS_FILE):
+		save_settings() # Save defaults to establish a config file
+		return
+		
+	var file := FileAccess.open(SETTINGS_FILE, FileAccess.READ)
+	if file:
+		var json_string := file.get_as_text()
+		file.close()
+		
+		var json = JSON.new()
+		var parse_err := json.parse(json_string)
+		if parse_err == OK:
+			var loaded_data = json.get_data()
+			print("Settings loaded: ", loaded_data) 
+			if loaded_data is Dictionary:
+				# Merge loaded fields to retain user customizations while preserving new default keys
+				for key in loaded_data.keys():
+					settings[key] = loaded_data[key]
+		else:
+			printerr("SettingsManager: Failed to parse settings file. Error: ", parse_err)
+
+
+## Serializes the active settings dictionary to disk as formatted JSON.
+func save_settings() -> void:
+	var file := FileAccess.open(SETTINGS_FILE, FileAccess.WRITE)
+	if file:
+		var json_string := JSON.stringify(settings, "\t")
+		file.store_string(json_string)
+		file.close()
+	else:
+		printerr("SettingsManager: Failed to open settings file for writing.")
+
+
+## Retrieves a configuration setting value. Returns [param default_value] if the key is missing.
+func get_setting(key: String, default_value: Variant = null) -> Variant:
+	return settings.get(key, default_value)
+
+
+## Updates a configuration key with [param value] and immediately persists the dictionary to disk.
+func set_setting(key: String, value: Variant) -> void:
+	settings[key] = value
+	save_settings()
+	settings_updated.emit() # Notify all listeners

@@ -1,0 +1,14 @@
+[gd_scene format=3 uid="uid://bxuhunfi6pdn7"]
+
+[ext_resource type="Script" uid="uid://b34kvloshn2ce" path="res://scripts/AIService.gd" id="1_k1g8h"]
+
+[node name="AiService" type="Control" unique_id=1832696900]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_k1g8h")
+
+[node name="HTTPRequest" type="HTTPRequest" parent="." unique_id=405269759]
