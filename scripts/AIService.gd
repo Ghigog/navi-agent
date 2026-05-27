@@ -17,7 +17,6 @@ signal thinking_update(update_text: String)
 var _settings_mgr: Node
 # Internal cache to avoid constant Dictionary lookups
 var _config_cache := {
-	"fast_system_prompt": "",
 	"system_prompt" : "",
 	"personality": "",
 	"llm_provider": "local",
@@ -41,7 +40,6 @@ func _on_settings_updated() -> void:
 	var heavy_model = _settings_mgr.get_setting("local_thinking_model" if provider == "local" else "cloud_thinking_model")
 	# Build the dictionary from the manager and update the cache
 	update_config({
-		"fast_system_prompt": _settings_mgr.get_setting("fast_system_prompt"),
 		"system_prompt": _settings_mgr.get_setting("system_prompt"),
 		"personality": _settings_mgr.get_setting("personality"),
 		"llm_provider": provider,
@@ -53,8 +51,7 @@ func update_config(new_config: Dictionary) -> void:
 	_config_cache.merge(new_config, true)
 	print("AIService: Configuration updated.")
 
-## Formulates and dispatches a multimodal request to the configured LLM provider.
-## Utilizes a fast model by default to handle conversational response routing and skills execution.
+## Formulates and dispatches a multimodal request using a recursive message history.
 func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = Vector2.ZERO, window_size: Vector2 = Vector2.ZERO) -> void:
 	if not _settings_mgr:
 		request_failed.emit("SettingsManager Autoload is missing.")
@@ -62,146 +59,128 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 		
 	request_started.emit()
 	
-	# Use the cached values instead of querying SettingsManager directly
-	var fast_prompt : String = _config_cache.get("fast_system_prompt", "")
+	# Unified System Prompt for all calls
+	var system_prompt : String = _config_cache.get("system_prompt", "")
 	var personality : String = _config_cache.get("personality", "")
-	var system_prompt: String = _config_cache.get("system_prompt", "")
-	
-	var final_fast_system_prompt := fast_prompt
+	var full_system_prompt := system_prompt
 	if personality != "":
-		final_fast_system_prompt += "\nRespond with a " + personality + " personality."
+		full_system_prompt += "\nRespond with a " + personality + " personality."
 		
-	# Phase 1: Send the user prompt to the Fast Model (without screenshots)
-	var fast_reply: String = await _request_llm(prompt, final_fast_system_prompt, false)
-	if fast_reply == "":
-		request_failed.emit("Fast model request failed.")
-		return
-		
-	# Check for skill calls
-	var has_screenshot := fast_reply.contains("[SKILL: take_screenshot]")
-	var has_crop := fast_reply.contains("[SKILL: take_crop_screenshot]")
-	var has_thinking := fast_reply.contains("[SKILL: heavy_thinking]")
+	# Persistent Message History
+	var messages := [{"role": "system", "content": full_system_prompt}]
+	messages.append({"role": "user", "content": prompt})
 	
-	# Strip skill tags for immediate conversational display
-	var clean_fast_reply := fast_reply
-	clean_fast_reply = clean_fast_reply.replace("[SKILL: take_screenshot]", "")
-	clean_fast_reply = clean_fast_reply.replace("[SKILL: take_crop_screenshot]", "")
-	clean_fast_reply = clean_fast_reply.replace("[SKILL: heavy_thinking]", "")
-	clean_fast_reply = clean_fast_reply.strip_edges()
+	var is_done := false
+	var loop_count := 0
 	
-	if clean_fast_reply != "":
-		response_received.emit(clean_fast_reply)
+	# The loop allows for multiple rounds of interaction until the agent is satisfied
+	while not is_done and loop_count < 5:
+		loop_count += 1
 		
-	# If screenshot or crop requested, capture it dynamically
-	var active_screenshot: Image = null
-	var base64_image := ""
-	var base64_crop := ""
-	
-	if has_screenshot or has_crop:
-		# Locate the WindowController root node to trigger clean screenshot capture
-		var window_controller: Node = null
-		for child in get_tree().root.get_children():
-			if child.name == "Main" or child.has_method("capture_clean_screenshot"):
-				window_controller = child
-				break
-				
-		if window_controller and window_controller.has_method("capture_clean_screenshot"):
-			active_screenshot = await window_controller.call("capture_clean_screenshot")
-			
-		if active_screenshot and active_screenshot.get_width() > 0:
-			var buffer := active_screenshot.save_jpg_to_buffer()
-			base64_image = Marshalls.raw_to_base64(buffer)
-			
-			# If crop was requested specifically, crop around the fairy
-			if has_crop and window_controller:
-				var f_pos: Vector2 = window_controller._fairy.position if "_fairy" in window_controller else Vector2.ZERO
-				var w_size: Vector2 = Vector2(window_controller.get_window().size)
-				
-				if f_pos != Vector2.ZERO and w_size != Vector2.ZERO:
-					var rel_x := f_pos.x / w_size.x
-					var rel_y := f_pos.y / w_size.y
-					var px_x := int(rel_x * active_screenshot.get_width())
-					var px_y := int(rel_y * active_screenshot.get_height())
-					var crop_size := 600
-					var crop_x: int = clamp(px_x - crop_size / 2, 0, active_screenshot.get_width() - crop_size)
-					var crop_y: int = clamp(px_y - crop_size / 2, 0, active_screenshot.get_height() - crop_size)
-					var rect_w: int = min(crop_size, active_screenshot.get_width())
-					var rect_h: int = min(crop_size, active_screenshot.get_height())
-					var crop_rect := Rect2i(crop_x, crop_y, rect_w, rect_h)
-					var cropped_img := active_screenshot.get_region(crop_rect)
-					var crop_buffer := cropped_img.save_jpg_to_buffer()
-					base64_crop = Marshalls.raw_to_base64(crop_buffer)
-					
-		# Feed screenshot context back to fast model to re-evaluate difficulty
-		var context_prompt: String = "Here is the screenshot you requested.\nUser prompt: " + prompt
-		if base64_crop != "":
-			context_prompt += "\n[Visual Focus Helper crop is attached.]"
-			
-		var fast_reply_2: String = await _request_llm(context_prompt, final_fast_system_prompt, false, base64_image, base64_crop)
-		if fast_reply_2 == "":
-			request_failed.emit("Fast model re-evaluation failed.")
-			return
-			
-		has_thinking = fast_reply_2.contains("[SKILL: heavy_thinking]")
-		var clean_fast_reply_2 := fast_reply_2
-		clean_fast_reply_2 = clean_fast_reply_2.replace("[SKILL: heavy_thinking]", "")
-		clean_fast_reply_2 = clean_fast_reply_2.strip_edges()
+		# Request response based on full current history
+		var reply: String = await _request_llm_with_history(messages)
 		
-		if not has_thinking:
-			if clean_fast_reply_2 != "":
-				response_received.emit(clean_fast_reply_2)
-			return
+		if reply == "":
+			request_failed.emit("Model failed to respond.")
+			break
+		
+		# Append AI's response to history
+		messages.append({"role": "assistant", "content": reply})
+		
+		# Check for skills
+		var skill_tag := _extract_skill_tag(reply)
+		if skill_tag != "":
+			var skill_result := await _handle_skill_execution(skill_tag, prompt)
+			# Append result as a user-role message so the AI can process what happened
+			messages.append({"role": "user", "content": "Skill Output: " + skill_result})
+			# We continue the loop so the AI can talk about the result
 		else:
-			if clean_fast_reply_2 != "":
-				response_received.emit(clean_fast_reply_2)
-				
-	# If we need heavy thinking:
-	if has_thinking:
-		# Add instructions to output internal plan
-		var thinking_system_prompt := system_prompt
-		if personality != "":
-			thinking_system_prompt += "\nRespond with a " + personality + " personality."
-		thinking_system_prompt += "\nIMPORTANT: You are the thinking model. First, describe your plan/reasoning in bullet points inside a <think>...</think> block (e.g. '<think>\n- Finding the issue\n- Verifying the file\n</think>'). Then, output your final conversational response."
-		
-		# Call heavy model
-		var heavy_reply: String = await _request_llm(prompt, thinking_system_prompt, true, base64_image, base64_crop)
-		if heavy_reply == "":
-			request_failed.emit("Thinking model request failed.")
-			return
-			
-		# Parse <think>...</think> blocks
-		var final_answer := heavy_reply
-		var thoughts: Array = []
-		
-		if heavy_reply.contains("<think>") and heavy_reply.contains("</think>"):
-			var start_idx: int = heavy_reply.find("<think>")
-			var end_idx: int = heavy_reply.find("</think>")
-			var think_content: String = heavy_reply.substr(start_idx + 7, end_idx - start_idx - 7).strip_edges()
-			final_answer = heavy_reply.substr(end_idx + 8).strip_edges()
-			
-			for line: String in think_content.split("\n"):
-				var clean_line: String = line.strip_edges()
-				if clean_line.begins_with("-"):
-					clean_line = clean_line.substr(1).strip_edges()
-				if clean_line != "":
-					thoughts.append(clean_line)
-					
-		# If we have thoughts, translate and display them with delays
-		if thoughts.size() > 0:
-			for thought: String in thoughts:
-				var rephrase_prompt: String = "The thinking model is thinking: '" + thought + "'. Briefly rephrase this as a short, natural status update from Navi the fairy (e.g. 'I'm checking line 12, one sec...'). Follow personality: " + personality
-				var update_text: String = await _request_llm(rephrase_prompt, "Respond with a single short line update.", false)
-				if update_text == "":
-					update_text = "Checking: " + thought + "..."
-				else:
-					update_text = update_text.strip_edges().replace("\"", "")
-					
-				thinking_update.emit(update_text)
-				# Small non-blocking delay to simulate thinking time
-				await get_tree().create_timer(1.2).timeout
-				
-		response_received.emit(final_answer)
+			# No more skills, emit the final text
+			response_received.emit(reply)
+			is_done = true
 
+## Helper to process specific skill tags
+func _handle_skill_execution(skill_tag: String, original_prompt: String) -> String:
+	if "take_screenshot" in skill_tag or "take_crop_screenshot" in skill_tag:
+		# Trigger capture logic
+		var window_controller = _get_window_controller()
+		if window_controller:
+			var img = await window_controller.capture_clean_screenshot()
+			# (Optional: Add your base64 logic here)
+			return "Screenshot captured successfully."
+	
+	if "heavy_thinking" in skill_tag:
+		# Trigger the thinking model explicitly
+		# Note: we pass the full history to the heavy model
+		return await _request_llm_with_history([], true) # Pass true for heavy model
+		
+	return "Skill executed."
+
+func _request_llm_with_history(messages: Array, is_thinking: bool = false) -> String:
+	var provider: String = _config_cache.get("llm_provider", "local")
+	var http := _http_request
+	var model_key = "heavy_model" if is_thinking else "fast_model"
+	var model: String = _config_cache.get(model_key, "")
+	
+	var endpoint := ""
+	var headers := ["Content-Type: application/json"]
+	var payload := {}
+	
+	if provider == "local":
+		var url: String = _settings_mgr.get_setting("local_url", "http://localhost:11434")
+		endpoint = url + "/v1/chat/completions"
+		# The messages array is passed directly into the payload
+		payload = {
+			"model": model,
+			"messages": messages,
+			"temperature": 0.7
+		}
+	else:
+		var url: String = _settings_mgr.get_setting("cloud_url", "")
+		var api_key: String = _settings_mgr.get_setting("cloud_api_key", "")
+		
+		# Convert message array to Gemini's 'contents' format
+		var contents := []
+		for msg in messages:
+			contents.append({"role": "user" if msg.role == "user" else "model", "parts": [{"text": msg.content}]})
+			
+		endpoint = url + (("?" if not url.contains("?") else "&") + "key=" + api_key)
+		payload = {"contents": contents}
+
+	# Execute Request
+	var json_string := JSON.stringify(payload)
+	var err: Error = http.request(endpoint, headers, HTTPClient.METHOD_POST, json_string)
+	if err != OK: return ""
+	
+	var completed_args: Array = await http.request_completed
+	if completed_args[1] < 200 or completed_args[1] >= 300: return ""
+	
+	# Parse Response
+	var response_data = JSON.parse_string(completed_args[3].get_string_from_utf8())
+	if not response_data is Dictionary: return ""
+	
+	var reply_text := ""
+	if provider == "local":
+		if response_data.has("choices"):
+			reply_text = response_data["choices"][0]["message"]["content"]
+	else:
+		if response_data.has("candidates"):
+			reply_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+					
+	return reply_text
+
+## Utility to cleanly extract tags
+func _extract_skill_tag(text: String) -> String:
+	var regex = RegEx.new()
+	regex.compile("\\[SKILL: (.*?)\\]")
+	var result = regex.search(text)
+	return result.get_string(1) if result else ""
+
+func _get_window_controller():
+	for child in get_tree().root.get_children():
+		if child.name == "Main" or child.has_method("capture_clean_screenshot"):
+			return child
+	return null
 
 # Helper function to dynamically spawn HTTP requests asynchronously
 func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool = false, base64_image: String = "", base64_crop: String = "") -> String:

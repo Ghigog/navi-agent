@@ -17,7 +17,6 @@ var settings: Dictionary = {
 	"cloud_thinking_model": "gemini-2.5-pro",
 	"cloud_api_key": "",
 	"system_prompt": "",
-	"fast_system_prompt": "",
 	"personality": "cheerful and glowing",
 	"fairy_color": "66b2ff" # Light blue hex
 }
@@ -33,9 +32,6 @@ func _ready() -> void:
 		changed = true
 	if not settings.has("cloud_thinking_model"):
 		settings["cloud_thinking_model"] = "gemini-2.5-pro"
-		changed = true
-	if not settings.has("fast_system_prompt"):
-		settings["fast_system_prompt"] = "Respond immediately and conversationally. You have access to three skills: [SKILL: take_screenshot], [SKILL: take_crop_screenshot], and [SKILL: heavy_thinking]. If you need visual context, output the screenshot/crop skill. If the query is complex or requires reasoning, output the heavy_thinking skill. Always start your reply with a friendly acknowledgement before calling a skill."
 		changed = true
 	if changed:
 		save_settings()

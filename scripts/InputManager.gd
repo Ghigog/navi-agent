@@ -10,8 +10,10 @@ signal hotkey_pressed
 
 # Networking configs for daemon communication
 const PORT := 9999
+const DEBOUNCE_TIME: float = 0.2 # Seconds to wait between valid triggers
 var _udp_peer := PacketPeerUDP.new()
 var _daemon_pid: int = -1
+var _last_trigger_time: float = 0.0
 
 
 func _ready() -> void:
@@ -36,16 +38,23 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Poll UDP packets checking for hotkey event triggers
-	if _udp_peer.get_available_packet_count() > 0:
+	# Poll UDP packets
+	while _udp_peer.get_available_packet_count() > 0:
 		var packet := _udp_peer.get_packet().get_string_from_utf8()
-		print("InputManager: UDP packet received — '", packet, "'.")
+		
 		if packet == "hotkey":
-			print("InputManager: ✅ Hotkey packet confirmed — emitting hotkey_pressed signal.")
-			hotkey_pressed.emit()
+			var current_time = Time.get_ticks_msec() / 1000.0
+			
+			# Check if enough time has passed since the last trigger
+			if current_time - _last_trigger_time > DEBOUNCE_TIME:
+				_last_trigger_time = current_time
+				print("InputManager: ✅ Hotkey packet processed.")
+				hotkey_pressed.emit()
+			else:
+				# Optionally log that we dropped a redundant packet
+				pass 
 		else:
 			print("InputManager: Unknown packet type ignored: '", packet, "'.")
-
 
 # Private helper that handles source compilation and daemon execution
 func _start_daemon() -> void:
