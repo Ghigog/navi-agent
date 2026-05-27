@@ -9,6 +9,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 script = ExtResource("1_k1g8h")
 
 [node name="HTTPRequest" type="HTTPRequest" parent="." unique_id=405269759]

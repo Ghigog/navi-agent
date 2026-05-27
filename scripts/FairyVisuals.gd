@@ -73,7 +73,6 @@ func set_fairy_color(color: Color) -> void:
 
 # Event handler connected to Area2D click zone input
 func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
-	print("Fairy received input: ", event)
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		
