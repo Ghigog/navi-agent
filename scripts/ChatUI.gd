@@ -16,6 +16,7 @@ var _current_screenshot: Image = null
 var _fairy_pos: Vector2 = Vector2.ZERO
 var _window_size: Vector2 = Vector2.ZERO
 var _ai_service: Node
+var _is_start_of_paragraph: bool = true
 
 
 func _ready() -> void:
@@ -34,6 +35,8 @@ func _ready() -> void:
 		_ai_service.request_failed.connect(_on_ai_request_failed)
 		if _ai_service.has_signal("thinking_update"):
 			_ai_service.thinking_update.connect(_on_ai_thinking_update)
+		if _ai_service.has_signal("response_chunk"):
+			_ai_service.response_chunk.connect(_on_ai_response_chunk)
 
 
 ## Opens the chat panel with a scale-in/fade-in animation, populating screenshot context.
@@ -100,25 +103,54 @@ func _on_prompt_submitted(text: String) -> void:
 # Callback triggered when AIService starts processing
 func _on_ai_request_started() -> void:
 	response_label.text = "[color=#888888]Thinking...[/color]"
+	_is_start_of_paragraph = true
 
 
 # Callback triggered when response is returned
 func _on_ai_response_received(response_text: String) -> void:
 	input_edit.editable = true
 	input_edit.text = ""
-	response_label.text = response_text
+	if response_text != "":
+		if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
+			response_label.text = response_text
+		else:
+			if not response_label.text.ends_with(response_text):
+				if _is_start_of_paragraph:
+					response_label.text += "\n\n" + response_text
+				else:
+					response_label.text += response_text
 	input_edit.grab_focus.call_deferred()
 
 
 # Callback triggered when thinking model has intermediate thought updates
 func _on_ai_thinking_update(update_text: String) -> void:
-	response_label.text = "[color=#888888]" + update_text + "[/color]"
+	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
+		response_label.text = "[color=#888888]" + update_text + "[/color]"
+	else:
+		response_label.text += "\n\n[color=#888888]" + update_text + "[/color]"
+	_is_start_of_paragraph = true
+
+
+# Callback triggered when a streaming chunk of response is received
+func _on_ai_response_chunk(chunk: String) -> void:
+	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
+		response_label.text = chunk
+		_is_start_of_paragraph = false
+	else:
+		if _is_start_of_paragraph:
+			response_label.text += "\n\n" + chunk
+			_is_start_of_paragraph = false
+		else:
+			response_label.text += chunk
 
 
 # Callback triggered when request errors out
 func _on_ai_request_failed(error_message: String) -> void:
 	input_edit.editable = true
-	response_label.text = "[color=#ff6666]Error: " + error_message + "[/color]"
+	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
+		response_label.text = "[color=#ff6666]Error: " + error_message + "[/color]"
+	else:
+		response_label.text += "\n\n[color=#ff6666]Error: " + error_message + "[/color]"
 	input_edit.grab_focus.call_deferred()
 
 

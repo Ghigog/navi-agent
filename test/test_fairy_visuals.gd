@@ -86,3 +86,19 @@ func test_right_click_settings_signal() -> void:
 	fairy._on_click_area_input_event(null, rclick_event, 0)
 	
 	assert_signal_emitted(fairy, "fairy_clicked", "fairy_clicked should be emitted on right-click to open settings.")
+
+
+func test_set_status_light() -> void:
+	var light_color := Color(1.0, 0.5, 0.0, 1.0)
+	fairy.set_status_light(light_color, false)
+	
+	assert_true(fairy.status_light.visible, "Status light should be visible when set.")
+	assert_eq(fairy.status_light.self_modulate, light_color, "Status light color modulate should match target color.")
+	assert_eq(fairy.status_light.modulate.a, 1.0, "Status light alpha should be 1.0 when not pulsing.")
+
+
+func test_clear_status_light() -> void:
+	fairy.set_status_light(Color.YELLOW, false)
+	fairy.clear_status_light()
+	
+	assert_false(fairy.status_light.visible, "Status light should not be visible when cleared.")

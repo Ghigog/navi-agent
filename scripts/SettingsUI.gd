@@ -20,6 +20,8 @@ var _model_edit: LineEdit
 var _thinking_model_edit: LineEdit
 var _save_button: Button
 var _close_button: Button
+var _enable_screenshots_check: CheckBox
+var _enable_thinking_check: CheckBox
 
 var _settings_manager: Node = null
 var _tween: Tween = null
@@ -47,6 +49,10 @@ func _ready() -> void:
 		var color_row: Node  = vbox.get_node_or_null("ColorRow")
 		if color_row:
 			_color_picker = color_row.get_node_or_null("ColorPickerButton")
+		var toggle_row: Node = vbox.get_node_or_null("SkillsToggleRow")
+		if toggle_row:
+			_enable_screenshots_check = toggle_row.get_node_or_null("EnableScreenshotsCheck")
+			_enable_thinking_check    = toggle_row.get_node_or_null("EnableThinkingCheck")
 
 	# Establish initial closed visual state
 	if _panel:
@@ -116,6 +122,11 @@ func _populate_fields() -> void:
 
 	if _api_key_edit:
 		_api_key_edit.text = _settings_manager.get_setting("cloud_api_key", "")
+		
+	if _enable_screenshots_check:
+		_enable_screenshots_check.button_pressed = _settings_manager.get_setting("enable_screenshots", true)
+	if _enable_thinking_check:
+		_enable_thinking_check.button_pressed = _settings_manager.get_setting("enable_thinking", true)
 
 
 # Triggered when user commits changes via the Save button
@@ -145,6 +156,11 @@ func _on_save_pressed() -> void:
 		_settings_manager.set_setting("cloud_model" if is_cloud else "local_model", _model_edit.text)
 	if _thinking_model_edit:
 		_settings_manager.set_setting("cloud_thinking_model" if is_cloud else "local_thinking_model", _thinking_model_edit.text)
+		
+	if _enable_screenshots_check:
+		_settings_manager.set_setting("enable_screenshots", _enable_screenshots_check.button_pressed)
+	if _enable_thinking_check:
+		_settings_manager.set_setting("enable_thinking", _enable_thinking_check.button_pressed)
 
 	close_settings()
 

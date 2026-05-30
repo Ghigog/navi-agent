@@ -55,6 +55,8 @@ func test_request_started_signal_emitted_before_llm_call() -> void:
 	mock_settings.set_setting("llm_provider", "local")
 	mock_settings.set_setting("local_url", "http://localhost:11434")
 	mock_settings.set_setting("local_model", "gemma4:e4b")
+	mock_settings.set_setting("local_thinking_model", "deepseek-r1:8b")
+	mock_settings.set_setting("enable_thinking", false)
 	mock_settings.set_setting("fast_system_prompt", "Respond fast.")
 	mock_settings.set_setting("personality", "")
 	

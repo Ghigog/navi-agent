@@ -22,9 +22,9 @@ Navi utilizes a modular architecture to handle the desktop assistant workflow:
 - **`FollowController`**: Tracks the global OS mouse coordinate and updates the window's position at a fixed offset so that it never overlaps the cursor (allowing mouse clicks to go to other desktop apps naturally).
 - **`FairyVisuals`**: Manages the glowing particle effects and flapping wings (supporting color configurations).
 - **`InputManager`**: Registers global macOS hotkeys to trigger actions when Navi is in the background.
-- **`ScreenCaptureService`**: Temporarily hides Navi, triggers `DisplayServer.screen_get_image()`, and saves the screenshot context.
-- **`AIService`**: Orchestrates OpenAI-compatible payloads to local (Ollama) and cloud APIs.
-- **`SettingsManager`**: Manages the configuration file (`user://settings.json`) saving settings like prompt text, API endpoints, keys, and visual colors.
+- **`ScreenCaptureService`**: Captures high-fidelity desktop screen images via native OS APIs or Godot's DisplayServer, keeping Navi visible to preserve pointing context.
+- **`AIService`**: Orchestrates the direct real-time response streaming pipeline. When a prompt is received, it dispatches directly to the fast model first (bypassing pre-call planning delays for conversational speed under 3s). It intercepts and filters skill tags (`[SKILL: ...]`) to trigger screen captures or handoffs to the heavy reasoning model dynamically, displaying a status indicator light (amber/purple) to represent thinking states.
+- **`SettingsManager`**: Manages the configuration file (`user://settings.json`) saving settings like prompt text, API endpoints, keys, visual colors, and toggles for enabling screenshots or deep thinking.
 
 ---
 
@@ -54,8 +54,14 @@ navi/
 │   ├── SettingsManager.gd # Local settings storage singleton
 │   └── ScreenCapture.gd   # Screenshot utility class
 ├── test/                  # GUT Unit tests
+│   ├── test_agent_skills.gd
 │   ├── test_ai_service.gd
+│   ├── test_chat_ui.gd
+│   ├── test_fairy_visuals.gd
 │   ├── test_follow.gd
+│   ├── test_hotkey.gd
+│   ├── test_screen_capture.gd
+│   ├── test_settings.gd
 │   └── test_window.gd
 └── project.godot          # Godot project file
 ```

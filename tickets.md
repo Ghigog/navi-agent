@@ -357,3 +357,59 @@ Split the Chat UI into user input and speech bubble panels, reposition them dyna
 - **GUT Test**: Repositioning the UI correctly places panels on the left/right and clamps them to screen edges.
 - **GUT Test**: Resetting the follow controller smoothly sets target float coordinate.
 - **Manual Verification**: Open the chat, drag the fairy, let go (confirm new screenshot is taken), verify speech bubble tail points to the fairy, verify right-click opens settings, and clicking outside/Esc dismisses it.
+
+---
+
+### NAV-13: Full Skill-Agent Workflow (DONE)
+**User Story:**
+- **As a:** User interacting with Navi
+- **I want:** Navi to dynamically plan which skills to use, validate the planned tools against a list of available skills, sequentially execute them in a background loop (like screen capture or deep thinking), and keep me updated on its thoughts in real-time
+- **So that:** Navi functions as an incredibly smart, highly-interactive autonomous companion.
+
+**Context:**
+The agent flow should use a two-tier model approach: a Fast Model front-end for receiving and planning, and a modular plug-and-play skills registry for running background tools. The fairy should stay visible in captured screenshots to preserve visual pointing coordinates.
+
+**Description:**
+Implement the planning and execution loop, build a modular callable dictionary of skills in `AIService.gd`, and verify all logic via automated GUT test scripts.
+
+**Requirements:**
+1. Call the Fast Model with planning prompts to get structured plans (`[PLAN: skill1, skill2]`) and clean conversational announcements.
+2. Validate skill checklist tags against the modular callable registry in `AIService.gd` before executing them to prevent hallucinated actions.
+3. Emit conversational announcements instantly to keep the user engaged while executing skills in the background.
+4. Loop through planned skills sequentially, calling their execution callbacks to update the shared context.
+5. In `heavy_thinking`, parse thoughts from `<think>` blocks, rephrase them, and output intermediate updates to the speech bubble.
+6. Support a plug-and-play skills pattern where adding a new skill is as simple as adding a key-value mapping to `_skills_registry`.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that the planning parser correctly extracts and validates tags from structured outputs.
+- **GUT Test**: Verify that hallucinated or unregistered tools are rejected.
+- **GUT Test**: Verify that intermediate status updates are emitted correctly.
+- **Manual Verification**: Submit a query about the screen; confirm Navi immediately announces its plan, sequentially executes the capture and reasoning skills, and shows live rephrased status updates in its speech bubble.
+
+---
+
+### NAV-14: Asynchronous Streaming & Direct Conversational Routing (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Conversational responses to start streaming immediately (under 3s) without pre-planning pre-calls, and thoughts to append to speech bubble sections
+- **So that:** Navi responds with zero perceived interface lag and behaves like a fluid, real-time companion.
+
+**Context:**
+Utilize HTTPClient for SSE chunked stream reading. Intercept and buffer skill tags. Add a status dot above the fairy's head and settings toggles for enabling/disabling screenshots or thinking.
+
+**Description:**
+Optimize prompt dispatch to go directly to the fast model. Filter `[SKILL: ...]` tags on-the-fly, dispatching screenshots/thinking, and showing status lights (pulsing Amber for screenshot/capture, pulsing Purple for thinking).
+
+**Requirements:**
+1. Direct fast model dispatch.
+2. Low-level HTTPClient SSE chunk parsing with defensive host parameter check.
+3. Stream character-by-character filtering to suppress skill tags from user view.
+4. Non-destructive paragraph appending in ChatUI to maintain full dialog history.
+5. Settings configuration and UI checkboxes for `enable_screenshots` and `enable_thinking`.
+6. Dynamically update the status indicator light above Navi's head (FairyVisuals).
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify greetings response finishes within 3 seconds under mock server conditions.
+- **GUT Test**: Verify status light changes color correctly and clears.
+- **GUT Test**: Verify toggles successfully load and save settings parameters.
+- **Manual Verification**: Submit a basic message ("hello"); verify response streams in instantly. Submit a visual query ("what is this?"); verify Navi immediately says she is checking the screen, status light glows amber, screenshot is captured, then glows purple as the heavy model streams its analysis.

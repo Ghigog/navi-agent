@@ -212,6 +212,20 @@ theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
+[node name="SkillsToggleRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="EnableScreenshotsCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxContainer/SkillsToggleRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Enable Screenshots"
+
+[node name="EnableThinkingCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxContainer/SkillsToggleRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Enable Deep Thinking"
+
 [node name="ButtonRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
 theme_override_constants/separation = 8

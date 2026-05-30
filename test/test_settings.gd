@@ -19,7 +19,7 @@ func before_each() -> void:
 		"cloud_url": "https://generativelanguage.googleapis.com",
 		"cloud_model": "gemini-2.5-flash",
 		"cloud_api_key": "",
-		"system_prompt": "You are Navi.",
+		"system_prompt": "",
 		"personality": "cheerful",
 		"fairy_color": "66b2ff",
 	}

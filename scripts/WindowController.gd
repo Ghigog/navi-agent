@@ -74,7 +74,8 @@ func _apply_global_settings(manager: Node) -> void:
 				"system_prompt": manager.get_setting("system_prompt"),
 				"personality": manager.get_setting("personality"),
 				"llm_provider": manager.get_setting("llm_provider"),
-				"model": manager.get_setting("cloud_model" if manager.get_setting("llm_provider") == "cloud" else "local_model")
+				"fast_model": manager.get_setting("cloud_model" if manager.get_setting("llm_provider") == "cloud" else "local_model"),
+				"heavy_model": manager.get_setting("cloud_thinking_model" if manager.get_setting("llm_provider") == "cloud" else "local_thinking_model")
 			})
 
 	print("WindowController: All settings applied successfully.")
@@ -227,6 +228,33 @@ func capture_clean_screenshot() -> Image:
 			_chat_ui.call("set_screenshot", screenshot)
 
 	return screenshot
+
+
+## Captures a cropped screenshot centered around Navi's current body position.
+func capture_crop_screenshot() -> Image:
+	var img: Image = await capture_clean_screenshot()
+	if not img:
+		return null
+		
+	# Compute pixel coordinates of the fairy on the captured image
+	var window := get_window()
+	var w_size := Vector2(window.size)
+	if w_size.x == 0 or w_size.y == 0:
+		return img
+		
+	var rel_x := _fairy.position.x / w_size.x
+	var rel_y := _fairy.position.y / w_size.y
+	var px_x := int(rel_x * img.get_width())
+	var px_y := int(rel_y * img.get_height())
+	
+	var crop_size := 600
+	var crop_x: int = clamp(px_x - crop_size / 2, 0, img.get_width() - crop_size)
+	var crop_y: int = clamp(px_y - crop_size / 2, 0, img.get_height() - crop_size)
+	var rect_w: int = min(crop_size, img.get_width())
+	var rect_h: int = min(crop_size, img.get_height())
+	
+	var crop_rect := Rect2i(crop_x, crop_y, rect_w, rect_h)
+	return img.get_region(crop_rect)
 
 
 # ---------------------------------------------------------------------------

@@ -37,6 +37,12 @@ color_ramp = SubResource("Gradient_particles")
 scale = Vector2(0.6, 0.6)
 texture = SubResource("GradientTexture2D_glow")
 
+[node name="StatusLight" type="Sprite2D" parent="." unique_id=1234567890]
+visible = false
+position = Vector2(0, -32)
+scale = Vector2(0.25, 0.25)
+texture = SubResource("GradientTexture2D_glow")
+
 [node name="LeftWing" type="Polygon2D" parent="." unique_id=1573743826]
 polygon = PackedVector2Array(0, 0, 10, -20, 40, -30, 50, -15, 30, 0, 40, 15, 30, 25, 15, 15, 5, 5)
 

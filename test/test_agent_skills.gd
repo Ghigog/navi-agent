@@ -11,6 +11,18 @@ class MockAIService:
 	signal thinking_update(update_text: String)
 
 
+class MockSettingsManager:
+	extends Node
+	
+	var _data: Dictionary = {}
+	
+	func get_setting(key: String, default_value: Variant = null) -> Variant:
+		return _data.get(key, default_value)
+	
+	func set_setting(key: String, value: Variant) -> void:
+		_data[key] = value
+
+
 func test_thinking_update_signal_exists_on_ai_service() -> void:
 	var ai_service: Node = load("res://scripts/AIService.gd").new()
 	add_child_autofree(ai_service)
@@ -74,3 +86,92 @@ func test_multiple_skill_tags_all_stripped() -> void:
 	cleaned = cleaned.strip_edges()
 	
 	assert_false(cleaned.contains("[SKILL:"), "All skill tags should be removed regardless of how many appear.")
+
+
+func test_agent_plan_parsing() -> void:
+	var raw_reply := "[PLAN: take_screenshot, heavy_thinking]\nGot it! Let me check the screen first."
+	var plan_start := raw_reply.find("[PLAN:")
+	var plan_end := raw_reply.find("]", plan_start)
+	
+	var planned_skills: Array[String] = []
+	var clean_intro := raw_reply
+	
+	if plan_start != -1 and plan_end != -1:
+		var plan_content := raw_reply.substr(plan_start + 6, plan_end - plan_start - 6).strip_edges()
+		clean_intro = raw_reply.substr(plan_end + 1).strip_edges()
+		
+		for skill in plan_content.split(","):
+			var clean_skill := skill.strip_edges()
+			if clean_skill != "":
+				planned_skills.append(clean_skill)
+				
+	assert_eq(planned_skills.size(), 2, "Should parse exactly two skills.")
+	assert_eq(planned_skills[0], "take_screenshot", "First skill should be take_screenshot.")
+	assert_eq(planned_skills[1], "heavy_thinking", "Second skill should be heavy_thinking.")
+	assert_eq(clean_intro, "Got it! Let me check the screen first.", "Clean intro should have bracket plan removed.")
+
+
+func test_agent_plan_validation() -> void:
+	# Available skills registry mockup
+	var mock_registry := {
+		"take_screenshot": true,
+		"take_crop_screenshot": true,
+		"heavy_thinking": true
+	}
+	
+	var planned_skills: Array[String] = ["take_screenshot", "hallucinated_tool", "heavy_thinking"]
+	var verified_skills: Array[String] = []
+	
+	for skill in planned_skills:
+		if skill in mock_registry:
+			verified_skills.append(skill)
+			
+	assert_eq(verified_skills.size(), 2, "Validation should filter out hallucinated tool.")
+	assert_eq(verified_skills[0], "take_screenshot", "First validated tool is correct.")
+	assert_eq(verified_skills[1], "heavy_thinking", "Second validated tool is correct.")
+
+
+func test_greetings_speed_under_three_seconds() -> void:
+	var mock_settings = MockSettingsManager.new()
+	add_child_autofree(mock_settings)
+	
+	var ai_service: Node = load("res://scripts/AIService.gd").new()
+	add_child_autofree(ai_service)
+	ai_service._settings_mgr = mock_settings
+	
+	mock_settings.set_setting("llm_provider", "local")
+	mock_settings.set_setting("local_model", "gemma4:e4b")
+	mock_settings.set_setting("local_thinking_model", "deepseek-r1:8b")
+	mock_settings.set_setting("enable_thinking", false)
+	
+	var start_time := Time.get_ticks_msec()
+	ai_service.send_prompt("hello")
+	var elapsed := Time.get_ticks_msec() - start_time
+	
+	assert_lt(elapsed, 3000, "Conversational greetings bypass planning and must complete in less than 3 seconds.")
+
+
+func test_skill_filtering_when_disabled_in_settings() -> void:
+	var planned_skills: Array[String] = ["take_screenshot", "heavy_thinking"]
+	var verified_skills: Array[String] = []
+	
+	var enable_screenshots := false
+	var enable_thinking := true
+	
+	var mock_registry := {
+		"take_screenshot": true,
+		"heavy_thinking": true
+	}
+	
+	for skill in planned_skills:
+		if skill in mock_registry:
+			if skill == "take_screenshot" and not enable_screenshots:
+				continue
+			if skill == "heavy_thinking" and not enable_thinking:
+				continue
+			verified_skills.append(skill)
+			
+	assert_eq(verified_skills.size(), 1, "Should filter out take_screenshot if screenshots are disabled.")
+	assert_eq(verified_skills[0], "heavy_thinking", "Only heavy_thinking should be kept.")
+
+

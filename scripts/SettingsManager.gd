@@ -18,8 +18,16 @@ var settings: Dictionary = {
 	"cloud_api_key": "",
 	"system_prompt": "",
 	"personality": "cheerful and glowing",
-	"fairy_color": "66b2ff" # Light blue hex
+	"fairy_color": "66b2ff", # Light blue hex
+	"enable_screenshots": true,
+	"enable_thinking": true
 }
+
+var skills = [
+	{"tag": "take_screenshot", "description": "Captures the desktop to analyze visual elements."},
+	{"tag": "take_crop_screenshot", "description": "Captures a close-up cropped visual around the fairy for precise visual detail."},
+	{"tag": "heavy_thinking", "description": "Invokes advanced reasoning for complex problems."}
+]
 
 
 func _ready() -> void:
@@ -27,11 +35,17 @@ func _ready() -> void:
 
 	# Migrate missing keys if they don't exist in loaded settings
 	var changed := false
-	if not settings.has("local_thinking_model"):
+	if not settings.has("local_thinking_model") or settings["local_thinking_model"] == "":
 		settings["local_thinking_model"] = "deepseek-r1:8b"
 		changed = true
-	if not settings.has("cloud_thinking_model"):
+	if not settings.has("cloud_thinking_model") or settings["cloud_thinking_model"] == "":
 		settings["cloud_thinking_model"] = "gemini-2.5-pro"
+		changed = true
+	if not settings.has("enable_screenshots"):
+		settings["enable_screenshots"] = true
+		changed = true
+	if not settings.has("enable_thinking"):
+		settings["enable_thinking"] = true
 		changed = true
 	if changed:
 		save_settings()

@@ -29,6 +29,9 @@ signal fairy_drag_finished(new_pos: Vector2)
 @onready var left_wing: Polygon2D = $LeftWing
 @onready var right_wing: Polygon2D = $RightWing
 @onready var click_area: Area2D = $ClickArea
+@onready var status_light: Sprite2D = $StatusLight
+
+var _pulse_tween: Tween = null
 
 ## Controls whether mouse interactions (drag, right-click settings) are active.
 ## Clicks are disabled during follow-mouse mode to let clicks pass through to background apps.
@@ -41,7 +44,7 @@ var _time_passed: float = 0.0
 
 func _ready() -> void:
 	# Apply initial customization color
-	# set_fairy_color(base_color)
+	set_fairy_color(base_color)
 	
 	# Set up Area2D input detection properties
 	click_area.input_pickable = true
@@ -69,6 +72,44 @@ func set_fairy_color(color: Color) -> void:
 		particles.self_modulate = color
 		left_wing.color = color
 		right_wing.color = color
+
+
+## Activates and configures the status notification dot above Navi.
+func set_status_light(color: Color, pulsing: bool = false) -> void:
+	if not is_inside_tree() or not status_light:
+		return
+		
+	status_light.self_modulate = color
+	status_light.visible = true
+	
+	if _pulse_tween:
+		_pulse_tween.kill()
+		_pulse_tween = null
+		
+	if pulsing:
+		status_light.scale = Vector2(0.18, 0.18)
+		status_light.modulate.a = 0.4
+		
+		_pulse_tween = create_tween().set_loops()
+		_pulse_tween.set_parallel(true)
+		_pulse_tween.tween_property(status_light, "scale", Vector2(0.3, 0.3), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_pulse_tween.tween_property(status_light, "modulate:a", 1.0, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_pulse_tween.chain().set_parallel(true)
+		_pulse_tween.tween_property(status_light, "scale", Vector2(0.18, 0.18), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_pulse_tween.tween_property(status_light, "modulate:a", 0.4, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		status_light.scale = Vector2(0.25, 0.25)
+		status_light.modulate.a = 1.0
+
+
+## Deactivates the status notification dot above Navi.
+func clear_status_light() -> void:
+	if _pulse_tween:
+		_pulse_tween.kill()
+		_pulse_tween = null
+		
+	if status_light:
+		status_light.visible = false
 
 
 # Event handler connected to Area2D click zone input
