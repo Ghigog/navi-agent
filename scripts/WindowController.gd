@@ -108,7 +108,7 @@ func _apply_font_size_offset(root: Node, offset: int) -> void:
 			var snapshot: Dictionary = {}
 			for prop in font_props:
 				var val = root.get(prop)
-				if val != null and val is int and val > 0:
+				if val != null and (val is int or val is float) and val > 0:
 					snapshot[prop] = val
 			_font_size_cache[node_id] = snapshot
 

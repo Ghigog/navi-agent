@@ -10,7 +10,7 @@ extends Control
 @onready var preview_texture: TextureRect = $ResponsePanel/PreviewTexture
 @onready var send_button: Button = $InputPanel/InputBar/SendButton
 @onready var pointer: Polygon2D = $ResponsePanel/Pointer
-@onready var _resize_handle: Control = $ResponsePanel/ResizeHandle
+@onready var _resize_handle: Control = $ResizeHandle
 
 # Local Context Variables
 var _current_screenshot: Image = null
@@ -23,8 +23,10 @@ var _is_start_of_paragraph: bool = true
 var _is_resizing: bool = false
 var _resize_start_mouse: Vector2 = Vector2.ZERO
 var _resize_start_size: Vector2 = Vector2.ZERO
+var _resize_start_panel_pos: Vector2 = Vector2.ZERO
 const _RESIZE_MIN_W: float = 250.0
 const _RESIZE_MIN_H: float = 80.0
+const _RESIZE_HANDLE_SIZE: float = 20.0
 
 
 func _ready() -> void:
@@ -84,12 +86,20 @@ func open_chat(screenshot: Image = null, fairy_pos: Vector2 = Vector2.ZERO, wind
 	tween.tween_property(input_panel, "scale", Vector2(1.0, 1.0), 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(response_panel, "scale", Vector2(1.0, 1.0), 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	
+	# Show and position the resize handle after layout has settled
+	if _resize_handle:
+		_resize_handle.visible = true
+		_position_resize_handle()
+	
 	# Grab text editor focus deferredly to ensure input fields are ready
 	input_edit.grab_focus.call_deferred()
 
 
 ## Closes the chat interface with a scale-out/fade-out animation.
 func close_chat() -> void:
+	# Hide handle immediately so it doesn't linger during fade
+	if _resize_handle:
+		_resize_handle.visible = false
 	var tween := create_tween().set_parallel(true)
 	tween.tween_property(self, "modulate:a", 0.0, 0.15)
 	tween.tween_property(input_panel, "scale", Vector2(0.9, 0.9), 0.15)
@@ -249,6 +259,9 @@ func reposition_ui(fairy_pos: Vector2) -> void:
 	response_panel.position = target_resp_pos
 	input_panel.position = target_input_pos
 
+	# Keep the resize handle pinned to the top-right corner of the response panel
+	_position_resize_handle()
+
 
 ## Utility helper to verify if a given screen coordinate lies within either the input panel or the response panel.
 ## Used to dismiss the UI when the user clicks outside.
@@ -263,22 +276,40 @@ func is_position_inside_ui(local_pos: Vector2) -> bool:
 	return in_input or in_response
 
 
-## Handles drag-to-resize interactions on the corner handle of the response panel.
+## Pins the resize handle to the top-right corner of the response panel.
+func _position_resize_handle() -> void:
+	if not _resize_handle:
+		return
+	var resp_size: Vector2 = response_panel.size
+	if resp_size.x <= 0:
+		resp_size = response_panel.custom_minimum_size
+	_resize_handle.size = Vector2(_RESIZE_HANDLE_SIZE, _RESIZE_HANDLE_SIZE)
+	_resize_handle.position = response_panel.position + Vector2(resp_size.x - _RESIZE_HANDLE_SIZE, 0.0)
+
+
+## Handles drag-to-resize interactions on the top-right corner handle of the response panel.
+## Dragging right increases width; dragging up increases height (bottom edge stays anchored).
 func _on_resize_handle_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				_is_resizing = true
 				_resize_start_mouse = get_global_mouse_position()
-				_resize_start_size = response_panel.custom_minimum_size
+				_resize_start_size = response_panel.size
 				if _resize_start_size.x <= 0:
-					_resize_start_size = response_panel.size
+					_resize_start_size = response_panel.custom_minimum_size
+				_resize_start_panel_pos = response_panel.position
 			else:
 				_is_resizing = false
 	elif event is InputEventMouseMotion and _is_resizing:
 		var delta: Vector2 = get_global_mouse_position() - _resize_start_mouse
+		# Right drag → wider; up drag (negative delta.y) → taller, bottom edge stays fixed
 		var new_w: float = maxf(_RESIZE_MIN_W, _resize_start_size.x + delta.x)
-		var new_h: float = maxf(_RESIZE_MIN_H, _resize_start_size.y + delta.y)
+		var new_h: float = maxf(_RESIZE_MIN_H, _resize_start_size.y - delta.y)
+		# Adjust top-left Y so the bottom edge of the panel remains in place
+		var new_y: float = _resize_start_panel_pos.y + (_resize_start_size.y - new_h)
 		response_panel.custom_minimum_size = Vector2(new_w, new_h)
-		# Keep panels in correct relative positions after resize
-		reposition_ui(_fairy_pos)
+		response_panel.size = Vector2(new_w, new_h)
+		response_panel.position = Vector2(_resize_start_panel_pos.x, new_y)
+		# Repin the handle to follow the new top-right corner
+		_position_resize_handle()

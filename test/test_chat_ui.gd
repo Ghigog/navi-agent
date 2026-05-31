@@ -63,8 +63,8 @@ func test_is_position_inside_ui() -> void:
 
 
 func test_resize_handle_node_exists() -> void:
-	var handle = chat_ui.get_node_or_null("ResponsePanel/ResizeHandle")
-	assert_not_null(handle, "ResizeHandle control node must exist inside ResponsePanel.")
+	var handle = chat_ui.get_node_or_null("ResizeHandle")
+	assert_not_null(handle, "ResizeHandle control node must exist as a direct child of ChatUI.")
 
 
 func test_resize_guard_prevents_dismiss_while_resizing() -> void:
