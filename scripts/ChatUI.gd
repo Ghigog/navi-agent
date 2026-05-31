@@ -10,6 +10,7 @@ extends Control
 @onready var preview_texture: TextureRect = $ResponsePanel/PreviewTexture
 @onready var send_button: Button = $InputPanel/InputBar/SendButton
 @onready var pointer: Polygon2D = $ResponsePanel/Pointer
+@onready var _resize_handle: Control = $ResponsePanel/ResizeHandle
 
 # Local Context Variables
 var _current_screenshot: Image = null
@@ -17,6 +18,13 @@ var _fairy_pos: Vector2 = Vector2.ZERO
 var _window_size: Vector2 = Vector2.ZERO
 var _ai_service: Node
 var _is_start_of_paragraph: bool = true
+
+# Resize handle drag state
+var _is_resizing: bool = false
+var _resize_start_mouse: Vector2 = Vector2.ZERO
+var _resize_start_size: Vector2 = Vector2.ZERO
+const _RESIZE_MIN_W: float = 250.0
+const _RESIZE_MIN_H: float = 80.0
 
 
 func _ready() -> void:
@@ -26,6 +34,10 @@ func _ready() -> void:
 	# Bind event listeners
 	input_edit.text_submitted.connect(_on_prompt_submitted)
 	send_button.pressed.connect(func(): _on_prompt_submitted(input_edit.text))
+
+	# Bind resize handle drag
+	if _resize_handle:
+		_resize_handle.gui_input.connect(_on_resize_handle_input)
 	
 	# Bind to global AIService signals
 	if has_node("/root/AIService"):
@@ -243,6 +255,30 @@ func reposition_ui(fairy_pos: Vector2) -> void:
 func is_position_inside_ui(local_pos: Vector2) -> bool:
 	if not visible:
 		return false
+	# Treat any active resize drag as "inside" to prevent accidental dismissal
+	if _is_resizing:
+		return true
 	var in_input := input_panel.get_rect().has_point(local_pos)
 	var in_response := response_panel.get_rect().has_point(local_pos)
 	return in_input or in_response
+
+
+## Handles drag-to-resize interactions on the corner handle of the response panel.
+func _on_resize_handle_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_is_resizing = true
+				_resize_start_mouse = get_global_mouse_position()
+				_resize_start_size = response_panel.custom_minimum_size
+				if _resize_start_size.x <= 0:
+					_resize_start_size = response_panel.size
+			else:
+				_is_resizing = false
+	elif event is InputEventMouseMotion and _is_resizing:
+		var delta: Vector2 = get_global_mouse_position() - _resize_start_mouse
+		var new_w: float = maxf(_RESIZE_MIN_W, _resize_start_size.x + delta.x)
+		var new_h: float = maxf(_RESIZE_MIN_H, _resize_start_size.y + delta.y)
+		response_panel.custom_minimum_size = Vector2(new_w, new_h)
+		# Keep panels in correct relative positions after resize
+		reposition_ui(_fairy_pos)

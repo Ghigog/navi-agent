@@ -22,6 +22,7 @@ var _save_button: Button
 var _close_button: Button
 var _enable_screenshots_check: CheckBox
 var _enable_thinking_check: CheckBox
+var _font_size_spinbox: SpinBox
 
 var _settings_manager: Node = null
 var _tween: Tween = null
@@ -53,6 +54,9 @@ func _ready() -> void:
 		if toggle_row:
 			_enable_screenshots_check = toggle_row.get_node_or_null("EnableScreenshotsCheck")
 			_enable_thinking_check    = toggle_row.get_node_or_null("EnableThinkingCheck")
+		var font_size_row: Node = vbox.get_node_or_null("FontSizeRow")
+		if font_size_row:
+			_font_size_spinbox = font_size_row.get_node_or_null("FontSizeSpinBox")
 
 	# Establish initial closed visual state
 	if _panel:
@@ -127,6 +131,8 @@ func _populate_fields() -> void:
 		_enable_screenshots_check.button_pressed = _settings_manager.get_setting("enable_screenshots", true)
 	if _enable_thinking_check:
 		_enable_thinking_check.button_pressed = _settings_manager.get_setting("enable_thinking", true)
+	if _font_size_spinbox:
+		_font_size_spinbox.value = float(_settings_manager.get_setting("font_size_offset", 0))
 
 
 # Triggered when user commits changes via the Save button
@@ -161,6 +167,8 @@ func _on_save_pressed() -> void:
 		_settings_manager.set_setting("enable_screenshots", _enable_screenshots_check.button_pressed)
 	if _enable_thinking_check:
 		_settings_manager.set_setting("enable_thinking", _enable_thinking_check.button_pressed)
+	if _font_size_spinbox:
+		_settings_manager.set_setting("font_size_offset", int(_font_size_spinbox.value))
 
 	close_settings()
 

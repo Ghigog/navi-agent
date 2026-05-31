@@ -78,3 +78,21 @@ stretch_mode = 5
 [node name="Pointer" type="Polygon2D" parent="ResponsePanel" unique_id=1710162900]
 color = Color(0.08, 0.1, 0.14, 0.85)
 antialiased = true
+
+[node name="ResizeHandle" type="Control" parent="ResponsePanel" unique_id=298471100]
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -18.0
+offset_top = -18.0
+offset_right = 0.0
+offset_bottom = 0.0
+mouse_filter = 0
+mouse_default_cursor_shape = 12
+
+[node name="HandleGraphic" type="Polygon2D" parent="ResponsePanel/ResizeHandle" unique_id=398471101]
+color = Color(0.55, 0.75, 1.0, 0.55)
+antialiased = true
+polygon = PackedVector2Array(16, 4, 16, 16, 4, 16)

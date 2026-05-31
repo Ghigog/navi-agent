@@ -61,3 +61,17 @@ func test_is_position_inside_ui() -> void:
 	assert_true(chat_ui.is_position_inside_ui(Vector2(150, 220)), "Point inside response panel should return true.")
 	assert_false(chat_ui.is_position_inside_ui(Vector2(50, 50)), "Point outside both panels should return false.")
 
+
+func test_resize_handle_node_exists() -> void:
+	var handle = chat_ui.get_node_or_null("ResponsePanel/ResizeHandle")
+	assert_not_null(handle, "ResizeHandle control node must exist inside ResponsePanel.")
+
+
+func test_resize_guard_prevents_dismiss_while_resizing() -> void:
+	chat_ui.open_chat()
+	# Simulate a resize drag being active
+	chat_ui._is_resizing = true
+	# Even a click position outside both panels must return true while resizing
+	assert_true(chat_ui.is_position_inside_ui(Vector2(9999, 9999)),
+		"is_position_inside_ui should return true while _is_resizing is active.")
+	chat_ui._is_resizing = false

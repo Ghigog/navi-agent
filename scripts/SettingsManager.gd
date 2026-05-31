@@ -20,7 +20,8 @@ var settings: Dictionary = {
 	"personality": "cheerful and glowing",
 	"fairy_color": "66b2ff", # Light blue hex
 	"enable_screenshots": true,
-	"enable_thinking": true
+	"enable_thinking": true,
+	"font_size_offset": 0  # Integer offset applied on top of all base font sizes
 }
 
 var skills = [
@@ -46,6 +47,9 @@ func _ready() -> void:
 		changed = true
 	if not settings.has("enable_thinking"):
 		settings["enable_thinking"] = true
+		changed = true
+	if not settings.has("font_size_offset"):
+		settings["font_size_offset"] = 0
 		changed = true
 	if changed:
 		save_settings()

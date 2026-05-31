@@ -24,7 +24,7 @@ Navi utilizes a modular architecture to handle the desktop assistant workflow:
 - **`InputManager`**: Registers global macOS hotkeys to trigger actions when Navi is in the background.
 - **`ScreenCaptureService`**: Captures high-fidelity desktop screen images via native OS APIs or Godot's DisplayServer, keeping Navi visible to preserve pointing context.
 - **`AIService`**: Orchestrates the direct real-time response streaming pipeline. When a prompt is received, it dispatches directly to the fast model first (bypassing pre-call planning delays for conversational speed under 3s). It intercepts and filters skill tags (`[SKILL: ...]`) to trigger screen captures or handoffs to the heavy reasoning model dynamically, displaying a status indicator light (amber/purple) to represent thinking states.
-- **`SettingsManager`**: Manages the configuration file (`user://settings.json`) saving settings like prompt text, API endpoints, keys, visual colors, and toggles for enabling screenshots or deep thinking.
+- **`SettingsManager`**: Manages the configuration file (`user://settings.json`) saving settings like prompt text, API endpoints, keys, visual colors, toggles for enabling screenshots or deep thinking, and a global font size offset that scales all UI text up or down.
 
 ---
 
@@ -44,8 +44,8 @@ navi/
 ├── scenes/
 │   ├── Main.tscn          # Main orchestrator scene
 │   ├── FairyVisuals.tscn  # Particle effects & wing flap visual
-│   ├── ChatUI.tscn        # Translucent input/output panel
-│   └── SettingsUI.tscn    # Settings control panel
+│   ├── ChatUI.tscn        # Translucent input/output panel with drag-to-resize corner handle
+│   └── SettingsUI.tscn    # Settings control panel (incl. font size adjustment)
 ├── scripts/
 │   ├── WindowController.gd# Window state & transparency setup
 │   ├── FollowController.gd# Mouse tracking & lerp calculations

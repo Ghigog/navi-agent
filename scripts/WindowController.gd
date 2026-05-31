@@ -13,6 +13,9 @@ extends Node
 enum _ActivePanel { NONE, CHAT, SETTINGS }
 var _active_panel: _ActivePanel = _ActivePanel.NONE
 
+# Font size cache: maps node instance_id -> Dictionary of { property -> original_size }
+var _font_size_cache: Dictionary = {}
+
 
 func _ready() -> void:
 	# Enforce alpha-transparency rendering in viewport canvas layers
@@ -78,7 +81,44 @@ func _apply_global_settings(manager: Node) -> void:
 				"heavy_model": manager.get_setting("cloud_thinking_model" if manager.get_setting("llm_provider") == "cloud" else "local_thinking_model")
 			})
 
+	# 3. Apply global font size offset across all UI nodes
+	var font_offset: int = manager.get_setting("font_size_offset", 0)
+	_apply_font_size_offset(get_tree().get_root(), font_offset)
+
 	print("WindowController: All settings applied successfully.")
+
+
+## Recursively walks [param root] and adjusts all theme font_size overrides.
+## Original sizes are cached on first visit, so subsequent calls always compute
+## from the original design values rather than accumulating drift.
+func _apply_font_size_offset(root: Node, offset: int) -> void:
+	var font_props: Array[String] = [
+		"theme_override_font_sizes/font_size",
+		"theme_override_font_sizes/bold_font_size",
+		"theme_override_font_sizes/italics_font_size",
+		"theme_override_font_sizes/bold_italics_font_size",
+		"theme_override_font_sizes/normal_font_size",
+		"theme_override_font_sizes/mono_font_size",
+	]
+
+	if root is Control:
+		var node_id := root.get_instance_id()
+		if not _font_size_cache.has(node_id):
+			# First visit: snapshot current (original) values for all relevant props
+			var snapshot: Dictionary = {}
+			for prop in font_props:
+				var val = root.get(prop)
+				if val != null and val is int and val > 0:
+					snapshot[prop] = val
+			_font_size_cache[node_id] = snapshot
+
+		# Apply offset relative to original cached values
+		var cached: Dictionary = _font_size_cache[node_id]
+		for prop in cached.keys():
+			root.set(prop, max(6, cached[prop] + offset))
+
+	for child in root.get_children():
+		_apply_font_size_offset(child, offset)
 
 func _input(event: InputEvent) -> void:
 	# Dismiss active overlays and return to compact follow mode when Escape is pressed

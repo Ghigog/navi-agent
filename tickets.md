@@ -476,3 +476,29 @@ Optimize prompt dispatch to go directly to the fast model. Filter `[SKILL: ...]`
 - **GUT Test**: Verify status light changes color correctly and clears.
 - **GUT Test**: Verify toggles successfully load and save settings parameters.
 - **Manual Verification**: Submit a basic message ("hello"); verify response streams in instantly. Submit a visual query ("what is this?"); verify Navi immediately says she is checking the screen, status light glows amber, screenshot is captured, then glows purple as the heavy model streams its analysis.
+
+---
+
+### NAV-15: Global Font Size Adjustment & Response Box Resizing (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** To be able to adjust the font size in the entire application from the Settings screen, and to resize the AI response box by dragging its corner
+- **So that:** I can optimise readability for my screen size and expand the response bubble as needed.
+
+**Context:**
+Two independent UX improvements: a global font size control visible in Settings, and a corner drag handle on the ChatUI response panel.
+
+**Description:**
+1. Add a `font_size_offset` integer setting (range -4 to +12, default 0) to `SettingsManager.gd`.
+2. Expose a `FontSizeRow` with a labelled `SpinBox` in `SettingsUI.tscn` / `SettingsUI.gd`.
+3. In `WindowController._apply_global_settings()`, call a new recursive `_apply_font_size_offset(root, offset)` that walks the entire Control tree, caches original per-node font sizes on first visit (preventing drift across repeated settings saves), and applies the cumulative offset.
+4. Add a `ResizeHandle` Control node anchored to the bottom-right corner of `ResponsePanel` in `ChatUI.tscn` with `mouse_default_cursor_shape = CURSOR_FDIAGSIZE (12)` and a small visual indicator polygon.
+5. Connect `ResizeHandle.gui_input` in `ChatUI.gd` to a `_on_resize_handle_input` handler; on drag, update `response_panel.custom_minimum_size` and call `reposition_ui()`.
+6. Guard `is_position_inside_ui` to return `true` while `_is_resizing` is active, preventing accidental chat-close on drag release.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_font_size_offset_default_is_zero` — confirms `font_size_offset` key is present in SettingsManager dict.
+- **GUT Test**: `test_font_size_offset_stored_and_retrieved` — setting and retrieving the offset returns the correct int.
+- **GUT Test**: `test_resize_handle_node_exists` — `ResponsePanel/ResizeHandle` exists in the ChatUI scene.
+- **GUT Test**: `test_resize_guard_prevents_dismiss_while_resizing` — `is_position_inside_ui` returns true while `_is_resizing` is active.
+- **Manual Verification**: Open Settings, adjust Font Size Adjustment from 0 to +6, save — confirm all text across Chat and Settings UI scales up proportionally. Hover over the bottom-right corner of the response bubble and verify cursor changes to a diagonal resize arrow. Click-drag to enlarge the response box and confirm it resizes smoothly.

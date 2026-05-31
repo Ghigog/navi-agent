@@ -24,6 +24,7 @@ func before_each() -> void:
 		"system_prompt": "",
 		"personality": "cheerful",
 		"fairy_color": "66b2ff",
+		"font_size_offset": 0,
 	}
 
 func test_get_setting_returns_default_for_missing_key() -> void:
@@ -99,3 +100,15 @@ func test_fairy_click_enabled_defaults_false() -> void:
 
 	assert_false(_fairy.click_enabled,
 		"Fairy click detection should be disabled by default (follow mode).")
+
+func test_font_size_offset_default_is_zero() -> void:
+	# fresh SettingsManager should have font_size_offset = 0
+	assert_true(_manager.settings.has("font_size_offset"),
+		"font_size_offset key must be present in settings dictionary.")
+
+
+func test_font_size_offset_stored_and_retrieved() -> void:
+	_manager.set_setting("font_size_offset", 4)
+	var result: int = _manager.get_setting("font_size_offset", 0)
+	assert_eq(result, 4,
+		"font_size_offset should be stored and returned correctly.")
