@@ -189,17 +189,13 @@ func _update_provider_fields(provider: String) -> void:
 	# Adjust inline placeholder guides based on context
 	if _endpoint_edit:
 		_endpoint_edit.placeholder_text = (
-			"https://generativelanguage.googleapis.com/v1beta/..." if is_cloud
+			"https://generativelanguage.googleapis.com" if is_cloud
 			else "http://localhost:11434"
 		)
 	if _model_edit:
-		_model_edit.placeholder_text = (
-			"gemini-2.5-flash" if is_cloud else "llama3 / gemma4:e4b"
-		)
+		_model_edit.placeholder_text = "Enter fast model name"
 	if _thinking_model_edit:
-		_thinking_model_edit.placeholder_text = (
-			"gemini-2.5-pro" if is_cloud else "deepseek-r1:8b"
-		)
+		_thinking_model_edit.placeholder_text = "Enter thinking model name"
 
 	if _settings_manager:
 		if _endpoint_edit:

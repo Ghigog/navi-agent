@@ -10,6 +10,8 @@ var _manager: Node
 func before_each() -> void:
 	# Instantiate a fresh SettingsManager for every test (isolated from user://settings.json)
 	_manager = load("res://scripts/SettingsManager.gd").new()
+	# Prevent the test manager instance from overwriting user://settings.json
+	_manager.SETTINGS_FILE = "user://settings_test.json"
 	add_child_autofree(_manager)
 	# Manually override the settings dict to known defaults so file I/O is not required
 	_manager.settings = {

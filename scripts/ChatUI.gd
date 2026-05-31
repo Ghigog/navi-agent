@@ -124,10 +124,13 @@ func _on_ai_response_received(response_text: String) -> void:
 
 # Callback triggered when thinking model has intermediate thought updates
 func _on_ai_thinking_update(update_text: String) -> void:
+	# Avoid duplicate appends if we're showing similar progress/loading text
 	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
-		response_label.text = "[color=#888888]" + update_text + "[/color]"
+		response_label.text = update_text
 	else:
-		response_label.text += "\n\n[color=#888888]" + update_text + "[/color]"
+		# If it's a new unique update, replace/show it cleanly
+		if not response_label.text.contains(update_text):
+			response_label.text = update_text
 	_is_start_of_paragraph = true
 
 

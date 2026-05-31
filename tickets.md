@@ -258,7 +258,70 @@ Create a `SettingsUI.tscn` panel that opens when clicking the fairy in stationar
 
 ---
 
-## Future Roadmap Tickets (Planned)
+## Bug Fix Tickets
+
+### NAV-BUG-01: HTTPClient Streaming Hang — Missing `client.poll()` Calls (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Responses to stream character-by-character immediately
+- **So that:** I'm not left staring at "Thinking..." with no output indefinitely.
+
+**Root Cause:**
+Godot's `HTTPClient` is a **manual state machine** — unlike `HTTPRequest`, it does NOT advance automatically. It requires explicit `client.poll()` calls every frame to drive its internal state transitions. Two polling loops in `_request_llm_stream` were missing this call:
+1. The `STATUS_CONNECTING/RESOLVING` loop (line ~484) — awaited frames without polling, so connection could stall on slow DNS.
+2. The `STATUS_REQUESTING` loop (line ~556) — awaited frames without polling. Since the client never polled, it **never transitioned to `STATUS_BODY`**, causing an **infinite loop** that appeared as an indefinite hang.
+
+**Fix:**
+- Added `client.poll()` before every `await get_tree().process_frame` in both polling loops.
+- Added a diagnostic log line after the request loop exits to confirm the response body is ready.
+- Pre-compiled the Gemini SSE `RegEx` as a class member `_gemini_text_regex` (initialized in `_ready`) instead of allocating a new `RegEx` object per chunk, eliminating per-frame allocation overhead.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Send "Hey what's up" to local Ollama. Verify streaming text appears within 1–2 seconds of the model producing its first token, without any indefinite hang.
+- Log should show `AIService: Request sent, waiting for response body...` followed by `AIService: [Ollama Chunk]` lines.
+
+---
+
+### NAV-BUG-02: Deterministic Prompt Classifier — `PROMPT_SKILL_RULES` Library (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to immediately know when a query needs screen access or deep reasoning
+- **So that:** It never hallucinates answers to visual questions or ignores the need for tools.
+
+**Root Cause:**
+Small LLMs (e.g. `llama3.2:3b`) are overconfident. Asking them to self-assess whether they need a tool (via `[ESCALATE]`) is unreliable — they pattern-match to "sound like a helpful assistant" and fabricate answers to visual questions they cannot possibly know ("I can see a cloud emoji above me!").
+
+**Fix — Three-Layer Routing in `send_prompt()`:**
+
+**Layer 0 — Deterministic Classifier (zero LLM cost):**
+A `PROMPT_SKILL_RULES` constant library maps trigger patterns directly to skills. The prompt is lowercased and checked against each rule's pattern list before any model is called. First match wins. Rules are ordered most-specific-first (crop before full screenshot).
+
+```
+VISUAL_CROP  → take_crop_screenshot  (e.g. "right above you", "zoom in")
+VISUAL_FULL  → take_screenshot       (e.g. "can you see", "emoji", "screen")
+COMPLEX      → heavy_thinking        (e.g. "code", "calculate", "explain why")
+```
+
+**Layer 1 — Fast Model (LLM fallback, minimal prompt):**
+Only reached if no pattern matched. Fast model gets identity + user prompt + `[ESCALATE]` safety net.
+
+**Layer 2 — Heavy Model (full skills prompt):**
+Only reached if the fast model self-escalated.
+
+**New helpers:**
+- `_classify_prompt(prompt) -> Dictionary` — walks the library and returns the matching rule + matched pattern key
+- `_deliver_final_response(...)` — extracted Stage 4 shared between classified and escalated paths
+- `_cleanup_request()` — clears fairy status light, prints end banner
+
+**Acceptance Criteria:**
+- **Manual Verification**: "Can you see the emoji above you?" → log shows `[ROUTER] 🎯 Classified as 'VISUAL_FULL' — matched pattern: 'can you see'` with no LLM routing call.
+- "Help me debug this code" → `COMPLEX` classification, `heavy_thinking` invoked directly.
+- "Hey what's up?" → no match, fast model answers conversationally.
+- Disabling screenshots in settings → classifier still matches but SKIPPED log line shown, falls back to fast model.
+
+---
+
+
 
 ### NAV-09: Speech-to-Text (STT) Voice Inputs (BACKLOG)
 **User Story:**

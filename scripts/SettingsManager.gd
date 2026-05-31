@@ -4,17 +4,17 @@ extends Node
 
 signal settings_updated 
 
-const SETTINGS_FILE := "user://settings.json"
+var SETTINGS_FILE := "user://settings.json"
 
 ## Active application settings dictionary holding visual and model configuration states.
 var settings: Dictionary = {
 	"llm_provider": "local",
 	"local_url": "http://localhost:11434",
-	"local_model": "gemma4:e4b",
-	"local_thinking_model": "deepseek-r1:8b",
+	"local_model": "",
+	"local_thinking_model": "",
 	"cloud_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-	"cloud_model": "gemini-2.5-flash",
-	"cloud_thinking_model": "gemini-2.5-pro",
+	"cloud_model": "",
+	"cloud_thinking_model": "",
 	"cloud_api_key": "",
 	"system_prompt": "",
 	"personality": "cheerful and glowing",
@@ -35,11 +35,11 @@ func _ready() -> void:
 
 	# Migrate missing keys if they don't exist in loaded settings
 	var changed := false
-	if not settings.has("local_thinking_model") or settings["local_thinking_model"] == "":
-		settings["local_thinking_model"] = "deepseek-r1:8b"
+	if not settings.has("local_thinking_model"):
+		settings["local_thinking_model"] = ""
 		changed = true
-	if not settings.has("cloud_thinking_model") or settings["cloud_thinking_model"] == "":
-		settings["cloud_thinking_model"] = "gemini-2.5-pro"
+	if not settings.has("cloud_thinking_model"):
+		settings["cloud_thinking_model"] = ""
 		changed = true
 	if not settings.has("enable_screenshots"):
 		settings["enable_screenshots"] = true
