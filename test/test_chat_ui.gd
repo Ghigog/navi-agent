@@ -75,3 +75,42 @@ func test_resize_guard_prevents_dismiss_while_resizing() -> void:
 	assert_true(chat_ui.is_position_inside_ui(Vector2(9999, 9999)),
 		"is_position_inside_ui should return true while _is_resizing is active.")
 	chat_ui._is_resizing = false
+
+
+func test_thinking_update_ignored_during_active_response() -> void:
+	chat_ui.open_chat()
+	chat_ui._on_ai_request_started()
+	chat_ui._on_ai_response_chunk("Actual streamed response...")
+	assert_true(chat_ui.response_label.text.contains("Actual streamed response..."), "Should display the response chunk.")
+	
+	# Late thinking update arrives while streaming is still in progress
+	chat_ui._on_ai_thinking_update("Late rephrased thought...")
+	# Verify that the response label was NOT overwritten
+	assert_true(chat_ui.response_label.text.contains("Actual streamed response..."), "Should not overwrite active response with late thoughts.")
+	assert_false(chat_ui.response_label.text.contains("Late rephrased thought..."), "Should ignore late thoughts during streaming.")
+
+
+func test_thinking_update_ignored_after_response_received() -> void:
+	# Regression test: deferred thought rephrases were firing AFTER _on_ai_response_received
+	# and overwriting the committed response in the chat history.
+	chat_ui.open_chat()
+	chat_ui._on_ai_request_started()
+	
+	# Simulate a response streaming in and completing
+	chat_ui._on_ai_response_chunk("You're working in Godot!")
+	chat_ui._on_ai_response_received("")
+	
+	# Verify the response is now committed to history
+	assert_true(chat_ui.response_label.text.contains("You're working in Godot!"),
+		"Committed response should be visible after response_received.")
+	
+	# Simulate a deferred thought arriving AFTER the response finished
+	# (this is the exact scenario from the bug report)
+	chat_ui._on_ai_thinking_update("Oh, finally! I'll just check the current app...")
+	
+	# The committed response must still be intact — thoughts must be silently dropped
+	assert_true(chat_ui.response_label.text.contains("You're working in Godot!"),
+		"Response must not be overwritten by post-response deferred thoughts.")
+	assert_false(chat_ui.response_label.text.contains("Oh, finally!"),
+		"Deferred thought text must not appear after response is received.")
+

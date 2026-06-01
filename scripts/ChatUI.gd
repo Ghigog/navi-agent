@@ -18,6 +18,11 @@ var _fairy_pos: Vector2 = Vector2.ZERO
 var _window_size: Vector2 = Vector2.ZERO
 var _ai_service: Node
 var _is_start_of_paragraph: bool = true
+var _response_active: bool = false
+var _visual_history: String = ""
+var _current_response_text: String = ""
+# Accumulated thought steps for the current turn (committed permanently on response end)
+var _thought_trail: Array = []
 
 # Resize handle drag state
 var _is_resizing: bool = false
@@ -51,6 +56,10 @@ func _ready() -> void:
 			_ai_service.thinking_update.connect(_on_ai_thinking_update)
 		if _ai_service.has_signal("response_chunk"):
 			_ai_service.response_chunk.connect(_on_ai_response_chunk)
+			
+	# Enable auto-scrolling to bottom on new text content
+	if response_label:
+		response_label.scroll_following = true
 
 
 ## Opens the chat panel with a scale-in/fade-in animation, populating screenshot context.
@@ -70,7 +79,10 @@ func open_chat(screenshot: Image = null, fairy_pos: Vector2 = Vector2.ZERO, wind
 	# Initialize text fields
 	input_edit.text = ""
 	input_edit.editable = true
-	response_label.text = "[color=#66b2ff]Hello! How can I help you?[/color]"
+	_visual_history = "[color=#66b2ff]Hello! How can I help you?[/color]"
+	_current_response_text = ""
+	_thought_trail = []
+	response_label.text = _visual_history
 	
 	# Setup initial tween states
 	visible = true
@@ -116,6 +128,15 @@ func _on_prompt_submitted(text: String) -> void:
 	if prompt == "" or not input_edit.editable:
 		return
 		
+	# Append the user's prompt to the visual history thread
+	if _visual_history == "":
+		_visual_history = "[color=#e0e0e0]> " + prompt + "[/color]"
+	else:
+		_visual_history += "\n\n[color=#e0e0e0]> " + prompt + "[/color]"
+		
+	_current_response_text = ""
+	response_label.text = _visual_history + "\n\n[color=#888888]Thinking...[/color]"
+	
 	# Trigger LLM dispatch via AIService Autoload
 	if _ai_service:
 		input_edit.editable = false
@@ -124,59 +145,105 @@ func _on_prompt_submitted(text: String) -> void:
 
 # Callback triggered when AIService starts processing
 func _on_ai_request_started() -> void:
-	response_label.text = "[color=#888888]Thinking...[/color]"
+	_thought_trail = []
+	_current_response_text = ""
 	_is_start_of_paragraph = true
+	_response_active = false
+	_render_display()
 
 
 # Callback triggered when response is returned
 func _on_ai_response_received(response_text: String) -> void:
 	input_edit.editable = true
 	input_edit.text = ""
+
+	var final_reply := _current_response_text
 	if response_text != "":
-		if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
-			response_label.text = response_text
+		final_reply = response_text
+
+	# Build the block that gets permanently committed into the conversation thread:
+	# thought trail (styled faded italic) followed by the final answer.
+	var committed := ""
+	if _thought_trail.size() > 0:
+		var trail_text := ""
+		for i in _thought_trail.size():
+			if i > 0:
+				trail_text += "\n"
+			trail_text += "[color=#4a4a5e][i]💭 " + _thought_trail[i] + "[/i][/color]"
+		committed = trail_text
+		if final_reply != "":
+			committed += "\n\n" + final_reply
+	else:
+		committed = final_reply
+
+	if committed != "":
+		if _visual_history == "":
+			_visual_history = committed
 		else:
-			if not response_label.text.ends_with(response_text):
-				if _is_start_of_paragraph:
-					response_label.text += "\n\n" + response_text
-				else:
-					response_label.text += response_text
+			_visual_history += "\n\n" + committed
+
+	_thought_trail = []
+	_current_response_text = ""
+	response_label.text = _visual_history
+
 	input_edit.grab_focus.call_deferred()
 
 
 # Callback triggered when thinking model has intermediate thought updates
 func _on_ai_thinking_update(update_text: String) -> void:
-	# Avoid duplicate appends if we're showing similar progress/loading text
-	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
-		response_label.text = update_text
-	else:
-		# If it's a new unique update, replace/show it cleanly
-		if not response_label.text.contains(update_text):
-			response_label.text = update_text
-	_is_start_of_paragraph = true
+	if update_text.strip_edges() == "":
+		return
+	_thought_trail.append(update_text)
+	_render_display()
 
 
 # Callback triggered when a streaming chunk of response is received
 func _on_ai_response_chunk(chunk: String) -> void:
-	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
-		response_label.text = chunk
-		_is_start_of_paragraph = false
-	else:
-		if _is_start_of_paragraph:
-			response_label.text += "\n\n" + chunk
-			_is_start_of_paragraph = false
-		else:
-			response_label.text += chunk
+	_response_active = true
+	_current_response_text += chunk
+	_render_display()
 
 
 # Callback triggered when request errors out
 func _on_ai_request_failed(error_message: String) -> void:
 	input_edit.editable = true
-	if response_label.text == "[color=#888888]Thinking...[/color]" or response_label.text == "":
+	_response_active = false
+	_thought_trail = []
+	_current_response_text = ""
+	if _visual_history == "":
 		response_label.text = "[color=#ff6666]Error: " + error_message + "[/color]"
 	else:
-		response_label.text += "\n\n[color=#ff6666]Error: " + error_message + "[/color]"
+		response_label.text = _visual_history + "\n\n[color=#ff6666]Error: " + error_message + "[/color]"
 	input_edit.grab_focus.call_deferred()
+
+
+## Rebuilds the response label from the current visual history, live thought trail,
+## and any in-progress streaming response. This is the single source of truth for display.
+func _render_display() -> void:
+	var text := _visual_history
+
+	# Append thought trail — each step on its own line, faded italic with a 💭 prefix
+	if _thought_trail.size() > 0:
+		if text != "":
+			text += "\n\n"
+		for i in _thought_trail.size():
+			if i > 0:
+				text += "\n"
+			text += "[color=#4a4a5e][i]💭 " + _thought_trail[i] + "[/i][/color]"
+
+	# Append streaming response below the trail
+	if _current_response_text != "":
+		if text != "":
+			text += "\n\n"
+		text += _current_response_text
+
+	# Show placeholder only when the turn has just started (no trail, no response yet)
+	if _thought_trail.is_empty() and _current_response_text == "":
+		if text != "":
+			text += "\n\n"
+		text += "[color=#888888]Thinking...[/color]"
+
+	response_label.text = text
 
 
 ## Manually updates the cached screenshot image context.

@@ -321,6 +321,105 @@ Only reached if the fast model self-escalated.
 
 ---
 
+### NAV-BUG-03: Deferred Thought Rephrasing Overwriting Streaming Response (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Live reasoning progress to appear in the speech bubble *before* the final response starts, not after
+- **So that:** I can see what the model is thinking in real time without having the final response overwritten by stale thought summaries.
+
+**Root Cause:**
+The original `_parse_and_emit_thoughts_deferred()` function fired *after* the full `</think>` block was received, made secondary LLM calls to rephrase each bullet, then emitted `thinking_update`. By that point, `_is_response_streaming` was already `true` and the response was either streaming or fully complete, causing the thought overlays to race against and overwrite the real output.
+
+**Final Fix (revised from earlier approach):**
+The deferred rephrasing path was entirely removed. `_filter_stream_chunk` was updated to emit thoughts verbatim in real time:
+
+1. While `new_thinking` is true, every `\n` encountered inside the `<think>` block flushes the current `new_think_buffer` line into `pending_think_lines[]`.
+2. When `</think>` is matched, any remaining non-newline-terminated content is also flushed.
+3. Callers (both Ollama and Gemini loops) iterate `filtered_word.get("think_lines", [])` and call `thinking_update.emit(line)` immediately — no secondary LLM call, no race condition, zero extra API cost.
+4. `_parse_and_emit_thoughts_deferred` is removed and replaced with a comment stub documenting the future personality-transform approach (client-side string templates, no LLM needed).
+
+**Acceptance Criteria:**
+- **Manual Verification**: Ask a heavy-thinking query. Verify that individual reasoning bullet points appear in the speech bubble *while the model is still thinking*, before any final response text arrives. Confirm the final response streams cleanly without being overwritten.
+
+
+---
+
+### NAV-BUG-04: Session Memory Not Saved When Switching Chat → Settings (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to remember my last conversation even when I open Settings from within the chat
+- **So that:** Navi can recall what we discussed when I ask about it in a future session.
+
+**Root Cause — Two independent bugs:**
+
+**Bug 1 — History silently discarded on Chat→Settings transition:**
+`_on_fairy_clicked()` in `WindowController.gd` called `close_chat()` on the ChatUI to visually hide it, but never called `end_chat_session()` on AIService. This meant the entire conversation history was discarded without triggering summarization. Only the `_reset_to_follow_mode()` path (Escape / click outside) correctly called `end_chat_session()`. When Settings was opened from within a chat session, zero history was captured.
+
+**Bug 2 — Small model ignores injected recall block:**
+The previous session summary was injected into `system_prompt_user`, which was appended *after* the identity string in the system prompt. `llama3.2:3b` treats later instructions as lower priority and consistently ignored the recall block, responding "I don't have a record of our previous conversation" even when the summary was present.
+
+**Fixes:**
+
+*WindowController.gd — `_on_fairy_clicked()`*:
+Before calling `close_chat()`, now explicitly calls `end_chat_session()` so the history snapshot is taken and background summarization is triggered:
+```gdscript
+if _active_panel == _ActivePanel.CHAT:
+    if has_node("/root/AIService"):
+        ai_service.call("end_chat_session")
+    _chat_ui.call("close_chat")
+```
+
+*AIService.gd — `send_prompt()`*:
+The recall block is now injected directly into `identity` at the highest-priority position of the system prompt, using direct imperative language:
+```
+PREVIOUS SESSION MEMORY — READ THIS FIRST:
+You have a summary of what happened last time with this user. If the user asks
+what you discussed last time, what they asked previously, or references the
+previous session, use this summary to answer directly and confidently:
+<summary>
+```
+Also added a `Recall: ...` log line to confirm summary injection per request.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Have a conversation, then right-click the fairy to open Settings without pressing Escape. Close Settings. Open a new chat and ask "What did we talk about last time?" — verify Navi correctly recalls the session.
+- Log should show `AIService: Triggering background summarization skill...` immediately after opening Settings from within a chat.
+- Log should show `AIService:   Recall     : Previous session summary injected (N chars).` when a summary is active.
+
+
+
+### NAV-BUG-05: Fast Model Refuses Visual Tasks Instead of Escalating (DONE)
+**User Story:**
+- **As a:** Navi user pointing at something on screen
+- **I want:** Navi to actually look at my screen instead of saying "I'm a language model, I can't see images"
+- **So that:** I don't have to rephrase my query with magic keywords just to get a useful answer.
+
+**Root Cause — Two independent gaps:**
+
+**Gap 1 — Missing classifier patterns:**
+`PROMPT_SKILL_RULES` was missing common visual-intent signals: `"sticker"`, `"animal"`, `"what is this"`, `"what's this"`, `"identify"`, `"here"` (bare pointing gesture), `"use your skill"`, directional references (`"on your left"`, `"to your right"`, etc. → VISUAL_CROP). Without these, prompts like "What animal is on this sticker here?" fell through to the fast model with no image context.
+
+**Gap 2 — Fast model refuses instead of `[ESCALATE]`ing:**
+`llama3.2:3b` is trained to explain its limitations ("I'm a large language model, I can't see images") rather than output the terse `[ESCALATE]` token when a visual task arrives without image data. The refusal was treated as a valid response and delivered to the user verbatim.
+
+**Fixes:**
+
+*AIService.gd — `PROMPT_SKILL_RULES`*:
+- **VISUAL_CROP**: Added `"on your left"`, `"to your left"`, `"on your right"`, `"to your right"`, `"left of you"`, `"right of you"`, `"to the left of you"`, `"to the right of you"`.
+- **VISUAL_FULL**: Added `"sticker"`, `"badge"`, `"label"`, `"logo"`, `"symbol"`, `"sign"`, `"animal"`, `"creature"`, `"character"`, `"figure"`, `"identify"`, `"recognize"`, `"what kind of"`, `"what type of"`, `"what is this"`, `"what's this"`, `"what is that"`, `"what's that"`, `"this here"`, `"over here"`, `"right here"`, `"this thing"`, `"that thing"`, `"use your skill"`, `"take a screenshot"`, `"look at my screen"`, `"check my screen"`, `"here"` (bare deictic pointer).
+
+*AIService.gd — `_VISUAL_REFUSAL_PATTERNS` constant + self-correction branch*:
+A new `_VISUAL_REFUSAL_PATTERNS` constant lists ~16 phrases that indicate the model refused a visual task. In the TIER 1 handler, after receiving the fast reply, if no `[ESCALATE]` is present but the reply matches a refusal pattern:
+1. The bad reply is suppressed (never emitted to ChatUI).
+2. `_get_retraction_message(personality)` is called to produce a personality-voiced correction, emitted as a `thinking_update` bubble line (e.g. `"Ugh, wait — I take that back. I literally have skills for this, hold on."`).
+3. `take_screenshot` is invoked immediately and the full response is delivered from the heavy model with the image context.
+
+*AIService.gd — `_get_retraction_message(personality)`*:
+New helper returning personality-specific retraction lines. Variants for Annoying, Snarky, Friendly, Professional, and a neutral fallback.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Ask "What animal is on this sticker here?" — verify log shows `[ROUTER] Classified as VISUAL_FULL — matched pattern: 'sticker'` and the screenshot is taken without going to the fast model at all.
+- **Manual Verification**: Ask a visual question that the classifier misses. Verify the fast model's refusal is suppressed, log shows `[SELF-CORRECT] Visual refusal detected`, a retraction appears in the thought trail, and the heavy model answers with screen context.
+- Log pattern for self-correction: `AIService: [SELF-CORRECT] Visual refusal detected in fast reply — forcing screenshot skill. Retraction: '...'`
 
 
 ### NAV-09: Speech-to-Text (STT) Voice Inputs (BACKLOG)
@@ -502,3 +601,150 @@ Two independent UX improvements: a global font size control visible in Settings,
 - **GUT Test**: `test_resize_handle_node_exists` — `ResponsePanel/ResizeHandle` exists in the ChatUI scene.
 - **GUT Test**: `test_resize_guard_prevents_dismiss_while_resizing` — `is_position_inside_ui` returns true while `_is_resizing` is active.
 - **Manual Verification**: Open Settings, adjust Font Size Adjustment from 0 to +6, save — confirm all text across Chat and Settings UI scales up proportionally. Hover over the bottom-right corner of the response bubble and verify cursor changes to a diagonal resize arrow. Click-drag to enlarge the response box and confirm it resizes smoothly.
+
+---
+
+### NAV-16: Conversation Context Memory in AIService (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to remember previous turns of the conversation during an active session
+- **So that:** I can ask follow-up questions and have a continuous dialog with the assistant.
+
+**Context:**
+Currently, each prompt submission is completely stateless. We need to store conversation history and include it in Ollama/Gemini request payloads.
+
+**Description:**
+Update `AIService.gd` to store `_conversation_history`, adapt the request signature, format history into message arrays for each provider, and clean/append successful replies.
+
+**Requirements:**
+1. Declare `_conversation_history: Array[Dictionary] = []` in `AIService.gd`.
+2. Update signatures of `_request_llm` and `_request_llm_stream` to accept `history: Array[Dictionary] = []`.
+3. In `_request_llm` and `_request_llm_stream`, format the messages (Ollama) and contents (Gemini) lists using the history turns.
+4. Implement `_clean_response_for_history(text: String) -> String` to strip `<think>` and `[SKILL]` tags using regex.
+5. In `send_prompt()`, pass `_conversation_history` to LLM requests and call `_append_to_history()` with the current prompt and cleaned response upon success.
+6. Provide public method `clear_history() -> void`.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_history_appending` verifies that prompts and cleaned responses are correctly stored in `_conversation_history`.
+- **GUT Test**: `test_clear_history` verifies that calling `clear_history()` resets the array.
+- **Manual Verification**: Submit a greeting, then a follow-up query referencing the first message, and verify in logs that history is sent.
+
+---
+
+### NAV-17: Visual Chat History Thread in ChatUI (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The chat speech bubble to display the ongoing history thread of our active chat session
+- **So that:** I can scroll up and see what we previously discussed without it disappearing.
+
+**Context:**
+Currently, `ChatUI` clears the response box whenever a new request is started, showing only the latest message.
+
+**Description:**
+Modify `ChatUI.gd` to maintain a visual history thread of the active session, prepend user prompts with `> `, and ensure the label auto-scrolls down when new content streams in.
+
+**Requirements:**
+1. Declare `_visual_history: String = ""` and `_current_response_text: String = ""` in `ChatUI.gd`.
+2. Reset `_visual_history` to the initial greeting in `open_chat()`.
+3. In `_on_prompt_submitted()`, append the user prompt prefixed with `> `.
+4. In callbacks `_on_ai_request_started()`, `_on_ai_thinking_update()`, and `_on_ai_response_chunk()`, build the display text by appending the current status or chunks to `_visual_history`.
+5. In `_on_ai_response_received()`, append the final reply to `_visual_history` and clear `_current_response_text`.
+6. Enable `scroll_following` on `response_label` in `_ready()`.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_visual_history_retains_multiple_turns` verifies that submitting a new prompt doesn't erase the previous assistant response from the UI text.
+- **GUT Test**: `test_scroll_following_enabled` verifies `response_label.scroll_following` is true.
+- **Manual Verification**: Type a prompt, wait for response, type a second prompt, and verify that the bubble retains the first Q&A pair and scrolls to keep the active text visible.
+
+---
+
+### NAV-18: Background Chat Session Summarization Skill (DONE)
+**User Story:**
+- **As a:** Navi developer / system
+- **I want:** Navi to automatically summarize the initial problem and final solution of a chat session when it is ended
+- **So that:** The summary is saved to a temporary cache for other agent skills or features to query.
+
+**Context:**
+When the user clicks away or presses Escape to dismiss the chat, the active session ends. We want to execute a hidden summarization skill before resetting the chat memory.
+
+**Description:**
+Add a background summarization skill to `AIService`, register it as `"summarize_session"`, trigger it when the chat overlay is closed, copy and clear active history, and run the summary request asynchronously.
+
+**Requirements:**
+1. Register `"summarize_session"` in `_skills_registry` mapped to `_execute_summarize_session()`.
+2. Implement `_execute_summarize_session()` to prompt the fast model to generate a concise summary based on the passed conversation transcript, saving it to `_cached_summary`.
+3. Create `end_chat_session() -> void` which duplicates the history, clears `_conversation_history`, and runs `"summarize_session"` with the history copy deferredly.
+4. Call `end_chat_session()` in `WindowController.gd` inside `_reset_to_follow_mode()`.
+5. Call `clear_history()` in `WindowController.gd` inside `_on_hotkey_pressed()`.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_execute_summarize_session` mock-triggers the skill and verifies `_cached_summary` is populated.
+- **GUT Test**: `test_end_chat_session_clears_history` verifies that calling `end_chat_session()` resets the active history immediately while launching the background task.
+- **Manual Verification**: Close an active conversation, check logs to confirm `"summarize_session"` starts and saves a summary, and check that a subsequent chat starts with clean memory.
+
+---
+
+### NAV-19: Honesty Prompt Reinforcements (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to be extremely honest when unsure about screen details or lacking information
+- **So that:** Navi does not hallucinate false information (such as Google Docs details or nonexistent passwords) and instead asks for clarification.
+
+**Context:**
+A global honesty prompt reinforcement is needed to prevent models from generating hallucinations under visual context, prioritizing current screens over past history.
+
+**Description:**
+Add strict honesty directives in `identity`, append applications summary warnings to the previous session recall block, and inject a vision sanity check guideline when visual screenshots are present.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_honesty_directives_in_system_prompt` verifies that honesty suffixes, recall warnings, and visual guidelines are correctly present in system prompts.
+- **Manual Verification**: Submit visual prompts when the screen contents are unclear; confirm Navi admits its visual limitations and asks for clarification.
+
+---
+
+### NAV-20: Route Visual Queries to Heavy Reasoning Model (DONE)
+**User Story:**
+- **As a:** Navi user asking visual questions
+- **I want:** Navi to automatically run all screenshot-based queries on the heavy reasoning model
+- **So that:** The model has full multimodal capability and visual reasoning capacity to understand the screen context, changing its status light to pulsing purple.
+
+**Description:**
+Check for base64 image/crop data in both deterministic and escalated planning paths to promote requests to the heavy model. In `_deliver_final_response`, transition the status light of the fairy to pulsing purple if `has_heavy_thinking` is true.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_visual_queries_escalate_to_heavy_model` verifies that screenshot captures promote requests to the heavy reasoning model.
+- **GUT Test**: `test_status_light_updates_to_purple_for_heavy_thinking` verifies the status light changes to Purple.
+
+---
+
+### NAV-21: Live Thought Trail with Personality Transform (DONE)
+**User Story:**
+- **As a:** Navi user watching Navi reason
+- **I want:** Each step of the model's reasoning to appear as a separate line in the chat thread, styled in Navi's personality voice, and stay visible permanently above the final answer
+- **So that:** I can scroll back and read the reasoning trail as a continuous inner-monologue → answer narrative.
+
+**Context:**
+The heavy thinking model outputs `<think>...</think>` blocks before answering. Previously, each thought line would overwrite the previous status message, leaving only the last one visible. This feature replaces that with an accumulating, permanently-committed trail.
+
+**Description:**
+1. Add a client-side `_apply_personality_voice(line, personality)` function to `AIService.gd` that maps common raw model reasoning patterns (e.g. "user is asking", "must focus", "will state") to first-person Navi-voice templates keyed by personality setting — zero extra LLM calls.
+2. Wire the transform into `_filter_stream_chunk` at both `pending_think_lines.append` sites so every emitted thought line is personality-flavoured before being broadcast.
+3. In `ChatUI.gd`, replace the single-overwrite thinking_update handler with a `_thought_trail: Array` accumulator.
+4. Add a single `_render_display()` helper as the sole source-of-truth for label composition, combining: `_visual_history` + trail (faded italic `💭` lines) + `_current_response_text` + `Thinking...` placeholder.
+5. On `_on_ai_response_received`, commit the full trail + response into `_visual_history` permanently so it survives into future turns.
+
+**Requirements:**
+1. `_apply_personality_voice` supports personalities: `friendly`, `annoying`, `snarky`, `professional` with a neutral fallback.
+2. Trait table covers ≥12 common reasoning patterns; unmatched lines fall back to the raw stripped line.
+3. `_thought_trail` resets on each `_on_ai_request_started`.
+4. `_render_display()` is called from `_on_ai_request_started`, `_on_ai_thinking_update`, `_on_ai_response_chunk`.
+5. `_on_ai_request_failed` clears trail and current response text cleanly.
+6. Trail color: `#4a4a5e` (faded purple-grey italic), separated by `\n` (no blank lines between steps).
+7. Trail + response committed to `_visual_history` with `\n\n` separator between trail block and response text.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_thought_trail_accumulates` — emitting 3 `thinking_update` signals populates `_thought_trail` with 3 entries.
+- **GUT Test**: `test_thought_trail_committed_on_response_received` — `_on_ai_response_received` appends the trail block to `_visual_history` and clears `_thought_trail`.
+- **GUT Test**: `test_apply_personality_voice_annoying` — "The user is asking..." transforms to "Oh great, you're asking me something." for personality "Annoying".
+- **GUT Test**: `test_apply_personality_voice_fallback` — a line matching no pattern is returned verbatim.
+- **Manual Verification**: Ask a heavy-thinking query. Verify each thought step appears as a new `💭` italic line (not overwriting), the trail stays after the answer streams in, and the thought voice matches the configured personality.

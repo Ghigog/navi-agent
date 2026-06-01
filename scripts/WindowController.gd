@@ -157,6 +157,11 @@ func _on_hotkey_pressed() -> void:
 	_set_following(false)
 	_active_panel = _ActivePanel.CHAT
 
+	if has_node("/root/AIService"):
+		var ai_service = get_node("/root/AIService")
+		if ai_service.has_method("clear_history"):
+			ai_service.call("clear_history")
+
 	var window := get_window()
 	var fairy_screen_pos := window.position + Vector2i(_fairy.position)
 
@@ -192,9 +197,15 @@ func _on_fairy_clicked() -> void:
 	if _active_panel == _ActivePanel.SETTINGS:
 		return
 
-	# If the chat overlay is active, close it prior to displaying settings
-	if _active_panel == _ActivePanel.CHAT and _chat_ui and _chat_ui.has_method("close_chat"):
-		_chat_ui.call("close_chat")
+	# If the chat overlay is active, end the session (saves history for summarization)
+	# then close the chat UI before opening settings.
+	if _active_panel == _ActivePanel.CHAT:
+		if has_node("/root/AIService"):
+			var ai_service = get_node("/root/AIService")
+			if ai_service.has_method("end_chat_session"):
+				ai_service.call("end_chat_session")
+		if _chat_ui and _chat_ui.has_method("close_chat"):
+			_chat_ui.call("close_chat")
 
 	_set_following(false)
 	_active_panel = _ActivePanel.SETTINGS
@@ -310,6 +321,10 @@ func _reset_to_follow_mode() -> void:
 		_ActivePanel.CHAT:
 			if _chat_ui and _chat_ui.has_method("close_chat"):
 				await _chat_ui.call("close_chat")
+			if has_node("/root/AIService"):
+				var ai_service = get_node("/root/AIService")
+				if ai_service.has_method("end_chat_session"):
+					ai_service.call("end_chat_session")
 		_ActivePanel.SETTINGS:
 			if _settings_ui:
 				await _settings_ui.close_settings()

@@ -79,10 +79,12 @@ expand_mode = 3
 stretch_mode = 5
 
 [node name="Pointer" type="Polygon2D" parent="ResponsePanel" unique_id=1710162900]
+visible = false
 color = Color(0.08, 0.1, 0.14, 0.85)
 antialiased = true
 
 [node name="ResizeHandle" type="Control" parent="." unique_id=298471100]
+visible = false
 anchors_preset = 0
 offset_right = 20.0
 offset_bottom = 20.0
