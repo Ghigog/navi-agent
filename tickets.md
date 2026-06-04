@@ -422,7 +422,7 @@ New helper returning personality-specific retraction lines. Variants for Annoyin
 - Log pattern for self-correction: `AIService: [SELF-CORRECT] Visual refusal detected in fast reply — forcing screenshot skill. Retraction: '...'`
 
 
-### NAV-09: Speech-to-Text (STT) Voice Inputs (BACKLOG)
+### NAV-09: Speech-to-Text (STT) Voice Inputs (COMPLETED)
 **User Story:**
 - **As a:** User who prefers speaking over typing
 - **I want:** To dictate my prompt to Navi using my microphone
@@ -432,13 +432,13 @@ New helper returning personality-specific retraction lines. Variants for Annoyin
 Integrate audio recording capabilities in Godot to send voice prompts to local Whisper or cloud STT endpoints.
 
 **Description:**
-Create an audio capture recorder that records microphone input when a hotkey is held down and sends the audio file to an STT service.
+Create an audio capture recorder that records microphone input when a hotkey is held down and transcribes the audio. This uses a compiled local `whisper-cli` executable and the bundled `ggml-base.en.bin` model running fully offline in a background thread to prevent UI freezing, falling back to Gemini Cloud STT if credentials are provided.
 
 **Requirements:**
 1. Enable Microphone input in Godot project audio settings.
 2. Create an `AudioStreamRecord` instance to capture mic input.
 3. Implement a voice button in `ChatUI` that records input while held.
-4. Export the audio data as a WAV/MP3 file and upload to STT API.
+4. Export the audio data as a WAV file and run transcription offline using `OS.execute()` against the bundled `whisper-cli` binary and `ggml-base.en.bin` model.
 5. Populate the Chat input box with the transcribed text.
 
 **Acceptance Criteria:**
@@ -446,7 +446,7 @@ Create an audio capture recorder that records microphone input when a hotkey is 
 
 ---
 
-### NAV-10: Text-to-Speech (TTS) Voice Responses (BACKLOG)
+### NAV-10: Text-to-Speech (TTS) Voice Responses (COMPLETED)
 **User Story:**
 - **As a:** User multi-tasking on my screen
 - **I want:** Navi to read its responses back to me in a natural-sounding voice
@@ -470,7 +470,7 @@ Implement a vocalization service that takes output text and streams it through a
 
 ---
 
-### NAV-11: Screen Navigation and Pointer Guidance (BACKLOG)
+### NAV-11: Screen Navigation and Pointer Guidance (DONE)
 **User Story:**
 - **As a:** User following step-by-step instructions
 - **I want:** Navi to fly to specific elements on my screen and point at them
@@ -489,6 +489,7 @@ Extend Navi's position controllers to accept coordinate paths. Navi will exit ho
 
 **Acceptance Criteria:**
 - **GUT Test**: Flying to coordinates computes correct paths and transitions state to target-hover.
+- **GUT Test**: Integration tests verify that `point_to` parses arguments and triggers single/sequence navigation actions.
 - **Manual Verification**: Command Navi to fly to (500, 500) and verify it travels along a smooth path and hovers there with a pointing arrow.
 
 ---
@@ -748,3 +749,486 @@ The heavy thinking model outputs `<think>...</think>` blocks before answering. P
 - **GUT Test**: `test_apply_personality_voice_annoying` — "The user is asking..." transforms to "Oh great, you're asking me something." for personality "Annoying".
 - **GUT Test**: `test_apply_personality_voice_fallback` — a line matching no pattern is returned verbatim.
 - **Manual Verification**: Ask a heavy-thinking query. Verify each thought step appears as a new `💭` italic line (not overwriting), the trail stays after the answer streams in, and the thought voice matches the configured personality.
+
+---
+
+### NAV-22: Redesigned Circular Core (Heart) and Orbiting Status Lights (CANCELLED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's main central core to be a glowing circle ("heart") that modulates to my custom settings color, and active skill status lights to orbit inside it
+- **So that:** Navi's visual feedback is sleek, futuristic, and consolidated in the center.
+
+**Description:**
+Update `FairyVisuals.gd` and the node setup to display the status indicator light (for thinking, capturing screen) as an orbiting node rotating around the central core.
+
+**Requirements:**
+1. Position the status light inside the central circular core node area (orbit center `(0, 0)`).
+2. In `_process(delta)`, if `status_light` is visible, rotate its position in a circular orbit (e.g. angle increments by `delta * orbit_speed`).
+3. Keep full compatibility with existing colors and visibility triggers so tests pass.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_set_status_light` and `test_clear_status_light` pass successfully.
+- **Manual Verification**: Check that status light orbits inside the center orb when active.
+
+---
+
+### NAV-23: Dynamic Flight Wings and Sparkle Motion Trail (CANCELLED)
+**User Story:**
+- **As a:** Navi user watching the fairy fly/drag
+- **I want:** Navi's wings to dynamically sweep backwards trailing the direction of motion, and a sparkle trail to follow her
+- **So that:** Her flight looks organic, alive, and responsive to movement.
+
+**Description:**
+Compute movement velocity from screen coordinates and dynamically adjust wing rotation, position, and flip scales, as well as updating the particle emitter to produce a sparkle trail when moving.
+
+**Requirements:**
+1. Calculate velocity from the frame-to-frame change in global screen position.
+2. Smooth the velocity with a lerp to prevent jitter.
+3. Map the smoothed velocity's horizontal direction to a wing sweep parameter between -1.0 and 1.0.
+4. Scale, position, and rotate wings dynamically using the sweep parameter so they trail behind the direction of travel, and return to perpendicular symmetrical flapping when still.
+5. Create a dynamic sparkle trail using a CPUParticles2D node that trails behind the fairy as she moves.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_wing_flapping_range` passes successfully.
+- **Manual Verification**: Drag/move Navi and observe wings reacting and the sparkle trail following.
+
+---
+
+### NAV-24: Mouse Cursor Capture in Screen Capture (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's screen capture to include the mouse cursor
+- **So that:** The vision model knows exactly where I am pointing on screen and doesn't get confused by text/block cursors in terminals.
+
+**Description:**
+Enable the `-C` (capture cursor) flag on the macOS native `screencapture` command in `ScreenCaptureService.gd`.
+
+**Requirements:**
+1. Modify the native OS.execute call arguments to include `-C`.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Take a screenshot request while pointing at a specific app, and verify the mouse pointer/cursor is present in the captured image.
+
+---
+
+### NAV-25: Application Startup & Screen Capture Efficiency Optimization (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to boot up instantly and capture screenshots without freezing my Mac
+- **So that:** Navi behaves like a modern, lightweight, high-performance desktop assistant.
+
+**Description:**
+Optimize application startup times by caching the compiled hotkey daemon Swift binary, and resolve screen capture freezing by introducing background threading and JPEG compression to the macOS native capture workflow.
+
+**Requirements:**
+1. Check modification timestamps of `hotkey_daemon.swift` and the destination user directory binary, skipping compilation in `InputManager.gd` if the binary is up-to-date.
+2. In `ScreenCaptureService.gd`, change the file output format to JPEG (`-t jpg` and `.jpg` extension) to reduce CPU-heavy image compression times.
+3. Wrap the synchronous `OS.execute` call to `screencapture` in a background `Thread` and yield frames using `process_frame` in the main loop to keep the Godot process responsive.
+4. Add state guards to `ChatUI.gd` to prevent deferred thinking updates from overriding the committed speech bubble layout.
+5. Fix recall summary prompt honesty guidelines in `AIService.gd`.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Boot the application and verify it launches instantaneously (under 100ms).
+- **Manual Verification**: Request a screenshot and verify the capture is completed without freezing the Mac or showing the beachball cursor.
+- **GUT Test**: The test suite executes and reports 100% success (0 failures).
+
+---
+
+### NAV-26: Fix Hotkey Window Activation & Spurious Collapse (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to reliably expand to fullscreen and open the chat window when I press the global hotkey
+- **So that:** I can instantly interact with Navi without the window immediately collapsing/flashing back to follow mode.
+
+**Description:**
+Introduce an input guard in `WindowController.gd` that ignores incoming mouse click events for a brief frame transition buffer during window resizing and setup.
+
+**Requirements:**
+1. Maintain a boolean state `_ignore_click_until_ready` inside `WindowController.gd`.
+2. Return early in `_input()` for mouse clicks if `_ignore_click_until_ready` is true.
+3. Toggle the flag `true` at the start of `_on_hotkey_pressed()` and `_on_fairy_clicked()`, and toggle it `false` one frame after the transition completes.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Press the global hotkey (Ctrl+Shift+Option+Space) to open the chat window. The window must expand to fullscreen and remain open.
+- **Manual Verification**: Click outside the chat panel or press Escape. The window must shrink back to follow mode (200x200).
+- **GUT Test**: Running the test suite passes with 0 errors.
+
+---
+
+### NAV-27: Fixed Window Positioning and Enabled Dragging during Chat Overlay (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi and her chat bubble to stay still in their respective positions when I press the hotkey, and to be able to drag Navi's body to move both her and the chat window
+- **So that:** The overlay remains stationary on screen and can be moved interactively without disappearing or drifting off-screen with the mouse.
+
+**Description:**
+Fix the follow-mode abort logic so it does not toggle mouse-following back to active on the next frame during chat activation, and fix the fairy click-guard so that dragging is correctly enabled.
+
+**Requirements:**
+1. Update `FollowController.gd`'s `abort_navigation()` to accept an optional `restore_follow` argument (defaulting to `true`). Wrap the `is_following = true` re-enabler and the fairy centering tween (`Vector2(100, 100)`) inside this condition.
+2. In `WindowController.gd`'s `_on_hotkey_pressed()` and `_on_fairy_clicked()`, call `abort_navigation(false)` to prevent follow mode from being restored during activation.
+3. In `WindowController.gd`'s `_set_following()`, set `_fairy.click_enabled` directly without checking for a custom `set` method.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Press the global hotkey. The window and fairy must remain static.
+- **Manual Verification**: Click-drag the fairy. Both the fairy and the chat UI panels must follow the mouse movement.
+- **Manual Verification**: Click outside the chat panel or press Escape. The window must shrink and resume mouse-following.
+- **GUT Test**: The test suite runs and passes successfully.
+
+---
+
+### NAV-28: STT Toggle Mode and Whisper Output Cleanups (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The Speech-To-Text button to behave as a toggle rather than a hold-to-talk button, and to automatically send my voice input upon untoggling, while disabling the text input bar during active recording.
+- **So that:** Recording is easier to control and immediately submits my transcribed queries without manual copy-pasting or clutter from Whisper's internal logs.
+
+**Description:**
+Update the voice button setup in `ChatUI.gd` to be a toggle-enabled button. Connect it to `_on_voice_toggled(toggled_on: bool)` which disables typing in `input_edit` when active, stops recording when untoggled, transcribes it, and automatically submits the prompt. Clean the transcription output in `STTService.gd` by stripping lines starting with diagnostic prefixes (like `read_audio_data:`).
+
+**Requirements:**
+1. Update `_voice_button` in `ChatUI.gd` to use `toggle_mode = true` and connect to the `toggled` signal.
+2. In `_on_voice_toggled(toggled_on)`, set `input_edit.editable = !toggled_on`. If untoggled, stop recording, run transcription, and if the output is not empty, call `_on_prompt_submitted(text)`.
+3. In `STTService.gd`, filter out Whisper logs/diagnostics by splitting output by newlines and stripping lines starting with `read_audio_data:`, `system_info:`, `whisper_`, `main:`, or `read_wav:`.
+4. In `ChatUI.gd`'s `close_chat()`, use `set_pressed_no_signal(false)` to reset the button state without firing a new transcription if closed during active recording.
+
+**Acceptance Criteria:**
+- **GUT Test**: Running the test suite passes with 0 errors.
+- **Manual Verification**: Click the STT microphone button. It toggles to red, and the text box is disabled. Click it again. The text is transcribed, the box re-enables, and the text is automatically sent right away as a chat message. Any log text from the CLI like `read_audio_data:` is removed, leaving only the transcribed text.
+
+---
+
+### NAV-29: TTS Voice Option Dropdown and Custom Mutter Management (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** A single cohesive voice option dropdown in the settings screen that lists all available platform voices, default procedural mutter, and custom uploaded mutter sounds, along with the ability to add and remove custom mutters with file validation.
+- **So that:** I can customize Navi's TTS output voice easily and use custom blip/mutter sound effects that playback with organic Animal Crossing style pitch variations.
+
+**Description:**
+Update the Settings UI to replace the separate TTS mode option and manual file path edits with a unified `VoiceOption` dropdown containing platform/system voices, default procedural retro mutter, and custom uploaded mutters. Add a path LineEdit with `+` and `-` buttons to add and delete custom mutter files, validating that files exist and are shorter than 1 second. Update `TTSService.gd` to play back custom paths or fallback appropriately using the `tts_voice` setting.
+
+**Requirements:**
+1. Add `tts_voice` and `custom_mutters` keys to `SettingsManager.gd` defaults and migration logic.
+2. In `SettingsUI.tscn`, replace the old `MutterRow` layout with a cohesive `VoiceOption` dropdown, a custom mutter path line edit with `+` (add) and `-` (remove) buttons, and an error label.
+3. In `SettingsUI.gd`, retrieve system voices using `DisplayServer.tts_get_voices()`, construct the options list, validate loaded streams' durations are under 1.0 seconds when adding new paths, support deleting, and toggle pitch/speed slider visibility depending on whether the selected item is a mutter sound.
+4. Update `TTSService.gd` to check `tts_voice` and play back custom mutters or fallback to system TTS appropriately.
+
+**Acceptance Criteria:**
+- **GUT Test**: The test suite runs and passes successfully.
+- **Manual Verification**: Open settings. Confirm the "Voice Option" dropdown lists available system voices and the procedural retro mutter. Type a valid audio path (e.g. `.wav` under 1s) and click `+` — confirm it is added to the list and selected. Select it and save settings; confirm responses now play using the custom blip. Select a custom voice and click `-` — confirm it is removed from the settings list.
+
+---
+
+### NAV-30: Real-time Asynchronous Stream-based TTS Vocalization (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Responses to be spoken out loud in real time as they stream in character-by-character or sentence-by-sentence
+- **So that:** I don't have to wait for the entire text block to compile before hearing the response.
+
+**Description:**
+Implement a streaming buffer system inside `TTSService.gd` and connect it to `ChatUI.gd`'s LLM chunk signals. Accumulate sentence clauses (split on punctuations like `.`, `?`, `!`, `\n`) for system voices to queue natural-sounding speech sequentially, and process characters instantly on a streaming character queue in NPC mutter mode while filtering out tag constructs like `<think>...</think>` and BBCode on the fly.
+
+**Requirements:**
+1. In `TTSService.gd`, implement `start_speech_stream()`, `add_speech_chunk(chunk)`, and `end_speech_stream()`.
+2. In `ChatUI.gd`, hook these streaming endpoints into `_on_ai_request_started()`, `_on_ai_response_chunk()`, and `_on_ai_response_received()`.
+3. In `TTSService.gd`'s mutter stream loop, implement a character queue state machine that strips tags (such as thinking blocks and BBCode brackets) on-the-fly.
+4. For system TTS, buffer characters until punctuation matches, then call `DisplayServer.tts_speak()` to queue the completed sentence.
+
+**Acceptance Criteria:**
+- **GUT Test**: The test suite runs and passes successfully.
+- **Manual Verification**: Submit a query. Confirm that in system voice mode, Navi begins speaking out loud as soon as the first complete sentence is printed. In mutter mode, verify Navi blips dynamically with randomized pitch and timing alongside the incoming stream of characters.
+
+---
+
+### NAV-31: Deterministic Visual Router & Fast Prompt Tool Awareness (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to automatically detect pointers/visual keywords (like 'behind you', 'behind', 'chat', 'saying') and immediately route to screenshot capturing, and also to be aware in the fast-prompt fallback that tools are available via [ESCALATE]
+- **So that:** Navi does not refuse visual tasks or say she is unable to see the screen when asked about elements behind or in front of her.
+
+**Description:**
+Add new deterministic visual pointers and chat/speech keywords to the prompt router, and update the Tier 1 Fast Model system prompt instructing the model that screenshots and thinking tools are available.
+
+**Requirements:**
+1. Update `PROMPT_SKILL_RULES` in `scripts/AIService.gd`'s `VISUAL_FULL` block to include `"behind you"`, `"behind"`, `"chat"`, and `"saying"`.
+2. Update the fallback `fast_system_prompt` in `send_prompt()` to explicitly let the model know that screenshot and thinking tools are accessible via `[ESCALATE]` when visual/reasoning context is requested.
+3. Write test cases in `test/test_ai_service.gd` verifying that these keywords match the deterministic screenshot trigger.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_deterministic_classification_patterns_match` passes.
+- **Manual Verification**: Ask "what is Pablo saying in the chat behind you?" — verify it is classified directly as `take_screenshot` (VISUAL_FULL) in Layer 0.
+
+
+---
+
+### NAV-32: Hybrid Local & Cloud TTS Voice Integration with Toggle Filtering (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** To choose between Local Neural (Piper), Cloud Neural (OpenAI / Edge / Gemini fallback), System default voices, and retro Mutter sounds, and filter the voice option dropdown dynamically via checkable list tags.
+- **So that:** I can enjoy natural-sounding neural speech offline or online, filter out unwanted voice categories, and keep settings neat.
+
+**Description:**
+Add checkboxes to filter voice options in Settings UI, integrate a local Piper TTS subprocess running asynchronously on a background thread, support OpenAI-compatible TTS endpoints, and implement keyless free cloud TTS streaming (Google Translate fallback).
+
+**Requirements:**
+1. In `SettingsManager.gd`, define keys for `tts_provider`, `piper_bin_path`, `piper_model_path`, `piper_speed`, `cloud_tts_provider`, etc.
+2. In `SettingsUI.tscn`, add `ShowNeuralCheck`, `ShowSystemCheck`, and `ShowMutterCheck`.
+3. In `SettingsUI.gd`, link the checks to rebuild `VoiceOption` containing `local_piper`, `cloud_openai`, `cloud_edge`, `cloud_gemini`, Mutter, and System options.
+4. In `TTSService.gd`, run the `piper` CLI executable in a background thread, write to a WAV file, and play via `AudioStreamPlayer`. Implement OpenAI TTS POST requesting and free Google GET requesting with direct memory MP3 streaming.
+5. Bug Fix: Update `_speak_system_sentence` to route to `_speak_local_piper` and `_speak_cloud_tts` so streaming text correctly uses the selected local/cloud neural voice instead of falling back to system default.
+6. Bug Fix: Implement an audio stream playback queue (`_playback_queue`) to play streamed sentences sequentially instead of cutting each other off. Pass the text to Piper as a positional argument (removing the invalid `--text` flag) to prevent the literal word "text" from being spoken, and generate unique WAV file names that are deleted immediately after loading into memory to avoid conflicts. Implement strict sequence indexing (`_next_sequence_id` / `_synthesis_results`) to ensure sentences are queued for playback in their correct reading order, even if parallel background threads complete synthesis out of order.
+7. Bug Fix: In `SettingsUI.tscn` and `SettingsUI.gd`, add `CustomVoiceHBox` allowing users to input a local path to import custom `.onnx` Piper voice models (and their config files) to `res://bin/voices/`, or delete custom model files directly from disk by clicking the minus (`-`) button.
+
+**Acceptance Criteria:**
+- **GUT Test**: The test suite runs and passes successfully.
+- **Manual Verification**: Toggle the Neural, System, and Mutter checkboxes and confirm the dropdown updates immediately. Save with a local or cloud voice selected and confirm vocalization plays back successfully.
+
+
+---
+
+### NAV-33: Standalone C++ Piper Compilation and Multi-Platform Bundling (BACKLOG)
+**User Story:**
+- **As a:** Navi developer / package distributor
+- **I want:** To bundle standalone pre-compiled C++ Piper binaries for macOS, Windows, and Linux inside the app's binary distribution
+- **So that:** End-users can run high-fidelity local neural TTS out-of-the-box without needing Python, pip, or system compilation tools installed.
+
+**Context:**
+Currently, local testing relies on system Python packages installed via `pip install piper-tts`. To package and distribute the app as a self-contained application, we must bundle standalone C++ Piper executables.
+
+**Description:**
+Build/obtain the compiled C++ standalone Piper binaries for macOS (Apple Silicon/Intel), Windows (`.exe`), and Linux, place them in platform-specific subfolders under `bin/`, and update `TTSService.gd` to invoke the correct platform binary.
+
+**Requirements:**
+1. Compile or download compiled standalone C++ Piper executable binaries for Target OS platforms.
+2. Structure the `bin/` directory to hold platform-specific executables (e.g. `bin/osx/piper`, `bin/windows/piper.exe`, `bin/x11/piper`).
+3. Update `TTSService.gd` to dynamically check the current platform using `OS.get_name()` and execute the correct relative path.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run the compiled app bundle on a machine without Python/pip installed, select "Neural: Local Piper", and verify speech synthesis functions successfully.
+
+---
+
+### NAV-34: Prompt Classifier Expansion for Visual Pointers (COMPLETED)
+**User Story:**
+- **As a:** Navi user asking where things are on my screen
+- **I want:** Navi to automatically trigger a full screen capture when I request coordinate pointing or finding
+- **So that:** Navi has the visual context needed to locate and point out the requested objects.
+
+**Context:**
+The deterministic prompt classification layer routes visual intents directly to `take_screenshot` before calling LLMs to avoid model refusal or overconfidence.
+
+**Description:**
+Add new spatial pointing keywords to the prompt classification rules.
+
+**Requirements:**
+1. Update `PROMPT_SKILL_RULES` in `scripts/AIService.gd` under the `VISUAL_FULL` block to include `"point to"`, `"point at"`, `"navigate to"`, `"where is"`, `"where are"`, `"find the"`.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Ask "where is my terminal?" and verify the request is classified directly as `take_screenshot` (VISUAL_FULL).
+
+---
+
+### NAV-35: Interactive Step-by-Step Response Parser (COMPLETED)
+**User Story:**
+- **As a:** Navi user interacting with Navi
+- **I want:** Navi to break its long descriptions or sequence pointers into distinct steps
+- **So that:** I can follow them one by one without being overwhelmed by a wall of text.
+
+**Context:**
+Rather than generating chunks sequentially (which would consume excessive time and tokens), the model returns the entire response structure. Slicing happens client-side before rendering.
+
+**Description:**
+Implement segment parsing inside the Chat UI to split LLM replies into interactive step lists.
+
+**Requirements:**
+1. In `ChatUI.gd`, implement `_parse_interactive_steps(text: String) -> Array[Dictionary]` to search for both `[PAUSE]` tags and coordinate tags (`[SKILL: point_to: X, Y]`).
+2. Squeeze the parsed output into segments holding text and coordinate vector properties.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verifies that a response text with multiple point tags and pauses compiles into the correct sequence of step objects.
+
+---
+
+### NAV-36: Dynamic 'Next' Button & User Confirmation Flow (COMPLETED)
+**User Story:**
+- **As a:** Navi user following step-by-step guidance
+- **I want:** The chat interface to wait for my confirmation before showing the next step, and show a clear "Next" button
+- **So that:** I can read and follow the current step at my own pace before Navi moves on.
+
+**Context:**
+The Send button serves double-duty to save screen space, morphing to "Next" dynamically based on conversational state.
+
+**Description:**
+Create the interactive multi-step navigation loop, morphing Send button to Next, and allowing Enter key progression.
+
+**Requirements:**
+1. Connect `text_changed` on the input LineEdit to dynamically morph Send to "Next" when a step sequence is active and text is empty.
+2. Advance the step index and execute the next segment on Enter or clicking Next.
+3. If the user types a new query and submits it, abort/preempt the active sequence, returning Navi to follow mode, and submit the new query.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verifies that Send button text morphs to "Next" when sequence is active and input is empty.
+- **GUT Test**: Verifies that submitting an empty prompt advances steps, and submitting a non-empty prompt preempts and aborts.
+
+---
+
+### NAV-37: Coordinated Navigation and Status Colors (COMPLETED)
+**User Story:**
+- **As a:** Navi user watching the fairy help me
+- **I want:** The status light above Navi's head to accurately represent its current action color (Amber for screen check, Purple for thinking, Green for moving)
+- **So that:** I have clear visual feedback on Navi's physical activity.
+
+**Context:**
+Fairy status light visual states are pulsed dynamically using Tweens on the `StatusLight` sprite above the fairy's center node.
+
+**Description:**
+Map status indicator colors to active workflows, and ensure follow-mode is restored upon guide completion.
+
+**Requirements:**
+1. Use `Color(1.0, 0.75, 0.0)` (Amber) during screenshot captures.
+2. Use `Color(0.6, 0.2, 1.0)` (Purple) during heavy model reasoning.
+3. Use `Color(0.2, 0.8, 0.2)` (Green) during guide coordination movement.
+4. On guide sequence completion or abort, call `abort_navigation(true)` to reset Navi back to follow mode.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verifies that setting and clearing guide states triggers correct color mods.
+
+---
+
+### NAV-38: Heavy LLM Prompt Update for Sequence Planning (COMPLETED)
+**User Story:**
+- **As a:** Navi user requesting guide sequences
+- **I want:** Navi's reasoning brain to structure its guides using step breaks and point tags
+- **So that:** The guide flows naturally as a multi-turn conversation.
+
+**Context:**
+The system instructions guide model output layouts to guarantee the presence of coordinate tags and pauses for guide flows.
+
+**Description:**
+Teach the heavy model how to format step-by-step pauses and coordinates in its system prompts.
+
+**Requirements:**
+1. In `AIService.gd`'s `heavy_system_prompt`, instruct the model to use `[PAUSE]` for conversational text pauses and `[SKILL: point_to: X, Y]` for coordinate-based pauses.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run a query and check logs to confirm the heavy system instructions contain the formatting definitions.
+
+---
+
+### NAV-39: GUT Integration Tests for Multi-Turn Step Guidance (COMPLETED)
+**User Story:**
+- **As a:** Navi developer
+- **I want:** To ensure the step-by-step guide feature functions reliably under all circumstances
+- **So that:** The codebase remains clean, robust, and free from regression bugs.
+
+**Context:**
+All additions to the visual guide loops must be fully covered by the GUT test runner to verify coordination safety and prevent window positioning leaks.
+
+**Description:**
+Create GUT automated tests to verify the complete interactive multi-turn guide flow.
+
+**Requirements:**
+1. Add new automated test suites in `test_agent_skills.gd` covering classifier routing, tag parsing, button state shifts, status colors, and flow completion.
+
+**Acceptance Criteria:**
+- **GUT Test**: The test suite runs and passes successfully.
+
+---
+
+### NAV-40: Step-by-Step Movement Log and Prompt Robustness (COMPLETED)
+**User Story:**
+- **As a:** Navi developer / user
+- **I want:** Clear movement logs in the console output and highly-explicit prompt instructions for pointing coordinates
+- **So that:** I can easily trace and verify Navi's coordinate-guided movement transitions, and the AI model consistently formats pointing locations with coordinate tags.
+
+**Context:**
+Visual queries routing to Stage 4 heavy models could occasionally output conversational paragraphs without the necessary step tag formatting. Furthermore, tracking movement transitions was difficult due to a lack of console feedback.
+
+**Description:**
+Add console log prints in ChatUI for step-by-step guidance transitions, and expand thinking_system_prompt guidelines with highly-detailed coordinates format examples.
+
+**Requirements:**
+1. In `ChatUI.gd`, print `ChatUI: [MOVEMENT] Moving to step coordinate: ...` when `point != null`, and `ChatUI: [MOVEMENT] Aborting step movement` when `point == null`.
+2. Print `ChatUI: [MOVEMENT] closing/preempting guidance sequence.` inside preemption blocks of `close_chat()` and `_on_prompt_submitted()`.
+3. In `AIService.gd`, reinforce `thinking_system_prompt` with strict rules on screen corner coordinates mapping (e.g. (10, 70) for top-left, etc.).
+4. In `AIService.gd`, expand `PROMPT_SKILL_RULES` under `VISUAL_FULL` to include pointing and movement verbs: `"move"`, `"move to"`, `"point"`, and `"point out"`.
+5. Add unit test assertions in `test_ai_service.gd` for the new classification verbs.
+
+**Acceptance Criteria:**
+- **GUT Test**: The test run displays the new print logs when invoking interactive guidance steps.
+- **GUT Test**: Assertions confirm that prompts containing "move to" or "point out" successfully resolve to the "take_screenshot" skill.
+- **Manual Verification**: Submit pointing prompts and confirm the heavy model correctly emits coordinate tags and logs are printed.
+
+---
+
+### NAV-41: Full-Screen Interactive Movement and Thought Reformatting (COMPLETED)
+**User Story:**
+- **As a:** Navi user following step-by-step pointers
+- **I want:** Navi to physically glide to coordinate points inside the full-screen chat window, and the intermediate thoughts to render as normal text blocks
+- **So that:** Navi visually guides my attention to target regions, and the thoughts read cleanly as standard textual logs.
+
+**Context:**
+Moving the window itself during full-screen interactive panels shifts the entire canvas off-screen. Instead, the FairyVisuals node must travel relative to the viewport. Also, thought trails were wrapped in custom italic gray emoji formatting that cluttered the speech bubble.
+
+**Description:**
+Update `FollowController` to detect fullscreen panels and interpolate the `FairyVisuals` node coordinates rather than the OS window bounds. Remove BBCode thought wraps in `ChatUI` to output plain text.
+
+**Requirements:**
+1. In `FollowController.gd`, check `main_node._active_panel` to determine if full-screen mode is active.
+2. If full-screen, lerp the `FairyVisuals` node's local position towards the target coordinates (applying quadrant-based margin offsets) in `_process(delta)`.
+3. In full-screen mode, draw pointer arrows dynamically pointing from the moving fairy to the exact target coordinates, and trigger `ChatUI.reposition_ui` per frame.
+4. In `ChatUI.gd`, strip `[color=#4a4a5e][i]💭 ` formatting wrappers from all thinking update rendering code block pipelines.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run spatial pointing queries; verify the fairy moves inside the full-screen window and intermediate thoughts show as clean text.
+
+---
+
+### NAV-42: Raw Response Streaming Transmission and Thought Leak Suppression (COMPLETED)
+**User Story:**
+- **As a:** Navi developer / user
+- **I want:** The raw completed LLM response to be passed to the Chat UI upon request completion, and raw internal reasoning thoughts to be suppressed from display
+- **So that:** Interactive guidance coordinates and pause tags are properly parsed and executed client-side, and only rephrased first-person thoughts are displayed in the bubble.
+
+**Context:**
+Streaming response chunks are filtered on-the-fly to strip skill tags from the text stream, which caused the client to receive a plain text string devoid of instruction tags at request completion. Additionally, thought lines that did not match rephrasing patterns leaked verbatim into the user bubble.
+
+**Description:**
+Update `AIService` to emit the raw unfiltered response string in the `response_received` signal, and to suppress unmatched thought lines by returning `""` in `_apply_personality_voice`.
+
+**Requirements:**
+1. In `AIService.gd`, update `response_received.emit(text)` to pass the actual raw response text rather than empty strings `""`.
+2. In `_apply_personality_voice`, add patterns for spatial keywords: `"pointing"`, `"coordinates"`, `"point to"`.
+3. Return `""` for unmatched thought lines in `_apply_personality_voice` so they are excluded from the display.
+
+**Acceptance Criteria:**
+- **GUT Test**: The automated test suite executes and passes successfully.
+- **Manual Verification**: Submit pointing prompts and confirm that coordinate movement steps now execute properly in fullscreen mode, and raw reasoning bullets are suppressed.
+
+---
+
+### NAV-43: Conversational Tag Stripping and Auto-Advancement in Guidance Steps (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Raw internal skill tags to be completely stripped from all visual and vocal interfaces, and the fairy to automatically start coordinate guidance sequences.
+- **So that:** I only see/hear conversational replies, and Navi immediately moves to target positions without requiring manual input to skip introductory steps.
+
+**Context:**
+Previously, completed raw responses could leak internal bracketed tags (e.g. `[SKILL: ...]`) to the Chat UI and the system TTS engine. Additionally, when a guidance sequence began with an introductory conversation block, its step had no coordinates (`point = null`), requiring the user to press "Next" once before Navi would actually start moving, which caused confusion.
+
+**Description:**
+Implement regex-based tag stripping in `ChatUI.gd` and `TTSService.gd` to hide skill/pause markup from visual history and native synthesization. Add auto-advancement for Step 0 when its coordinate is null to trigger immediate flight/movement on sequence start. Refactor the movement logic to use smooth Tween-based transitions instead of frame-by-frame lerping in fullscreen mode, and prevent the fairy from prematurely resetting back to follow mode at the end of sequences.
+
+**Requirements:**
+1. Implement a helper method `_strip_skill_and_pause_tags` in both `ChatUI.gd` and `TTSService.gd` to clean text using regex.
+2. In `ChatUI.gd`, apply stripping to the committed text block in `_on_ai_response_received` and interactive steps in `_execute_current_interactive_step`.
+3. In `ChatUI.gd`'s `_execute_current_interactive_step`, if Step 0 is non-pointing and there are more steps, automatically advance to Step 1 and execute the step.
+4. In `TTSService.gd`, apply stripping in `speak` and `_speak_system_sentence` functions.
+5. In `ChatUI.gd`, only abort/reset navigation at the end of interactive steps if the last step does not point to any target (`point == null`), allowing the fairy to stay parked at the final destination. Unconditionally reset navigation on new prompt submissions.
+6. Refactor `FollowController.gd` to use `create_tween()` to animate the fairy's position to the target in fullscreen mode, track active tweens via `_active_tween`, and prevent tweening to `(100,100)` when aborting navigation from fullscreen.
+7. Rephrase misleading console logs from `"Aborting step movement"` to `"Step has no coordinate; maintaining position."`.
+8. Add unit tests for tag stripping and auto-advancement in `test_chat_ui.gd` and verify that the full test suite passes.
+
+**Acceptance Criteria:**
+- **GUT Test**: The automated test suite executes and passes successfully.
+- **Manual Verification**: Spatial pointing queries start moving Navi immediately with a smooth Tween animation, she remains parked at the final coordinate, and no raw brackets/tags are visible in the chat bubble or read aloud by system voices.

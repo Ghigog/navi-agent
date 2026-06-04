@@ -73,6 +73,12 @@ navi/
 ### Prerequisites
 1. **Godot Engine**: Godot 4.3+ (Forward+ or Compatibility renderer).
 2. **Local AI Model (Optional)**: Ollama running locally. Verify it's active at `http://localhost:11434`.
+3. **Local Neural TTS (Piper)**: 
+   - To use the offline neural voice "Neural: Local Piper", install the system `piper-tts` Python package:
+     ```bash
+     pip install piper-tts
+     ```
+   - The project uses a wrapper script at `bin/piper` which executes Piper in your python environment. Make sure you download a Piper voice model (e.g., `en_US-amy-medium.onnx` and its companion `.onnx.json` config file) and place them in the `bin/voices/` folder.
 
 ### Running the App
 Open the project in the Godot Editor:

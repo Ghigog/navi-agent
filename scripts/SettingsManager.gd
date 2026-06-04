@@ -16,12 +16,38 @@ var settings: Dictionary = {
 	"cloud_model": "",
 	"cloud_thinking_model": "",
 	"cloud_api_key": "",
+	"openai_api_key": "",
 	"system_prompt": "",
 	"personality": "cheerful and glowing",
 	"fairy_color": "66b2ff", # Light blue hex
 	"enable_screenshots": true,
 	"enable_thinking": true,
-	"font_size_offset": 0  # Integer offset applied on top of all base font sizes
+	"font_size_offset": 0,  # Integer offset applied on top of all base font sizes
+	"enable_stt": true,
+	"enable_tts": true,
+	"tts_mute": false,
+	"whisper_url": "http://localhost:8080/v1/audio/transcriptions",
+	"whisper_model": "whisper-1",
+	"whisper_bin_path": "res://bin/whisper-cli",
+	"whisper_model_path": "res://bin/ggml-base.en.bin",
+	"tts_mode": "system",
+	"tts_mutter_sound_path": "",
+	"tts_mutter_pitch_min": 0.85,
+	"tts_mutter_pitch_max": 1.25,
+	"tts_mutter_speed": 0.06,
+	"tts_voice": "",
+	"custom_mutters": [],
+	"tts_provider": "local_piper",
+	"piper_bin_path": "res://bin/piper",
+	"piper_model_path": "res://bin/voices/en_US-amy-medium.onnx",
+	"piper_speed": 1.0,
+	"cloud_tts_provider": "openai",
+	"cloud_tts_url": "https://api.openai.com/v1/audio/speech",
+	"cloud_tts_model": "tts-1",
+	"cloud_tts_voice": "alloy",
+	"filter_show_neural": true,
+	"filter_show_system": true,
+	"filter_show_mutter": true
 }
 
 var skills = [
@@ -50,6 +76,84 @@ func _ready() -> void:
 		changed = true
 	if not settings.has("font_size_offset"):
 		settings["font_size_offset"] = 0
+		changed = true
+	if not settings.has("enable_stt"):
+		settings["enable_stt"] = true
+		changed = true
+	if not settings.has("enable_tts"):
+		settings["enable_tts"] = true
+		changed = true
+	if not settings.has("tts_mute"):
+		settings["tts_mute"] = false
+		changed = true
+	if not settings.has("whisper_url"):
+		settings["whisper_url"] = "http://localhost:8080/v1/audio/transcriptions"
+		changed = true
+	if not settings.has("whisper_model"):
+		settings["whisper_model"] = "whisper-1"
+		changed = true
+	if not settings.has("whisper_bin_path"):
+		settings["whisper_bin_path"] = "res://bin/whisper-cli"
+		changed = true
+	if not settings.has("whisper_model_path"):
+		settings["whisper_model_path"] = "res://bin/ggml-base.en.bin"
+		changed = true
+	if not settings.has("tts_mode"):
+		settings["tts_mode"] = "system"
+		changed = true
+	if not settings.has("tts_mutter_sound_path"):
+		settings["tts_mutter_sound_path"] = ""
+		changed = true
+	if not settings.has("tts_mutter_pitch_min"):
+		settings["tts_mutter_pitch_min"] = 0.85
+		changed = true
+	if not settings.has("tts_mutter_pitch_max"):
+		settings["tts_mutter_pitch_max"] = 1.25
+		changed = true
+	if not settings.has("tts_mutter_speed"):
+		settings["tts_mutter_speed"] = 0.06
+		changed = true
+	if not settings.has("tts_voice"):
+		settings["tts_voice"] = ""
+		changed = true
+	if not settings.has("custom_mutters"):
+		settings["custom_mutters"] = []
+		changed = true
+	if not settings.has("tts_provider"):
+		settings["tts_provider"] = "local_piper"
+		changed = true
+	if not settings.has("piper_bin_path"):
+		settings["piper_bin_path"] = "res://bin/piper"
+		changed = true
+	if not settings.has("piper_model_path"):
+		settings["piper_model_path"] = "res://bin/voices/en_US-amy-medium.onnx"
+		changed = true
+	if not settings.has("piper_speed"):
+		settings["piper_speed"] = 1.0
+		changed = true
+	if not settings.has("cloud_tts_provider"):
+		settings["cloud_tts_provider"] = "openai"
+		changed = true
+	if not settings.has("cloud_tts_url"):
+		settings["cloud_tts_url"] = "https://api.openai.com/v1/audio/speech"
+		changed = true
+	if not settings.has("cloud_tts_model"):
+		settings["cloud_tts_model"] = "tts-1"
+		changed = true
+	if not settings.has("cloud_tts_voice"):
+		settings["cloud_tts_voice"] = "alloy"
+		changed = true
+	if not settings.has("filter_show_neural"):
+		settings["filter_show_neural"] = true
+		changed = true
+	if not settings.has("filter_show_system"):
+		settings["filter_show_system"] = true
+		changed = true
+	if not settings.has("filter_show_mutter"):
+		settings["filter_show_mutter"] = true
+		changed = true
+	if not settings.has("openai_api_key"):
+		settings["openai_api_key"] = ""
 		changed = true
 	if changed:
 		save_settings()

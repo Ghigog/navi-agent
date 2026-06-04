@@ -2,3 +2,17 @@
 .godot/
 /android/
 .aider*
+
+# Local scratch and test outputs
+scratch/
+*.wav
+*.wav.import
+.DS_Store
+addons/.DS_Store
+bin/.DS_Store
+bin/voices/.DS_Store
+
+# Exclude specific files exceeding GitHub's 100MB limit
+bin/ggml-base.en.bin
+bin/voices/en_US-ljspeech-high.onnx
+bin/voices/en_US-ljspeech-high.onnx.json

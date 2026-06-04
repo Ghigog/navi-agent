@@ -13,7 +13,13 @@ config_version=5
 config/name="Navi"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
-config/icon="res://icon.svg"
+boot_splash/bg_color=Color(0.14117648, 0.14117648, 0.14117648, 0)
+boot_splash/image="uid://ct4ps4ier02x4"
+config/icon="uid://ct4ps4ier02x4"
+
+[audio]
+
+driver/enable_input=true
 
 [autoload]
 
@@ -21,6 +27,8 @@ InputManager="*res://scripts/InputManager.gd"
 ScreenCaptureService="*res://scripts/ScreenCaptureService.gd"
 SettingsManager="*res://scripts/SettingsManager.gd"
 AIService="*uid://bxuhunfi6pdn7"
+STTService="*res://scripts/STTService.gd"
+TTSService="*res://scripts/TTSService.gd"
 
 [display]
 

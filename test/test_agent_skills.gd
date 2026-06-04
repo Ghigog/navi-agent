@@ -135,7 +135,14 @@ func test_greetings_speed_under_three_seconds() -> void:
 	var mock_settings = MockSettingsManager.new()
 	add_child_autofree(mock_settings)
 	
-	var ai_service: Node = load("res://scripts/AIService.gd").new()
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"    return 'hello back'"
+	script.reload()
+	
+	var ai_service: Node = Node.new()
+	ai_service.set_script(script)
 	add_child_autofree(ai_service)
 	ai_service._settings_mgr = mock_settings
 	
@@ -175,3 +182,79 @@ func test_skill_filtering_when_disabled_in_settings() -> void:
 	assert_eq(verified_skills[0], "heavy_thinking", "Only heavy_thinking should be kept.")
 
 
+func test_skill_extraction_with_arguments() -> void:
+	var ai_service = load("res://scripts/AIService.gd").new()
+	add_child_autofree(ai_service)
+	
+	var tag1 = ai_service._extract_skill_tag("Please look here: [SKILL: point_to: 500, 600]")
+	assert_eq(tag1, "point_to: 500, 600", "Should correctly extract tag with arguments.")
+	
+	var tag2 = ai_service._extract_skill_tag("[SKILL: take_screenshot]")
+	assert_eq(tag2, "take_screenshot", "Should extract simple skill tags.")
+
+
+class MockFollowController extends Node:
+	var last_fly_target = null
+	var last_nav_sequence = null
+	
+	func fly_to_screen_coordinate(target: Vector2) -> void:
+		last_fly_target = target
+		
+	func navigate_sequence(sequence) -> void:
+		last_nav_sequence = sequence
+
+
+class MockMainNode extends Node2D:
+	var follow_ctrl
+	func _init():
+		name = "Main"
+		follow_ctrl = MockFollowController.new()
+		follow_ctrl.name = "FollowController"
+		add_child(follow_ctrl)
+		
+	func capture_clean_screenshot() -> Image:
+		return null
+
+
+func test_point_to_single_coordinate_execution() -> void:
+	var ai_service = load("res://scripts/AIService.gd").new()
+	add_child_autofree(ai_service)
+	ai_service._initialize_skills_registry()
+	
+	var main_mock = MockMainNode.new()
+	get_tree().root.add_child(main_mock)
+	
+	var context = {
+		"skill_args": "500, 600"
+	}
+	
+	var outcome = await ai_service._execute_point_to(context)
+	assert_true(outcome.begins_with("Success"), "Execution should succeed.")
+	assert_eq(main_mock.follow_ctrl.last_fly_target, Vector2(500, 600), "Should call fly_to_screen_coordinate with correct vector.")
+	
+	get_tree().root.remove_child(main_mock)
+	main_mock.free()
+
+
+func test_point_to_sequence_coordinates_execution() -> void:
+	var ai_service = load("res://scripts/AIService.gd").new()
+	add_child_autofree(ai_service)
+	ai_service._initialize_skills_registry()
+	
+	var main_mock = MockMainNode.new()
+	get_tree().root.add_child(main_mock)
+	
+	var context = {
+		"skill_args": "500, 600; 300, 400"
+	}
+	
+	var outcome = await ai_service._execute_point_to(context)
+	
+	assert_true(outcome.begins_with("Success"), "Execution should succeed.")
+	assert_not_null(main_mock.follow_ctrl.last_nav_sequence, "Should trigger navigate_sequence.")
+	assert_eq(main_mock.follow_ctrl.last_nav_sequence.size(), 2, "Should parse two coordinates.")
+	assert_eq(main_mock.follow_ctrl.last_nav_sequence[0], Vector2(500, 600), "First coordinate matches.")
+	assert_eq(main_mock.follow_ctrl.last_nav_sequence[1], Vector2(300, 400), "Second coordinate matches.")
+	
+	get_tree().root.remove_child(main_mock)
+	main_mock.free()
