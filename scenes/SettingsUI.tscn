@@ -67,23 +67,16 @@ content_margin_bottom = 8.0
 
 [node name="SettingsUI" type="Control"]
 layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+anchors_preset = 0
+offset_right = 600.0
+offset_bottom = 660.0
 script = ExtResource("1_settings_ui")
 
 [node name="PanelContainer" type="PanelContainer" parent="."]
 layout_mode = 1
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -200.0
-offset_top = -300.0
-offset_right = 200.0
-offset_bottom = 310.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
@@ -95,28 +88,41 @@ theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 20
 theme_override_constants/margin_bottom = 16
 
-[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer"]
+[node name="VBoxOuter" type="VBoxContainer" parent="PanelContainer/MarginContainer"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="TitleLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="TitleLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter"]
 layout_mode = 2
 text = "Navi Settings"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 18
 theme_override_colors/font_color = Color(0.55, 0.85, 1.0, 1.0)
 
-[node name="HSeparator" type="HSeparator" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="HSeparator" type="HSeparator" parent="PanelContainer/MarginContainer/VBoxOuter"]
 layout_mode = 2
 theme_override_colors/separator_color = Color(0.3, 0.75, 0.9, 0.35)
 
-[node name="SystemPromptLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ScrollContainer" type="ScrollContainer" parent="PanelContainer/MarginContainer/VBoxOuter"]
+layout_mode = 2
+size_flags_vertical = 3
+scroll_horizontal_enabled = false
+
+[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+
+
+[node name="SystemPromptLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 text = "System Prompt"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="SystemPromptEdit" type="TextEdit" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="SystemPromptEdit" type="TextEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 68)
 layout_mode = 2
 placeholder_text = "You are Navi, a helpful fairy companion..."
@@ -124,42 +130,45 @@ theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
-[node name="PersonalityLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="PersonalityLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 text = "Personality"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="PersonalityEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="PersonalityEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "cheerful and glowing"
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
-[node name="ColorRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ColorRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="ColorLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/ColorRow"]
+[node name="ColorLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/ColorRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Fairy Color"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="ColorPickerButton" type="ColorPickerButton" parent="PanelContainer/MarginContainer/VBoxContainer/ColorRow"]
+[node name="ColorPickerButton" type="ColorPickerButton" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/ColorRow"]
 custom_minimum_size = Vector2(60, 28)
 layout_mode = 2
 color = Color(0.4, 0.7, 1.0, 1.0)
 
-[node name="ProviderLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ProviderLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 text = "LLM Provider"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="ProviderOption" type="OptionButton" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ProviderOption" type="OptionButton" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 item_count = 2
 selected = 0
@@ -169,41 +178,43 @@ popup/item_1/text = "Cloud (Gemini)"
 popup/item_1/id = 1
 theme_override_font_sizes/font_size = 12
 
-[node name="EndpointLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="EndpointLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 text = "Endpoint URL / Fast Model / Thinking Model"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="EndpointEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="EndpointEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "http://localhost:11434"
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
-[node name="ModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "llama3 / gemma4:e4b"
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
-[node name="ThinkingModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ThinkingModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "deepseek-r1:8b"
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
-[node name="ApiKeyLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ApiKeyLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 visible = false
 text = "API Key"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="ApiKeyEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="ApiKeyEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 visible = false
 secret = true
@@ -212,32 +223,68 @@ theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
-[node name="SkillsToggleRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="WhisperLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
-theme_override_constants/separation = 15
+text = "Whisper Transcription URL / Model"
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="EnableScreenshotsCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxContainer/SkillsToggleRow"]
+[node name="WhisperUrlEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+placeholder_text = "http://localhost:8080/v1/audio/transcriptions"
+theme_override_styles/normal = SubResource("StyleBoxFlat_input")
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
+
+[node name="WhisperModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+placeholder_text = "whisper-1"
+theme_override_styles/normal = SubResource("StyleBoxFlat_input")
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
+
+[node name="SkillsToggleRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="EnableScreenshotsCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/SkillsToggleRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "Enable Screenshots"
 
-[node name="EnableThinkingCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxContainer/SkillsToggleRow"]
+[node name="EnableThinkingCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/SkillsToggleRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "Enable Deep Thinking"
 
-[node name="FontSizeRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="VoiceToggleRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="EnableSTTCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/VoiceToggleRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Enable Speech-to-Text (STT)"
+
+[node name="EnableTTSCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/VoiceToggleRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Enable Text-to-Speech (TTS)"
+
+[node name="FontSizeRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="FontSizeLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxContainer/FontSizeRow"]
+[node name="FontSizeLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/FontSizeRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Font Size Adjustment"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
 
-[node name="FontSizeSpinBox" type="SpinBox" parent="PanelContainer/MarginContainer/VBoxContainer/FontSizeRow"]
+[node name="FontSizeSpinBox" type="SpinBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/FontSizeRow"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 min_value = -4.0
@@ -246,11 +293,166 @@ step = 1.0
 value = 0.0
 theme_override_font_sizes/font_size = 12
 
-[node name="ButtonRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxContainer"]
+[node name="MutterRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="FilterVoicesRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ShowNeuralCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/FilterVoicesRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Neural"
+
+[node name="ShowSystemCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/FilterVoicesRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "System"
+
+[node name="ShowMutterCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/FilterVoicesRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Mutter"
+
+[node name="VoiceModeHBox" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="VoiceLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/VoiceModeHBox"]
+layout_mode = 2
+text = "Voice Option"
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
+
+[node name="VoiceOption" type="OptionButton" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/VoiceModeHBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+clip_text = true
+
+[node name="OpenAIApiKeyLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+visible = false
+layout_mode = 2
+text = "OpenAI API Key (for Cloud TTS)"
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
+autowrap_mode = 3
+
+[node name="OpenAIApiKeyEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+visible = false
+layout_mode = 2
+secret = true
+placeholder_text = "Paste your OpenAI API key here"
+theme_override_styles/normal = SubResource("StyleBoxFlat_input")
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
+
+[node name="CustomMutterHBox" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="CustomMutterEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomMutterHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Path to custom mutter (.wav/.ogg)"
+theme_override_font_sizes/font_size = 11
+
+[node name="AddMutterButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomMutterHBox"]
+layout_mode = 2
+text = " + "
+theme_override_font_sizes/font_size = 11
+
+[node name="RemoveMutterButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomMutterHBox"]
+layout_mode = 2
+text = " - "
+theme_override_font_sizes/font_size = 11
+
+[node name="CustomVoiceHBox" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="CustomVoiceEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomVoiceHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Path to custom Piper voice (.onnx)"
+theme_override_font_sizes/font_size = 11
+
+[node name="AddVoiceButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomVoiceHBox"]
+layout_mode = 2
+text = " + "
+theme_override_font_sizes/font_size = 11
+
+[node name="RemoveVoiceButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomVoiceHBox"]
+layout_mode = 2
+text = " - "
+theme_override_font_sizes/font_size = 11
+
+[node name="MutterErrorLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(1, 0.3, 0.3, 1)
+autowrap_mode = 3
+
+[node name="MutterPitchHBox" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="SaveButton" type="Button" parent="PanelContainer/MarginContainer/VBoxContainer/ButtonRow"]
+[node name="MutterPitchMinLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterPitchHBox"]
+layout_mode = 2
+text = "Pitch min"
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
+
+[node name="MutterPitchMinSpin" type="SpinBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterPitchHBox"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+min_value = 0.5
+max_value = 2.0
+step = 0.05
+value = 0.85
+theme_override_font_sizes/font_size = 12
+
+[node name="MutterPitchMaxLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterPitchHBox"]
+layout_mode = 2
+text = "Pitch max"
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
+
+[node name="MutterPitchMaxSpin" type="SpinBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterPitchHBox"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+min_value = 0.5
+max_value = 2.0
+step = 0.05
+value = 1.25
+theme_override_font_sizes/font_size = 12
+
+[node name="MutterSpeedHBox" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MutterSpeedLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterSpeedHBox"]
+layout_mode = 2
+text = "Blip interval (s)"
+theme_override_font_sizes/font_size = 11
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
+
+[node name="MutterSpeedSpin" type="SpinBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterSpeedHBox"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+min_value = 0.02
+max_value = 0.3
+step = 0.01
+value = 0.06
+theme_override_font_sizes/font_size = 12
+
+[node name="ButtonRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SaveButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ButtonRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Save"
@@ -258,10 +460,11 @@ theme_override_styles/normal = SubResource("StyleBoxFlat_button_save")
 theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(1.0, 1.0, 1.0, 1.0)
 
-[node name="CloseButton" type="Button" parent="PanelContainer/MarginContainer/VBoxContainer/ButtonRow"]
+[node name="CloseButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ButtonRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Cancel"
 theme_override_styles/normal = SubResource("StyleBoxFlat_button_close")
 theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(1.0, 0.75, 0.8, 1.0)
+

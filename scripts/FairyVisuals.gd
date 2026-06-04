@@ -40,6 +40,7 @@ var click_enabled: bool = false
 var _is_dragging: bool = false
 var _drag_offset: Vector2 = Vector2.ZERO
 var _time_passed: float = 0.0
+var _pointer_arrow: Line2D = null
 
 
 func _ready() -> void:
@@ -49,6 +50,15 @@ func _ready() -> void:
 	# Set up Area2D input detection properties
 	click_area.input_pickable = true
 	click_area.input_event.connect(_on_click_area_input_event)
+
+	# Programmatically create the pointer arrow Line2D
+	_pointer_arrow = Line2D.new()
+	_pointer_arrow.width = 4.0
+	_pointer_arrow.default_color = Color(1.0, 0.75, 0.0, 0.9) # Glowing amber
+	_pointer_arrow.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	_pointer_arrow.end_cap_mode = Line2D.LINE_CAP_ROUND
+	_pointer_arrow.visible = false
+	add_child(_pointer_arrow)
 
 
 func _process(delta: float) -> void:
@@ -61,6 +71,53 @@ func _process(delta: float) -> void:
 	# Update the horizontal scale of both wing nodes (Left wing is flipped via negative X)
 	left_wing.scale.x = -scale_x
 	right_wing.scale.x = scale_x
+
+
+## Animates the pointer arrow fading in and pointing from the fairy body center (0,0)
+## to the local target position [param local_target].
+func show_pointer_arrow(local_target: Vector2) -> void:
+	if not _pointer_arrow:
+		return
+	
+	# Clear previous points
+	_pointer_arrow.clear_points()
+	
+	# Compute direction vector and line endpoint (slightly before target to prevent overlap)
+	var dir := local_target.normalized()
+	var line_end := local_target - dir * 10.0
+	_pointer_arrow.add_point(Vector2.ZERO)
+	_pointer_arrow.add_point(line_end)
+	
+	# Retrieve or spawn arrowhead polygon
+	var arrowhead: Polygon2D = _pointer_arrow.get_node_or_null("Arrowhead")
+	if not arrowhead:
+		arrowhead = Polygon2D.new()
+		arrowhead.name = "Arrowhead"
+		arrowhead.color = _pointer_arrow.default_color
+		_pointer_arrow.add_child(arrowhead)
+	
+	# Draw arrowhead pointing in direction of 'dir'
+	var arrow_length := 12.0
+	var arrow_width := 6.0
+	var p1 := local_target
+	var p2 := local_target - dir * arrow_length + dir.rotated(PI / 2.0) * arrow_width
+	var p3 := local_target - dir * arrow_length - dir.rotated(PI / 2.0) * arrow_width
+	arrowhead.polygon = PackedVector2Array([p1, p2, p3])
+	
+	_pointer_arrow.visible = true
+	_pointer_arrow.modulate.a = 0.0
+	var tween := create_tween()
+	tween.tween_property(_pointer_arrow, "modulate:a", 1.0, 0.2)
+
+
+## Smoothly fades out and deactivates the pointer arrow visual.
+func hide_pointer_arrow() -> void:
+	if not _pointer_arrow or not _pointer_arrow.visible:
+		return
+	var tween := create_tween()
+	tween.tween_property(_pointer_arrow, "modulate:a", 0.0, 0.15)
+	await tween.finished
+	_pointer_arrow.visible = false
 
 
 ## Updates the self_modulate property of the core sprite, wing polygons, and particle system.

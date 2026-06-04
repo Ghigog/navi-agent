@@ -16,6 +16,9 @@ var _active_panel: _ActivePanel = _ActivePanel.NONE
 # Font size cache: maps node instance_id -> Dictionary of { property -> original_size }
 var _font_size_cache: Dictionary = {}
 
+# Input guard to prevent spurious clicks from immediately collapsing the window during transitions
+var _ignore_click_until_ready: bool = false
+
 
 func _ready() -> void:
 	# Enforce alpha-transparency rendering in viewport canvas layers
@@ -129,6 +132,8 @@ func _input(event: InputEvent) -> void:
 
 	# Dismiss chat overlay if user left-clicks the background outside the panels and fairy body
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if _ignore_click_until_ready:
+			return
 		if _active_panel == _ActivePanel.CHAT:
 			var local_mouse_pos: Vector2 = get_viewport().get_mouse_position()
 			
@@ -150,12 +155,22 @@ func _input(event: InputEvent) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_hotkey_pressed() -> void:
-	if _active_panel != _ActivePanel.NONE:
+	# If chat is already open, close it (toggle behaviour)
+	if _active_panel == _ActivePanel.CHAT:
+		_reset_to_follow_mode()
+		return
+
+	# If settings is open, just bring focus back — don't fight it
+	if _active_panel == _ActivePanel.SETTINGS:
+		DisplayServer.window_move_to_foreground()
 		return
 
 	# Freeze window follow updates and flag chat overlay state
 	_set_following(false)
+	if _follow_ctrl and _follow_ctrl.has_method("abort_navigation"):
+		_follow_ctrl.abort_navigation(false)
 	_active_panel = _ActivePanel.CHAT
+	_ignore_click_until_ready = true
 
 	if has_node("/root/AIService"):
 		var ai_service = get_node("/root/AIService")
@@ -187,6 +202,11 @@ func _on_hotkey_pressed() -> void:
 	# Request focus on the Godot window to intercept typing events
 	DisplayServer.window_move_to_foreground()
 	print("WindowController: Chat opened — window full screen at ", screen_rect, ".")
+	
+	# Wait one more frame for layout and input states to settle
+	await get_tree().process_frame
+	_ignore_click_until_ready = false
+
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +228,10 @@ func _on_fairy_clicked() -> void:
 			_chat_ui.call("close_chat")
 
 	_set_following(false)
+	if _follow_ctrl and _follow_ctrl.has_method("abort_navigation"):
+		_follow_ctrl.abort_navigation(false)
 	_active_panel = _ActivePanel.SETTINGS
+	_ignore_click_until_ready = true
 
 	var window := get_window()
 	var fairy_screen_pos := window.position + Vector2i(_fairy.position)
@@ -222,8 +245,8 @@ func _on_fairy_clicked() -> void:
 	_fairy.position = Vector2(fairy_screen_pos - screen_rect.position)
 
 	# Position the settings panel container adjacent to the stationary fairy
-	const SET_W := 400
-	const SET_H := 510
+	const SET_W := 600
+	const SET_H := 660
 	var desired := _fairy.position - Vector2(SET_W / 2.0, SET_H / 2.0)
 	var clamped := Vector2(
 		clamp(desired.x, 20.0, screen_rect.size.x - SET_W - 20.0),
@@ -236,6 +259,10 @@ func _on_fairy_clicked() -> void:
 
 	DisplayServer.window_move_to_foreground()
 	print("WindowController: Settings opened — window full screen, panel at ", clamped, ".")
+	
+	# Wait one more frame for layout and input states to settle
+	await get_tree().process_frame
+	_ignore_click_until_ready = false
 
 
 # ---------------------------------------------------------------------------
@@ -313,14 +340,20 @@ func capture_crop_screenshot() -> Image:
 # ---------------------------------------------------------------------------
 
 func _reset_to_follow_mode() -> void:
+	if _follow_ctrl and _follow_ctrl.has_method("abort_navigation"):
+		_follow_ctrl.abort_navigation()
+
 	if _active_panel == _ActivePanel.NONE:
 		return
 
+	var previous_panel := _active_panel
+	_active_panel = _ActivePanel.NONE
+
 	# Run close/fade sequences on overlays
-	match _active_panel:
+	match previous_panel:
 		_ActivePanel.CHAT:
 			if _chat_ui and _chat_ui.has_method("close_chat"):
-				await _chat_ui.call("close_chat")
+				await _chat_ui.close_chat()
 			if has_node("/root/AIService"):
 				var ai_service = get_node("/root/AIService")
 				if ai_service.has_method("end_chat_session"):
@@ -328,8 +361,6 @@ func _reset_to_follow_mode() -> void:
 		_ActivePanel.SETTINGS:
 			if _settings_ui:
 				await _settings_ui.close_settings()
-
-	_active_panel = _ActivePanel.NONE
 
 	# Retrieve the fairy's current screen position coordinates prior to shrinking the viewport window
 	var window := get_window()
@@ -352,5 +383,5 @@ func _reset_to_follow_mode() -> void:
 func _set_following(enabled: bool) -> void:
 	if _follow_ctrl:
 		_follow_ctrl.is_following = enabled
-	if _fairy and _fairy.has_method("set"):
+	if _fairy:
 		_fairy.click_enabled = not enabled

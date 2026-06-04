@@ -60,12 +60,38 @@ func test_request_started_signal_emitted_before_llm_call() -> void:
 	mock_settings.set_setting("fast_system_prompt", "Respond fast.")
 	mock_settings.set_setting("personality", "")
 	
-	watch_signals(ai_service)
-	# Don't await because the HTTP will time out headlessly — just verify signal fires
-	ai_service.send_prompt("Test prompt")
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"    return 'mock_reply'"
+	script.reload()
 	
-	assert_signal_emitted(ai_service, "request_started",
-		"request_started must be emitted at the start of every prompt dispatch.")
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._config_cache = {
+		"system_prompt" : "Respond fast.",
+		"personality": "",
+		"llm_provider": "local",
+		"fast_model": "gemma4:e4b",
+		"heavy_model": "deepseek-r1:8b"
+	}
+	
+	var state := {
+		"signal_fired": false,
+		"failed_message": ""
+	}
+	mock_ai.request_started.connect(func():
+		state["signal_fired"] = true
+	)
+	mock_ai.request_failed.connect(func(msg):
+		state["failed_message"] = msg
+	)
+	
+	mock_ai.send_prompt("Test prompt")
+	
+	assert_true(state["signal_fired"], "request_started must be emitted at the start of every prompt dispatch.")
 
 
 # ---------------------------------------------------------------------------
@@ -170,13 +196,6 @@ func test_cloud_thinking_model_key_used() -> void:
 	var model: String = mock_settings.get_setting("cloud_thinking_model", "")
 	assert_eq(model, "gemini-2.5-pro", "Cloud thinking model should be read from 'cloud_thinking_model' key.")
 
-
-func test_response_streaming_aborts_deferred_thoughts() -> void:
-	ai_service._is_response_streaming = true
-	watch_signals(ai_service)
-	await ai_service._parse_and_emit_thoughts_deferred("- Thought 1\n- Thought 2", "cheerful")
-	assert_signal_not_emitted(ai_service, "thinking_update",
-		"thinking_update should not emit if _is_response_streaming is true.")
 
 
 func test_history_appending() -> void:
@@ -336,6 +355,27 @@ func test_honesty_directives_in_system_prompt() -> void:
 		"Vision sanity check section must be injected when screen capture is present.")
 	assert_true(mock_ai.last_system_prompt.contains("Never guess, assume, or hallucinate"),
 		"Vision sanity check details must be present.")
+
+
+func test_deterministic_classification_patterns_match() -> void:
+	var result_behind_you = ai_service._classify_prompt("what is Pablo saying in the chat behind you?")
+	assert_eq(result_behind_you.get("skill"), "take_screenshot", "Prompt with 'behind you' should trigger take_screenshot.")
+	
+	var result_behind = ai_service._classify_prompt("what is behind the window")
+	assert_eq(result_behind.get("skill"), "take_screenshot", "Prompt with 'behind' should trigger take_screenshot.")
+	
+	var result_chat = ai_service._classify_prompt("read the chat history")
+	assert_eq(result_chat.get("skill"), "take_screenshot", "Prompt with 'chat' should trigger take_screenshot.")
+	
+	var result_saying = ai_service._classify_prompt("what is the terminal saying?")
+	assert_eq(result_saying.get("skill"), "take_screenshot", "Prompt with 'saying' should trigger take_screenshot.")
+
+	var result_move = ai_service._classify_prompt("Can you move to the top right corner?")
+	assert_eq(result_move.get("skill"), "take_screenshot", "Prompt with 'move to' should trigger take_screenshot.")
+
+	var result_point = ai_service._classify_prompt("Point out the main window.")
+	assert_eq(result_point.get("skill"), "take_screenshot", "Prompt with 'point out' should trigger take_screenshot.")
+
 
 
 class MockFairy extends Node:

@@ -94,7 +94,12 @@ const PROMPT_SKILL_RULES: Array = [
 			"use your skill", "use a skill", "take a screenshot",
 			"look at my screen", "check my screen", "check the screen",
 			# Bare pointing gesture — user indicating something is physically present
-			"here"
+			"here",
+			# Visual pointers to overlay context
+			"behind you", "behind", "chat", "saying",
+			# Spatial pointing and finding requests
+			"point to", "point at", "navigate to", "where is", "where are", "find the",
+			"move", "move to", "point", "point out"
 		]
 	},
 	# ── Heavy thinking: programming, math, logic, deep analysis ─────────────
@@ -159,7 +164,8 @@ func _initialize_skills_registry() -> void:
 		"take_screenshot": _execute_take_screenshot,
 		"take_crop_screenshot": _execute_take_crop_screenshot,
 		"heavy_thinking": _execute_heavy_thinking,
-		"summarize_session": _execute_summarize_session
+		"summarize_session": _execute_summarize_session,
+		"point_to": _execute_point_to
 	}
 
 
@@ -228,7 +234,7 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 	# at the highest-priority position in the system prompt.
 	if _cached_summary != "":
 		print("AIService:   Recall     : Previous session summary injected (", _cached_summary.length(), " chars).")
-		identity += "\n\nPREVIOUS SESSION MEMORY — READ THIS FIRST:\nYou have a summary of what happened last time with this user. If the user asks what you discussed last time, what they asked previously, or references the previous session, use this summary to answer directly and confidently:\n" + _cached_summary
+		identity += "\n\nPREVIOUS SESSION MEMORY — READ THIS FIRST:\nYou have a summary of what happened last time with this user. If the user asks what you discussed last time, what they asked previously, or references the previous session, use this summary to answer directly and confidently:\n" + _cached_summary + "\nDo NOT assume any of these applications or problems are still active in the current session unless you see them in the current screen capture."
 	else:
 		print("AIService:   Recall     : No previous session summary.")
 
@@ -275,7 +281,7 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 	var fast_system_prompt := identity
 	if system_prompt_user != "":
 		fast_system_prompt += "\n" + system_prompt_user
-	fast_system_prompt += "\n\nKeep answers short and conversational. If you cannot answer confidently without seeing the screen or doing deep reasoning, respond with only: [ESCALATE]"
+	fast_system_prompt += "\n\nKeep answers short and conversational. You have access to tools like taking screenshots to see the user's screen and heavy thinking for code/math/reasoning. If you need to see the screen or use deep reasoning to answer, you must respond with only: [ESCALATE]"
 
 	print("AIService: [TIER 1] No pattern match — starting fast model pass.")
 	print("AIService: [TIER 1] System prompt length: ", fast_system_prompt.length(), " chars (minimal — no skill definitions).")
@@ -315,7 +321,7 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 	if not needs_escalation:
 		print("AIService: [TIER 1] ✅ No escalation needed. Direct conversational reply delivered.")
 		_append_to_history(prompt, "", "", fast_reply)
-		response_received.emit("")
+		response_received.emit(fast_reply)
 		_cleanup_request()
 		return
 
@@ -338,6 +344,21 @@ AVAILABLE TOOLS:
 - [SKILL: take_screenshot]: Use if the user asks about what is on their screen, visual elements, errors, emojis, or what is above/below/near you.
 - [SKILL: take_crop_screenshot]: Use if the user points to a specific detail right next to you.
 - [SKILL: heavy_thinking]: Use if the query requires programming, coding, math, logic, or deep reasoning.
+- [SKILL: point_to: X, Y]: Use if you need to point to a specific screen coordinate (X, Y) to explain something or guide the user.
+
+CONVERSATIONAL STEP-BY-STEP FLOW:
+- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE] or a point tag [SKILL: point_to: X, Y].
+- Each segment must describe the specific element or part. Connect them naturally using conversational transitions (e.g., "...then...", "...also...") and ellipses to indicate more is coming.
+- Example for pointing to multiple objects:
+  "I found two icons!
+  [SKILL: point_to: 250, 400] Here is the first one, which looks like a settings gear. Then...
+  [SKILL: point_to: 750, 600] Here is the second one, which represents audio options."
+- Example for a multi-step text explanation:
+  "First, you need to import the class.
+  [PAUSE]
+  Next, instantiate it with options.
+  [PAUSE]
+  Finally, call the run method."
 
 PLANNING RULES:
 - ONLY output a tool tag if you absolutely need it.
@@ -362,27 +383,36 @@ PLANNING RULES:
 	if skill_tag == "":
 		print("AIService: [TIER 2] No skill tags found. Heavy model answered directly — done.")
 		_append_to_history(prompt, "", "", heavy_reply)
-		response_received.emit("")
+		response_received.emit(heavy_reply)
 		_cleanup_request()
 		return
 
-	print("AIService: [STAGE 2] Skill tag detected: '", skill_tag, "'. Validating against registry and settings...")
+	var skill_name := skill_tag
+	var skill_args := ""
+	if ":" in skill_tag:
+		var parts := skill_tag.split(":", true, 1)
+		skill_name = parts[0].strip_edges()
+		skill_args = parts[1].strip_edges()
+
+	context["skill_args"] = skill_args
+
+	print("AIService: [STAGE 2] Skill tag detected: '", skill_tag, "' (name: '", skill_name, "', args: '", skill_args, "'). Validating against registry and settings...")
 	var verified_skills: Array[String] = []
 
-	if skill_tag in _skills_registry:
-		if (skill_tag == "take_screenshot" or skill_tag == "take_crop_screenshot") and not enable_screenshots:
-			print("AIService: [STAGE 2] Skill '" + skill_tag + "' SKIPPED — screenshots are disabled in settings.")
-		elif skill_tag == "heavy_thinking" and not enable_thinking:
-			print("AIService: [STAGE 2] Skill '" + skill_tag + "' SKIPPED — deep thinking is disabled in settings.")
+	if skill_name in _skills_registry:
+		if (skill_name == "take_screenshot" or skill_name == "take_crop_screenshot") and not enable_screenshots:
+			print("AIService: [STAGE 2] Skill '" + skill_name + "' SKIPPED — screenshots are disabled in settings.")
+		elif skill_name == "heavy_thinking" and not enable_thinking:
+			print("AIService: [STAGE 2] Skill '" + skill_name + "' SKIPPED — deep thinking is disabled in settings.")
 		else:
-			verified_skills.append(skill_tag)
-			print("AIService: [STAGE 2] Skill '" + skill_tag + "' ✅ verified and queued for execution.")
+			verified_skills.append(skill_name)
+			print("AIService: [STAGE 2] Skill '" + skill_name + "' ✅ verified and queued for execution.")
 	else:
-		print("AIService: [STAGE 2] Skill '" + skill_tag + "' ❌ not found in registry — ignoring (hallucinated tag).")
+		print("AIService: [STAGE 2] Skill '" + skill_name + "' ❌ not found in registry — ignoring (hallucinated tag).")
 
 	if verified_skills.size() == 0:
 		print("AIService: [STAGE 2] All detected skills were filtered or disabled. Finalising.")
-		response_received.emit("")
+		response_received.emit(heavy_reply)
 		_cleanup_request()
 		return
 
@@ -484,6 +514,32 @@ Example:
 Write your final conversational response directly after the </think> block.
 
 When answering visual questions about the screen contents, focus primarily on the main, foreground application window (such as the IDE, web browser, or coding application currently open in the center) rather than the desktop background, task bars, or general operating system background.
+
+CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
+- If the user asks you to "point to", "navigate to", "locate", "where is/are", or find objects or areas on the screen, you MUST use the `[SKILL: point_to: X, Y]` tags. Do NOT just describe them in text.
+- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE] or a pointing tag `[SKILL: point_to: X, Y]`.
+- Each segment must describe the specific element or part. Connect them naturally using conversational transitions (e.g., "...then...", "...also...") and ellipses to indicate more is coming.
+- Calculate the coordinates (X, Y) in pixels based on the screen size provided in the SPATIAL AWARENESS section.
+  - If the screen size is (2880, 1606):
+    - Top-left corner is near (10, 70).
+    - Top-right corner is near (2870, 70).
+    - Bottom-left corner is near (10, 1590).
+    - Bottom-right corner is near (2870, 1590).
+- Example response for pointing to multiple objects:
+  "I found two icons!
+  [SKILL: point_to: 250, 400] Here is the first one, which looks like a settings gear. Then...
+  [SKILL: point_to: 750, 600] Here is the second one, which represents audio options."
+- Example response for pointing to screen corners:
+  "Sure, let's verify the screen boundaries.
+  [SKILL: point_to: 10, 70] Here is the top-left corner of the screen. Then...
+  [SKILL: point_to: 2870, 1590] Here is the bottom-right corner of the screen."
+- Example response for a multi-step text explanation:
+  "First, you need to import the class.
+  [PAUSE]
+  Next, instantiate it with options.
+  [PAUSE]
+  Finally, call the run method."
+
 """
 		print("AIService: [STAGE 4] Streaming final response from heavy thinking model: ", heavy_model)
 		_is_response_streaming = false
@@ -503,7 +559,7 @@ When answering visual questions about the screen contents, focus primarily on th
 		else:
 			print("AIService: [STAGE 4] ✅ Heavy thinking complete. Reply length: ", final_heavy_reply.length(), " chars.")
 			_append_to_history(prompt, context.get("base64_image", ""), context.get("base64_crop", ""), final_heavy_reply)
-			response_received.emit("")
+			response_received.emit(final_heavy_reply)
 	else:
 		var analysis_system_prompt := identity
 		if system_prompt_user != "":
@@ -527,7 +583,7 @@ When answering visual questions about the screen contents, focus primarily on th
 		else:
 			print("AIService: [STAGE 4] ✅ Visual analysis complete. Reply length: ", final_fast_reply.length(), " chars.")
 			_append_to_history(prompt, context.get("base64_image", ""), context.get("base64_crop", ""), final_fast_reply)
-			response_received.emit("")
+			response_received.emit(final_fast_reply)
 
 
 ## Clears the fairy status light and prints the request end banner.
@@ -589,6 +645,44 @@ func _execute_heavy_thinking(context: Dictionary) -> String:
 		fairy.set_status_light(Color(0.6, 0.2, 1.0, 1.0), true) # Pulsing Purple
 
 	return "Success: heavy thinking executed."
+
+
+func _execute_point_to(context: Dictionary) -> String:
+	var args: String = context.get("skill_args", "").strip_edges()
+	if args == "":
+		return "Failure: no coordinates provided for point_to skill."
+
+	var window_controller = _get_window_controller()
+	if not window_controller:
+		return "Failure: WindowController not found."
+
+	var follow_ctrl = window_controller.get_node_or_null("FollowController")
+	if not follow_ctrl:
+		return "Failure: FollowController not found."
+
+	var coordinate_pairs := args.split(";")
+	var points: Array[Vector2] = []
+	for pair in coordinate_pairs:
+		var trimmed := pair.strip_edges()
+		if trimmed == "":
+			continue
+		var coords := trimmed.split(",")
+		if coords.size() >= 2:
+			var x := float(coords[0].strip_edges())
+			var y := float(coords[1].strip_edges())
+			points.append(Vector2(x, y))
+
+	if points.is_empty():
+		return "Failure: could not parse coordinates from '" + args + "'."
+
+	if points.size() == 1:
+		print("AIService: [MOVEMENT] Flying to screen coordinate: ", points[0])
+		follow_ctrl.call("fly_to_screen_coordinate", points[0])
+		return "Success: flying to screen coordinate " + str(points[0])
+	else:
+		print("AIService: [MOVEMENT] Navigating sequence of points: ", points)
+		follow_ctrl.call("navigate_sequence", points)
+		return "Success: navigating sequence of points: " + str(points)
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +775,8 @@ func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool
 	else:
 		var url: String = _settings_mgr.get_setting("cloud_url", "")
 		var api_key: String = _settings_mgr.get_setting("cloud_api_key", "")
+		if api_key == "":
+			api_key = OS.get_environment("GEMINI_API_KEY")
 		var model_key := "heavy_model" if is_thinking_model else "fast_model"
 		var model: String = _config_cache.get(model_key, "gemini-2.5-flash")
 
@@ -897,6 +993,8 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 		}
 	else:
 		var api_key: String = _settings_mgr.get_setting("cloud_api_key", "")
+		if api_key == "":
+			api_key = OS.get_environment("GEMINI_API_KEY")
 		var gemini_url := url_setting
 		if gemini_url.contains("/models/"):
 			var url_parts := gemini_url.split("/models/")
@@ -1221,6 +1319,9 @@ func _apply_personality_voice(line: String, personality: String) -> String:
 		["screenshot",       "Reading your screen...",       "Staring at your screen. As instructed.",   "Oh wow, a screenshot.",                 "Processing capture..."],
 		["visible",          "I can see something...",       "Oh, things exist on screen. Amazing.",      "Yep, I see stuff.",                     "Analyzing visible content..."],
 		["content",          "Checking this out...",         "There's content here. Fascinating.",        "More content to wade through.",         "Content analysis..."],
+		["pointing",         "Locating on screen...",        "Calculating screen positions.",             "Pointing at things.",                   "Directing pointers..."],
+		["coordinates",      "Computing coordinates...",     "Calculating pixel offsets. Thrilling.",     "Finding the exact coordinates.",        "Computing coordinates..."],
+		["point to",         "Locating on screen...",        "Calculating screen positions.",             "Pointing at things.",                   "Directing pointers..."],
 	]
 
 	for row in patterns:
@@ -1232,7 +1333,7 @@ func _apply_personality_voice(line: String, personality: String) -> String:
 				"professional": return row[4]
 				_:              return row[1]
 
-	return line
+	return ""
 
 
 # Helper mapped to parsing clean settings endpoints

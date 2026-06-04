@@ -65,24 +65,34 @@ func _start_daemon() -> void:
 	print("InputManager: source  = ", source_path)
 	print("InputManager: binary  = ", dest_path)
 
-	# Delete previous binary to force fresh compilation on every launch
+	# Only compile if destination binary doesn't exist, or if source file has been modified
+	var compile_needed := true
 	if FileAccess.file_exists(dest_path):
-		DirAccess.remove_absolute(dest_path)
-		print("InputManager: Removed stale binary.")
+		var source_time := FileAccess.get_modified_time(source_path)
+		var dest_time := FileAccess.get_modified_time(dest_path)
+		if dest_time >= source_time:
+			compile_needed = false
+			print("InputManager: Binary is up-to-date. Skipping compilation.")
 
-	# Compile Swift code via local swiftc utility
-	print("InputManager: Compiling hotkey_daemon.swift via swiftc...")
-	var compile_output: Array = []
-	var exit_code := OS.execute("swiftc", [source_path, "-o", dest_path],
-								compile_output, true)
+	if compile_needed:
+		# Delete previous binary to force fresh compilation
+		if FileAccess.file_exists(dest_path):
+			DirAccess.remove_absolute(dest_path)
+			print("InputManager: Removed stale binary.")
 
-	if exit_code != 0:
-		printerr("InputManager: ERROR — swiftc compilation failed (exit code ", exit_code, ").")
-		for line in compile_output:
-			printerr("  swiftc: ", line)
-		return
+		# Compile Swift code via local swiftc utility
+		print("InputManager: Compiling hotkey_daemon.swift via swiftc...")
+		var compile_output: Array = []
+		var exit_code := OS.execute("swiftc", [source_path, "-o", dest_path],
+									compile_output, true)
 
-	print("InputManager: Compilation successful.")
+		if exit_code != 0:
+			printerr("InputManager: ERROR — swiftc compilation failed (exit code ", exit_code, ").")
+			for line in compile_output:
+				printerr("  swiftc: ", line)
+			return
+
+		print("InputManager: Compilation successful.")
 
 	# Launch compiled binary as a detached OS background process
 	print("InputManager: Launching daemon process...")
