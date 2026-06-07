@@ -138,9 +138,9 @@ func evaluate(context: Dictionary) -> void:
 		power_contribution = power
 
 	# ── Derive Tier 2 emotion ─────────────────────────────────────────────
-	var c_key := "H" if courage >= 1.0 else "L"
-	var w_key := "H" if wisdom  >= 1.0 else "L"
-	var p_key := "H" if power   >= 1.0 else "L"
+	var c_key := "H" if courage >= 0.0 else "L"
+	var w_key := "H" if wisdom  >= 0.0 else "L"
+	var p_key := "H" if power   >= 0.0 else "L"
 	var emotion: String = _EMOTION_MAP.get(c_key + w_key + p_key, "serenity")
 
 	# ── Update Love Meter ─────────────────────────────────────────────────

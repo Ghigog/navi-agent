@@ -69,7 +69,7 @@ Each prompt produces a High (H) or Low (L) reading for each of the three dimensi
 | H | L | L | **Pain** | Knows the right path, but has no knowledge or tools to walk it. |
 | L | L | L | **Oblivion** | Everything is broken. No anchor, no tools, no knowledge. |
 
-> **Note on High vs. Low:** A dimension is considered "High" if its score is ≥ 1, and "Low" if its score is ≤ 0, at the time of evaluation for the current prompt.
+> **Note on High vs. Low:** A dimension is considered "High" if its score is ≥ 0.0, and "Low" if its score is < 0.0, at the time of evaluation for the current prompt. This maps default/neutral (0.0) dimension states to positive High channels (HHH → Serenity).
 
 ---
 
