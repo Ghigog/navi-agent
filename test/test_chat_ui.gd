@@ -113,30 +113,28 @@ func test_thinking_update_ignored_after_response_received() -> void:
 		"Response must not be overwritten by post-response deferred thoughts.")
 	assert_false(chat_ui.response_label.text.contains("Oh, finally!"),
 		"Deferred thought text must not appear after response is received.")
-
-
 func test_parse_interactive_steps_with_pauses() -> void:
 	var text := "First part.\n[PAUSE]\nSecond part."
-	var steps: Array = chat_ui._parse_interactive_steps(text)
+	var GC_Script = load("res://scripts/GuidanceController.gd")
+	var steps: Array = GC_Script.parse_interactive_steps(text)
 	
-	assert_eq(steps.size(), 2, "Should parse two steps.")
-	assert_eq(steps[0]["text"], "First part.", "First step text matches.")
-	assert_null(steps[0]["point"], "First step has no coordinate.")
-	assert_eq(steps[1]["text"], "Second part.", "Second step text matches.")
-	assert_null(steps[1]["point"], "Second step has no coordinate.")
+	assert_eq(steps.size(), 1, "Should combine steps without coordinates.")
+	assert_eq(steps[0]["text"], "First part.\n\nSecond part.", "Merged step text matches.")
+	assert_null(steps[0]["point"], "Merged step has no coordinate.")
 
 
 func test_parse_interactive_steps_with_pointing() -> void:
 	var text := "I found it!\n[SKILL: point_to: 100, 200] Look here.\n[SKILL: point_to: 300, 400] Now here."
-	var steps: Array = chat_ui._parse_interactive_steps(text)
+	var GC_Script = load("res://scripts/GuidanceController.gd")
+	var steps: Array = GC_Script.parse_interactive_steps(text)
 	
 	assert_eq(steps.size(), 3, "Should parse three steps.")
 	assert_eq(steps[0]["text"], "I found it!", "First step matches intro.")
 	assert_null(steps[0]["point"], "Intro has no coordinate.")
 	assert_eq(steps[1]["text"], "Look here.", "Second step text matches.")
-	assert_eq(steps[1]["point"], Vector2(100, 200), "Second step has correct coordinate.")
+	assert_eq(steps[1]["point"], Vector2(192, 216), "Second step has correct mapped coordinate.")
 	assert_eq(steps[2]["text"], "Now here.", "Third step text matches.")
-	assert_eq(steps[2]["point"], Vector2(300, 400), "Third step has correct coordinate.")
+	assert_eq(steps[2]["point"], Vector2(576, 432), "Third step has correct mapped coordinate.")
 
 
 func test_interactive_guide_morph_button() -> void:
@@ -193,22 +191,29 @@ func test_interactive_step_execution_flow() -> void:
 	var steps_typed: Array[Dictionary] = [
 		{"text": "Intro point.", "point": null},
 		{"text": "First point.", "point": Vector2(100, 100)},
-		{"text": "Last point.", "point": Vector2(200, 200)}
+		{"text": "Last point.", "point": null}
 	]
-	chat_ui._interactive_steps = steps_typed
-	chat_ui._is_interactive_mode = true
-	chat_ui._current_step_idx = 0
 	
-	chat_ui._execute_current_interactive_step()
-	# Step 0 has null point, so it should auto-advance to Step 1 and move!
-	assert_eq(chat_ui._current_step_idx, 1, "Should auto-advance from Step 0 (null) to Step 1.")
+	var gc: Node = chat_ui._guidance_controller
+	gc.steps = steps_typed
+	gc.stream_is_running = false
+	gc._start_playback()
+	# Step 0 has null point, does not auto-advance synchronously anymore.
+	assert_eq(gc.current_step_idx, 0, "Should remain at Step 0 initially.")
+	assert_eq(chat_ui.input_edit.placeholder_text, "Navi is presenting...", "Should show presenting instruction.")
+	
+	# Manually advance to Step 1 to test movement
+	gc.current_step_idx = 1
+	gc._execute_step()
 	assert_eq(mock_fairy.status_color, Color(0.2, 0.8, 0.2, 1.0), "Should set status color to pulsing Green when moving.")
 	assert_eq(mock_follow.last_fly_target, Vector2(100, 100), "Should trigger flight to Vector2(100, 100).")
-	assert_true(chat_ui.input_edit.placeholder_text.contains("Next"), "Should show continue instruction.")
+	assert_eq(chat_ui.input_edit.placeholder_text, "Navi is presenting...", "Should show presenting instruction.")
 	
-	chat_ui._current_step_idx = 2
-	chat_ui._execute_current_interactive_step()
-	assert_false(chat_ui._is_interactive_mode, "Should terminate interactive mode on last step.")
+	# Manually advance to Step 2 (last step)
+	gc.current_step_idx = 2
+	gc._execute_step()
+	assert_false(gc.is_active, "Should terminate interactive mode on last step.")
+	assert_false(chat_ui._is_interactive_mode, "Should terminate interactive mode on last step in ChatUI.")
 	assert_eq(mock_fairy.status_color, null, "Should clear status color on sequence completion.")
 	assert_true(mock_follow.was_aborted, "Should abort active sequences.")
 	assert_true(mock_follow.restore_follow_arg, "Should restore follow mode on last step.")
@@ -222,11 +227,31 @@ func test_interactive_step_execution_flow() -> void:
 
 func test_strip_skill_and_pause_tags() -> void:
 	var text_with_tags := "Here is a [SKILL: take_screenshot] and a [PAUSE] tag. And also [SKILL: point_to: 100, 200] tag."
-	var cleaned := chat_ui._strip_skill_and_pause_tags(text_with_tags)
+	var cleaned: String = NaviUtils.strip_skill_and_pause_tags(text_with_tags)
 	assert_eq(cleaned, "Here is a  and a  tag. And also  tag.", "Should strip all skill and pause tags.")
 	
 	var text_with_think := "<think>\n- Reasoning here\n</think>Actual response [PAUSE]"
-	var cleaned_think := chat_ui._strip_skill_and_pause_tags(text_with_think)
+	var cleaned_think: String = NaviUtils.strip_skill_and_pause_tags(text_with_think)
 	assert_eq(cleaned_think, "Actual response", "Should strip think blocks and pause tags.")
+
+
+func test_markdown_to_bbcode() -> void:
+	var raw_text := "This is **bold** text and *also bold* text."
+	var parsed: String = NaviUtils.markdown_to_bbcode(raw_text)
+	assert_eq(parsed, "This is [b]bold[/b] text and [b]also bold[/b] text.", "Should convert both single and double asterisks to bbcode [b] tags.")
+
+
+func test_parse_interactive_steps_with_pointing_style_a() -> void:
+	var text := "First, the most obvious one is the current time displayed in the top right corner of your screen, in the system menu bar.\n[SKILL: point_to: 100, 200]\nAlso, on the left side of the screen, there is a dedicated widget showing multiple time slots or hourly status.\n[SKILL: point_to: 300, 400]"
+	var GC_Script = load("res://scripts/GuidanceController.gd")
+	var steps: Array = GC_Script.parse_interactive_steps(text)
+	
+	assert_eq(steps.size(), 2, "Should parse two steps.")
+	assert_eq(steps[0]["text"], "First, the most obvious one is the current time displayed in the top right corner of your screen, in the system menu bar.", "First step text matches description.")
+	assert_eq(steps[0]["point"], Vector2(192, 216), "First step has correct mapped coordinate.")
+	assert_eq(steps[1]["text"], "Also, on the left side of the screen, there is a dedicated widget showing multiple time slots or hourly status.", "Second step text matches description.")
+	assert_eq(steps[1]["point"], Vector2(576, 432), "Second step has correct mapped coordinate.")
+
+
 
 

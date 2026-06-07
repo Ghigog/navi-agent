@@ -27,14 +27,25 @@ func sendUDP(message: String, port: UInt16) {
 // This combination is safe: no standard macOS or common app shortcut uses it.
 // ---------------------------------------------------------------------------
 
+var keyCode: UInt32 = 49
+var modifiers: UInt32 = 6656
+
+if CommandLine.arguments.count >= 3 {
+    if let argKey = UInt32(CommandLine.arguments[1]),
+       let argMod = UInt32(CommandLine.arguments[2]) {
+        keyCode = argKey
+        modifiers = argMod
+    }
+}
+
 var hotKeyID = EventHotKeyID()
 hotKeyID.signature = OSType(bitPattern: 0x4E415649) // 'NAVI'
 hotKeyID.id = 1
 
 var hotKeyRef: EventHotKeyRef?
 let status = RegisterEventHotKey(
-    49,         // Space — physical keycode, layout-independent
-    6656,       // Control (4096) + Shift (512) + Option (2048)
+    keyCode,
+    modifiers,
     hotKeyID,
     GetApplicationEventTarget(),
     0,
@@ -47,8 +58,7 @@ if status != noErr {
     print("[HotkeyDaemon]   System Settings → Privacy & Security → Accessibility")
     exit(1)
 } else {
-    print("[HotkeyDaemon] Registered Ctrl+Shift+Option+Space (keycode 49) successfully.")
-    print("[HotkeyDaemon] Listening — press Ctrl+Shift+Option+Space to trigger Navi.")
+    print("[HotkeyDaemon] Registered hotkey successfully (keycode \(keyCode), modifiers \(modifiers)).")
 }
 
 // Event type spec — keyboard hotkey pressed

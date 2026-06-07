@@ -19,7 +19,7 @@ var settings: Dictionary = {
 	"openai_api_key": "",
 	"system_prompt": "",
 	"personality": "cheerful and glowing",
-	"fairy_color": "66b2ff", # Light blue hex
+	"fairy_color": "404040", # True neutral — midpoint of all emotion parameters (C=0 W=0 P=0 love=0)
 	"enable_screenshots": true,
 	"enable_thinking": true,
 	"font_size_offset": 0,  # Integer offset applied on top of all base font sizes
@@ -47,7 +47,13 @@ var settings: Dictionary = {
 	"cloud_tts_voice": "alloy",
 	"filter_show_neural": true,
 	"filter_show_system": true,
-	"filter_show_mutter": true
+	"filter_show_mutter": true,
+	"hotkey_keycode": 49,
+	"hotkey_modifiers": 6656,
+	"hotkey_text": "Ctrl + Shift + Opt + Space",
+	"tts_rate": 1.0,
+	"tts_pitch": 1.0,
+	"live_navi_mode": false
 }
 
 var skills = [
@@ -155,6 +161,24 @@ func _ready() -> void:
 	if not settings.has("openai_api_key"):
 		settings["openai_api_key"] = ""
 		changed = true
+	if not settings.has("hotkey_keycode"):
+		settings["hotkey_keycode"] = 49
+		changed = true
+	if not settings.has("hotkey_modifiers"):
+		settings["hotkey_modifiers"] = 6656
+		changed = true
+	if not settings.has("hotkey_text"):
+		settings["hotkey_text"] = "Ctrl + Shift + Opt + Space"
+		changed = true
+	if not settings.has("tts_rate"):
+		settings["tts_rate"] = 1.0
+		changed = true
+	if not settings.has("tts_pitch"):
+		settings["tts_pitch"] = 1.0
+		changed = true
+	if not settings.has("live_navi_mode"):
+		settings["live_navi_mode"] = false
+		changed = true
 	if changed:
 		save_settings()
 
@@ -204,3 +228,11 @@ func set_setting(key: String, value: Variant) -> void:
 	settings[key] = value
 	save_settings()
 	settings_updated.emit() # Notify all listeners
+
+
+## Updates multiple configuration keys at once, saving to disk and emitting the signal only once.
+func set_settings_batch(batch_data: Dictionary) -> void:
+	for key in batch_data.keys():
+		settings[key] = batch_data[key]
+	save_settings()
+	settings_updated.emit()

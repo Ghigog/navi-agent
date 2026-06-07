@@ -51,7 +51,8 @@ func _process(delta: float) -> void:
 			var fairy = main_node.get_node_or_null("FairyVisuals") if main_node else null
 			if fairy:
 				if fairy.has_method("show_pointer_arrow"):
-					var local_target = _actual_target_coord - fairy.position
+					var window_pos := Vector2(get_window().position)
+					var local_target = (_actual_target_coord - window_pos) - fairy.position
 					fairy.show_pointer_arrow(local_target)
 				var chat_ui = main_node.get_node_or_null("ChatUI")
 				if chat_ui and chat_ui.has_method("reposition_ui"):
@@ -72,6 +73,13 @@ func _process(delta: float) -> void:
 		return
 
 	if not is_following:
+		return
+		
+	var main_node = get_parent()
+	var is_fullscreen := false
+	if main_node and "_active_panel" in main_node:
+		is_fullscreen = main_node._active_panel != 0
+	if is_fullscreen:
 		return
 		
 	# Call coordinate retriever delegate
@@ -102,22 +110,24 @@ func fly_to_screen_coordinate(target_coord: Vector2) -> void:
 		_active_tween.kill()
 		
 	if is_fullscreen:
-		# In fullscreen mode, the target position for the fairy node should float adjacent to target_coord
-		var offset := Vector2(-80, -80)
-		var w_size := Vector2(2880, 1606)
-		w_size = Vector2(get_window().size)
+		var window_pos := Vector2(get_window().position)
+		var local_target_coord := target_coord - window_pos
 		
-		if target_coord.x < w_size.x / 2.0:
+		# In fullscreen mode, the target position for the fairy node should float adjacent to local_target_coord
+		var offset := Vector2(-80, -80)
+		var w_size := Vector2(get_window().size)
+		
+		if local_target_coord.x < w_size.x / 2.0:
 			offset.x = 80
 		else:
 			offset.x = -80
 			
-		if target_coord.y < w_size.y / 2.0:
+		if local_target_coord.y < w_size.y / 2.0:
 			offset.y = 80
 		else:
 			offset.y = -80
 			
-		_navigation_target = target_coord + offset
+		_navigation_target = local_target_coord + offset
 		
 		# Create a tween for the fairy movement!
 		if main_node and main_node.has_node("FairyVisuals"):
@@ -126,7 +136,7 @@ func fly_to_screen_coordinate(target_coord: Vector2) -> void:
 			if _active_tween:
 				_active_tween.tween_property(fairy, "position", _navigation_target, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 			if fairy.has_method("show_pointer_arrow"):
-				fairy.show_pointer_arrow(target_coord - fairy.position)
+				fairy.show_pointer_arrow(local_target_coord - fairy.position)
 	else:
 		# Center the window around the target
 		_navigation_target = target_coord - Vector2(100, 100)
@@ -189,6 +199,7 @@ func abort_navigation(restore_follow: bool = true) -> void:
 			fairy.hide_pointer_arrow()
 			
 	# Yield a frame to let visual tweens settle before follow kicks back in
-	if restore_follow:
+	if restore_follow and not is_fullscreen:
 		await get_tree().process_frame
 		is_following = true
+

@@ -102,3 +102,39 @@ func test_clear_status_light() -> void:
 	fairy.clear_status_light()
 	
 	assert_false(fairy.status_light.visible, "Status light should not be visible when cleared.")
+
+
+# ---------------------------------------------------------------------------
+# Emotion color system tests (NAV-63)
+# ---------------------------------------------------------------------------
+
+func test_emotion_color_all_max_is_near_white() -> void:
+	# When all three scores are max and love is max, brightness = 1.0 → near-white
+	fairy.apply_emotion_color(10, 10, 10, 1000)
+	if fairy._emotion_tween:
+		fairy._emotion_tween.custom_step(0.8)
+	assert_almost_eq(fairy.base_color.r, 1.0, 0.01, "Red channel should be ~1.0 at max.")
+	assert_almost_eq(fairy.base_color.g, 1.0, 0.01, "Green channel should be ~1.0 at max.")
+	assert_almost_eq(fairy.base_color.b, 1.0, 0.01, "Blue channel should be ~1.0 at max.")
+
+
+func test_emotion_color_zero_love_is_black() -> void:
+	# Love = -1000 means brightness = 0 → black regardless of dimension scores
+	fairy.apply_emotion_color(10, 10, 10, -1000)
+	if fairy._emotion_tween:
+		fairy._emotion_tween.custom_step(0.8)
+	assert_almost_eq(fairy.base_color.r, 0.0, 0.01, "Red channel should be 0.0 at min love.")
+	assert_almost_eq(fairy.base_color.g, 0.0, 0.01, "Green channel should be 0.0 at min love.")
+	assert_almost_eq(fairy.base_color.b, 0.0, 0.01, "Blue channel should be 0.0 at min love.")
+
+
+func test_emotion_color_high_courage_dominates_green() -> void:
+	# High Courage (10), low Wisdom (-10) and Power (-10), mid love (0)
+	# Brightness = 0.5. Courage normalised = 1.0. Wisdom normalised = 0.0. Power normalised = 0.0.
+	# Green = 1.0 * 0.5 = 0.5. Red = 0.0. Blue = 0.0.
+	fairy.apply_emotion_color(10, -10, -10, 0)
+	if fairy._emotion_tween:
+		fairy._emotion_tween.custom_step(0.8)
+	assert_almost_eq(fairy.base_color.g, 0.5, 0.01, "Green channel should be 0.5.")
+	assert_almost_eq(fairy.base_color.r, 0.0, 0.01, "Red channel should be 0.0.")
+	assert_almost_eq(fairy.base_color.b, 0.0, 0.01, "Blue channel should be 0.0.")

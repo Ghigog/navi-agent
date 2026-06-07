@@ -104,10 +104,20 @@ We use the **GUT (Godot Unit Testing)** framework.
   - Mock any external API endpoints instead of making real network requests.
 
 - **Headless Execution Command (macOS)**:
-  On macOS workspaces, the Godot binary is typically located inside the application bundle at `/Applications/Godot.app/Contents/MacOS/Godot`. Use the GUT CLI runner `gut_cmdln.gd` to run tests headlessly from the project root:
+  On macOS workspaces, the Godot binary is typically located inside the application bundle. Use the GUT CLI runner `gut_cmdln.gd` to run tests headlessly from the project root:
   ```bash
   /Applications/Godot.app/Contents/MacOS/Godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test/ -gexit
   ```
+  > [!TIP]
+  > If `/Applications/Godot.app` is missing, check `/Applications/` for version-specific names (e.g., `Godot_4.3-stable.app`) or run:
+  > `find /Applications -maxdepth 2 -name "Godot*"` to find the binary path.
+
+- **Headless Parser / Class Registry Caching Bug**:
+  > [!WARNING]
+  > Godot 4's headless compiler has a known bug where it fails to resolve newly registered custom `class_name` identifiers in unit tests, throwing:
+  > `Could not find type "ClassName" in the current scope.`
+  > **Workaround**: Do not statically type custom class variables directly in test scripts (e.g. avoid `var controller: GuidanceController`). Declare them as generic types (e.g., `var controller: Node` or `var controller: Variant`) and load/instantiate them dynamically via:
+  > `var controller = load("res://scripts/GuidanceController.gd").new()` or `load("res://scripts/GuidanceController.gd").static_method()`
 
 - **Example Test Skeleton**:
   ```gdscript
@@ -116,10 +126,21 @@ We use the **GUT (Godot Unit Testing)** framework.
   var _fairy: Node2D
 
   func before_each() -> void:
-  	_fairy = load("res://scenes/Fairy.tscn").instantiate()
+  	# Using load().instantiate() avoids compiler class registry registry errors
+  	_fairy = load("res://scenes/FairyVisuals.tscn").instantiate() as Node2D
   	add_child_ref(_fairy)
 
   func test_initial_state_is_follow() -> void:
   	assert_eq(_fairy.current_state, 0, "Fairy should start in FOLLOW state.")
   ```
 - **Code Coverage**: Ensure helper methods, state changes, UI signal mappings, and API endpoints are tested using mock data inputs rather than calling actual external API endpoints.
+
+---
+
+## 7. Native Binaries & Execution Permissions
+
+Navi bundles native binaries and helper scripts under the `bin/` directory (e.g., `piper`, `whisper-cli`, and `hotkey_daemon`).
+- **Permissions**: If a service fails to execute because of a permission error, ensure the binaries have executable permissions set:
+  ```bash
+  chmod +x bin/piper bin/whisper-cli bin/hotkey_daemon
+  ```

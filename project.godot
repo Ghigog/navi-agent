@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Navi"
 run/main_scene="res://scenes/Main.tscn"
-config/features=PackedStringArray("4.6", "Forward Plus")
+config/features=PackedStringArray("4.6", "GL Compatibility")
 boot_splash/bg_color=Color(0.14117648, 0.14117648, 0.14117648, 0)
 boot_splash/image="uid://ct4ps4ier02x4"
 config/icon="uid://ct4ps4ier02x4"
@@ -29,6 +29,8 @@ SettingsManager="*res://scripts/SettingsManager.gd"
 AIService="*uid://bxuhunfi6pdn7"
 STTService="*res://scripts/STTService.gd"
 TTSService="*res://scripts/TTSService.gd"
+NaviUtils="*res://scripts/NaviUtils.gd"
+EmotionState="*res://scripts/EmotionState.gd"
 
 [display]
 
@@ -49,6 +51,7 @@ enabled=PackedStringArray("res://addons/gut/plugin.cfg")
 3d/physics_engine="Jolt Physics"
 
 [rendering]
-
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
 rendering_device/driver.windows="d3d12"
 viewport/transparent_background=true

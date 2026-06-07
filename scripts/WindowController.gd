@@ -67,9 +67,16 @@ func _on_settings_manager_updated() -> void:
 	
 func _apply_global_settings(manager: Node) -> void:
 	# 1. Update Fairy Visuals
-	var color_hex = manager.get_setting("fairy_color", "66b2ff")
+	var color_hex = manager.get_setting("fairy_color", "404040")
 	if _fairy:
-		_fairy.set_fairy_color(Color.html(color_hex))
+		var live_mode: bool = manager.get_setting("live_navi_mode", false)
+		if live_mode and Engine.has_singleton("EmotionState"):
+			# Live Navi Mode — apply emotion colour from saved state (NAV-65)
+			var es: Node = Engine.get_singleton("EmotionState")
+			_fairy.apply_emotion_color(es.courage, es.wisdom, es.power, es.love_score)
+			print("WindowController: 🎨 Live Navi Mode — emotion colour applied from saved state.")
+		else:
+			_fairy.set_fairy_color(Color.html(color_hex))
 	
 	# 2. Update AI Service (Assuming it's an Autoload)
 	if has_node("/root/AIService"):
@@ -85,7 +92,7 @@ func _apply_global_settings(manager: Node) -> void:
 			})
 
 	# 3. Apply global font size offset across all UI nodes
-	var font_offset: int = manager.get_setting("font_size_offset", 0)
+	var font_offset: int = int(manager.get_setting("font_size_offset", 0))
 	_apply_font_size_offset(get_tree().get_root(), font_offset)
 
 	print("WindowController: All settings applied successfully.")
@@ -110,7 +117,7 @@ func _apply_font_size_offset(root: Node, offset: int) -> void:
 			# First visit: snapshot current (original) values for all relevant props
 			var snapshot: Dictionary = {}
 			for prop in font_props:
-				var val = root.get(prop)
+				var val: Variant = root.get(prop)
 				if val != null and (val is int or val is float) and val > 0:
 					snapshot[prop] = val
 			_font_size_cache[node_id] = snapshot
@@ -197,7 +204,14 @@ func _on_hotkey_pressed() -> void:
 	# Open the Chat panel next to the fairy's new coordinates without initial screenshot
 	if _chat_ui and _chat_ui.has_method("reposition_ui") and _chat_ui.has_method("open_chat"):
 		_chat_ui.call("reposition_ui", _fairy.position)
-		_chat_ui.call("open_chat", null, _fairy.position, Vector2(screen_rect.size))
+		var screen := DisplayServer.window_get_current_screen()
+		var screen_pos := DisplayServer.screen_get_position(screen)
+		var screen_size := DisplayServer.screen_get_size(screen)
+		if screen_size.x <= 0 or screen_size.y <= 0:
+			screen_pos = Vector2i.ZERO
+			screen_size = Vector2i(1920, 1080)
+		var absolute_fairy_pos := Vector2(window.position) + _fairy.position
+		_chat_ui.call("open_chat", null, absolute_fairy_pos, Vector2(screen_size))
 
 	# Request focus on the Godot window to intercept typing events
 	DisplayServer.window_move_to_foreground()
@@ -314,14 +328,18 @@ func capture_crop_screenshot() -> Image:
 	if not img:
 		return null
 		
-	# Compute pixel coordinates of the fairy on the captured image
+	# Compute pixel coordinates of the fairy on the captured image using absolute positioning on the full screen
 	var window := get_window()
-	var w_size := Vector2(window.size)
-	if w_size.x == 0 or w_size.y == 0:
-		return img
+	var screen := DisplayServer.window_get_current_screen()
+	var screen_pos := DisplayServer.screen_get_position(screen)
+	var screen_size := DisplayServer.screen_get_size(screen)
+	if screen_size.x <= 0 or screen_size.y <= 0:
+		screen_pos = Vector2i.ZERO
+		screen_size = Vector2i(1920, 1080)
 		
-	var rel_x := _fairy.position.x / w_size.x
-	var rel_y := _fairy.position.y / w_size.y
+	var absolute_fairy_pos := Vector2(window.position) + _fairy.position
+	var rel_x := (absolute_fairy_pos.x - screen_pos.x) / screen_size.x
+	var rel_y := (absolute_fairy_pos.y - screen_pos.y) / screen_size.y
 	var px_x := int(rel_x * img.get_width())
 	var px_y := int(rel_y * img.get_height())
 	

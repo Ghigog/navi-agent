@@ -10,9 +10,14 @@ func capture_screen() -> Image:
 	var img: Image = null
 	var current_screen := DisplayServer.window_get_current_screen()
 
-	# --- Primary path: macOS native screencapture utility ---
-	# -x  silences the camera shutter sound.
-	# -t  sets output format to jpg.
+	# --- Primary path: Godot built-in DisplayServer (cross-platform, fast in-memory) ---
+	if DisplayServer.get_name() != "headless":
+		img = DisplayServer.screen_get_image(current_screen)
+		if img and img.get_width() > 0:
+			print("ScreenCaptureService: Captured via DisplayServer.screen_get_image().")
+			return img
+
+	# --- Fallback path: macOS native screencapture utility (if DisplayServer fails or is headless) ---
 	if OS.get_name() == "macOS":
 		var temp_path := OS.get_user_data_dir() + "/" + TEMP_FILENAME
 		
@@ -32,25 +37,20 @@ func capture_screen() -> Image:
 			
 			var exit_code: int = thread.wait_to_finish()
 			if exit_code == 0:
-				# Load the screenshot file and remove the temporary disk asset immediately
-				img = Image.load_from_file(temp_path)
-				DirAccess.remove_absolute(temp_path)
-				print("ScreenCaptureService: Captured via macOS screencapture tool in background thread.")
+				if FileAccess.file_exists(temp_path):
+					# Load the screenshot file and remove the temporary disk asset immediately
+					img = Image.load_from_file(temp_path)
+					DirAccess.remove_absolute(temp_path)
+					print("ScreenCaptureService: Captured via macOS screencapture tool in background thread.")
+				else:
+					printerr("ScreenCaptureService: screencapture finished but temp file not found.")
 			else:
 				printerr("ScreenCaptureService: screencapture background thread failed (exit code ", exit_code, ").")
 		else:
 			printerr("ScreenCaptureService: Failed to start background thread for screencapture. Error: ", err)
 
-	# --- Fallback path: Godot built-in DisplayServer (cross-platform / headful only) ---
-	if img == null or img.get_width() == 0:
-		if DisplayServer.get_name() != "headless":
-			img = DisplayServer.screen_get_image(current_screen)
-			if img and img.get_width() > 0:
-				print("ScreenCaptureService: Captured via DisplayServer.screen_get_image().")
-			else:
-				printerr("ScreenCaptureService: Both capture methods failed. Returning null.")
-				img = null
-
+	if img == null:
+		printerr("ScreenCaptureService: Both capture methods failed. Returning null.")
 	return img
 
 

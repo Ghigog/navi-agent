@@ -14,6 +14,9 @@ const DEBOUNCE_TIME: float = 0.2 # Seconds to wait between valid triggers
 var _udp_peer := PacketPeerUDP.new()
 var _daemon_pid: int = -1
 var _last_trigger_time: float = 0.0
+var _current_keycode := 49
+var _current_modifiers := 6656
+
 
 
 func _ready() -> void:
@@ -27,6 +30,12 @@ func _ready() -> void:
 	else:
 		print("InputManager: UDP socket bound on port ", PORT, ". Ready to receive hotkey packets.")
 
+	if has_node("/root/SettingsManager"):
+		var sm = get_node("/root/SettingsManager")
+		sm.settings_updated.connect(_on_settings_updated)
+		_current_keycode = sm.get_setting("hotkey_keycode", 49)
+		_current_modifiers = sm.get_setting("hotkey_modifiers", 6656)
+
 	# Compile and run the daemon binary on macOS platforms
 	if OS.get_name() == "macOS":
 		if enable_daemon:
@@ -35,6 +44,21 @@ func _ready() -> void:
 			print("InputManager: enable_daemon=false — daemon is disabled.")
 	else:
 		print("InputManager: Not macOS — skipping daemon launch.")
+
+
+func _on_settings_updated() -> void:
+	if not has_node("/root/SettingsManager"):
+		return
+	var sm = get_node("/root/SettingsManager")
+	var new_keycode = sm.get_setting("hotkey_keycode", 49)
+	var new_modifiers = sm.get_setting("hotkey_modifiers", 6656)
+	if new_keycode != _current_keycode or new_modifiers != _current_modifiers:
+		print("InputManager: Hotkey settings changed. Restarting daemon.")
+		_current_keycode = new_keycode
+		_current_modifiers = new_modifiers
+		_cleanup_daemon()
+		if OS.get_name() == "macOS" and enable_daemon:
+			_start_daemon()
 
 
 func _process(_delta: float) -> void:
@@ -95,13 +119,12 @@ func _start_daemon() -> void:
 		print("InputManager: Compilation successful.")
 
 	# Launch compiled binary as a detached OS background process
-	print("InputManager: Launching daemon process...")
-	_daemon_pid = OS.create_process(dest_path, [])
+	print("InputManager: Launching daemon process with keycode: ", _current_keycode, " modifiers: ", _current_modifiers)
+	_daemon_pid = OS.create_process(dest_path, [str(_current_keycode), str(_current_modifiers)])
 	if _daemon_pid == -1:
 		printerr("InputManager: ERROR — OS.create_process failed. Check binary permissions.")
 	else:
 		print("InputManager: Daemon running with PID ", _daemon_pid, ".")
-		print("InputManager: Press Ctrl+Shift+Option+Space to trigger.")
 
 
 func _notification(what: int) -> void:
