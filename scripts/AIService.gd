@@ -235,20 +235,6 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 
 	request_started.emit()
 
-	# Build identity — personality voice + honesty rules + recall memory (if any)
-	var identity := "You are Navi, the desktop assistant."
-	if personality != "":
-		identity = "You are Navi, a " + personality + " desktop assistant."
-	identity += "\n\nCRITICAL: Be extremely honest and realistic. If you do not know something, are unsure, do not see the screen clearly, or if you lack sufficient information, DO NOT make up facts, apps, or passwords. Instead, ask the user for clarification or state your limitations. Trust current screen captures over any previous conversation history."
-
-	# Inject previous session recall directly into identity so even small models see it
-	# at the highest-priority position in the system prompt.
-	if _cached_summary != "":
-		print("AIService:   Recall     : Previous session summary injected (", _cached_summary.length(), " chars).")
-		identity += "\n\nPREVIOUS SESSION MEMORY — READ THIS FIRST:\nYou have a summary of what happened last time with this user. If the user asks what you discussed last time, what they asked previously, or references the previous session, use this summary to answer directly and confidently:\n" + _cached_summary + "\nDo NOT assume any of these applications or problems are still active in the current session unless you see them in the current screen capture."
-	else:
-		print("AIService:   Recall     : No previous session summary.")
-
 	# Pre-evaluate emotion from incoming prompt context BEFORE building identity (NAV-65).
 	# This means the scored emotion is injected into the system prompt and Navi responds
 	# IN that emotional state — rather than scoring after the fact.
@@ -256,23 +242,8 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 	# current response doesn't exist yet.
 	_pre_evaluate_emotion(prompt)
 
-	# Inject emotion inner-state block and override personality when Live Navi Mode is ON (NAV-62/65)
 	var live_navi_mode: bool = _settings_mgr.get_setting("live_navi_mode", false)
-	if live_navi_mode:
-		var live_personality := EmotionPromptBuilder.get_live_personality()
-		identity = "You are Navi, a " + live_personality + " desktop assistant."
-		identity += "\n\nCRITICAL: Be extremely honest and realistic. If you do not know something, are unsure, do not see the screen clearly, or if you lack sufficient information, DO NOT make up facts, apps, or passwords. Instead, ask the user for clarification or state your limitations. Trust current screen captures over any previous conversation history."
-		var emotion_block: String = EmotionPromptBuilder.build()
-		if emotion_block != "":
-			identity += emotion_block
-			var es_emotion: String = ""
-			if Engine.has_singleton("EmotionState"):
-				es_emotion = str(Engine.get_singleton("EmotionState").get("emotion"))
-			print("AIService:   Emotion    : [LIVE] Injected block (", emotion_block.length(), " chars). Personality: '", live_personality, "'  Feeling: ", es_emotion)
-		else:
-			print("AIService:   Emotion    : [LIVE] WARNING — build() returned empty. Block not injected.")
-	else:
-		print("AIService:   Emotion    : Live Navi Mode OFF — skipping emotion injection.")
+	var identity := _build_identity(personality, live_navi_mode)
 
 	var context := {
 		"prompt": prompt,
@@ -307,6 +278,10 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 
 			# We only use heavy thinking loops if the forced skill is heavy_thinking
 			var has_heavy_thinking: bool = forced_skill == "heavy_thinking"
+			# Intermediate evaluation to update emotion state with skill execution outcome before reply
+			_evaluate_emotion(prompt, "", true, outcome.begins_with("Success"), true)
+			identity = _build_identity(personality, live_navi_mode)
+			
 			await _deliver_final_response(prompt, context, has_heavy_thinking, identity, system_prompt_user, fast_model, heavy_model)
 			_evaluate_emotion(prompt, _last_response_text, true, outcome.begins_with("Success"))
 			_cleanup_request()
@@ -351,6 +326,8 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 			thinking_update.emit(retraction)
 			var outcome: String = await _skills_registry["take_screenshot"].call(context) as String
 			print("AIService: [SELF-CORRECT] ← Screenshot taken. Outcome: ", outcome)
+			_evaluate_emotion(prompt, "", true, outcome.begins_with("Success"), true)
+			identity = _build_identity(personality, live_navi_mode)
 			await _deliver_final_response(prompt, context, true, identity, system_prompt_user, fast_model, heavy_model)
 			_evaluate_emotion(prompt, _last_response_text, true, outcome.begins_with("Success"))
 			_cleanup_request()
@@ -477,6 +454,10 @@ PLANNING RULES:
 
 
 	# ── STAGE 4: Final Response Delivery ──────────────────────────────────────
+	# Intermediate evaluation to update emotion state with skill execution outcome before reply
+	_evaluate_emotion(prompt, "", skill_was_available, skill_did_succeed, true)
+	identity = _build_identity(personality, live_navi_mode)
+
 	await _deliver_final_response(prompt, context, has_heavy_thinking, identity, system_prompt_user, fast_model, heavy_model)
 	_evaluate_emotion(prompt, _last_response_text, skill_was_available, skill_did_succeed)
 	_cleanup_request()
@@ -720,6 +701,37 @@ func _pre_evaluate_emotion(prompt: String) -> void:
 		return
 	print("AIService:   Emotion    : Pre-evaluating from prompt context before LLM call...")
 	_evaluate_emotion(prompt, _last_response_text, false, false, true)
+
+
+func _build_identity(personality: String, live_navi_mode: bool) -> String:
+	var identity := "You are Navi, the desktop assistant."
+	var live_personality := ""
+	if live_navi_mode:
+		live_personality = EmotionPromptBuilder.get_live_personality()
+		identity = "You are Navi, a " + live_personality + " desktop assistant."
+	elif personality != "":
+		identity = "You are Navi, a " + personality + " desktop assistant."
+		
+	identity += "\n\nCRITICAL: Be extremely honest and realistic. If you do not know something, are unsure, do not see the screen clearly, or if you lack sufficient information, DO NOT make up facts, apps, or passwords. Instead, ask the user for clarification or state your limitations. Trust current screen captures over any previous conversation history."
+
+	if _cached_summary != "":
+		identity += "\n\nPREVIOUS SESSION MEMORY — READ THIS FIRST:\nYou have a summary of what happened last time with this user. If the user asks what you discussed last time, what they asked previously, or references the previous session, use this summary to answer directly and confidently:\n" + _cached_summary + "\nDo NOT assume any of these applications or problems are still active in the current session unless you see them in the current screen capture."
+
+	if live_navi_mode:
+		var emotion_block: String = EmotionPromptBuilder.build()
+		if emotion_block != "":
+			identity += emotion_block
+			var es_emotion: String = ""
+			var tree := Engine.get_main_loop() as SceneTree
+			if tree and tree.root.has_node("EmotionState"):
+				es_emotion = str(tree.root.get_node("EmotionState").get("emotion"))
+			print("AIService:   Emotion    : [LIVE] Injected block (", emotion_block.length(), " chars). Personality: '", live_personality, "'  Feeling: ", es_emotion)
+		else:
+			print("AIService:   Emotion    : [LIVE] WARNING — build() returned empty. Block not injected.")
+	else:
+		print("AIService:   Emotion    : Live Navi Mode OFF — skipping emotion injection.")
+		
+	return identity
 
 
 func _cleanup_request() -> void:
