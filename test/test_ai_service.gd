@@ -399,8 +399,8 @@ func test_visual_queries_escalate_to_heavy_model() -> void:
 		"func _execute_take_screenshot(context: Dictionary) -> String:\n" + \
 		"    context['base64_image'] = 'mock_image_data'\n" + \
 		"    return 'Success'\n" + \
-		"func _deliver_final_response(p, context, is_heavy, id, s_usr, f_mod, h_mod) -> void:\n" + \
-		"    last_is_heavy = is_heavy\n" + \
+		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod) -> void:\n" + \
+		"    last_is_heavy = has_heavy_thinking or context.get('base64_image', '') != '' or context.get('base64_crop', '') != ''\n" + \
 		"func _get_window_controller() -> Node:\n" + \
 		"    return mock_window_controller"
 	script.reload()
@@ -455,8 +455,8 @@ func test_visual_queries_escalate_to_heavy_model() -> void:
 		"    elif call_count == 2:\n" + \
 		"        return '[SKILL: take_screenshot]'\n" + \
 		"    return 'conversational answer'\n" + \
-		"func _deliver_final_response(p, context, is_heavy, id, s_usr, f_mod, h_mod) -> void:\n" + \
-		"    last_is_heavy = is_heavy\n" + \
+		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod) -> void:\n" + \
+		"    last_is_heavy = has_heavy_thinking or context.get('base64_image', '') != '' or context.get('base64_crop', '') != ''\n" + \
 		"func _get_window_controller() -> Node:\n" + \
 		"    return mock_window_controller"
 	test_script.reload()
@@ -502,3 +502,50 @@ func test_status_light_updates_to_purple_for_heavy_thinking() -> void:
 	
 	assert_eq(fairy.last_color, Color(0.6, 0.2, 1.0, 1.0), "Status light must be set to Purple (0.6, 0.2, 1.0).")
 	assert_true(fairy.last_pulse, "Status light must be set to pulse.")
+
+
+func test_response_cleared_emitted_during_stream_request() -> void:
+	var state := {
+		"emitted": false
+	}
+	ai_service.response_cleared.connect(func():
+		state["emitted"] = true
+	)
+
+	var _discard = await ai_service._request_llm_stream("prompt", "system")
+	assert_true(state["emitted"], "response_cleared signal must be emitted during LLM stream request.")
+
+
+func test_escalation_rules_with_conversational_escalate_text() -> void:
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var last_is_heavy: bool = false\n" + \
+		"var call_count: int = 0\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"    call_count += 1\n" + \
+		"    if call_count == 1:\n" + \
+		"        # Long reply that happens to mention [ESCALATE] conversationally\n" + \
+		"        return 'Here is a conversational reply that mentions the word [ESCALATE] inside a paragraph. ' + 'a'.repeat(200)\n" + \
+		"    return 'fallback'\n" + \
+		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod) -> void:\n" + \
+		"    pass"
+	script.reload()
+
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._config_cache = {
+		"system_prompt" : "",
+		"personality": "",
+		"llm_provider": "local",
+		"fast_model": "llama3.2:3b",
+		"heavy_model": "gemma4:e4b"
+	}
+	mock_settings.set_setting("llm_provider", "local")
+	mock_settings.set_setting("local_model", "llama3.2:3b")
+	mock_settings.set_setting("local_thinking_model", "gemma4:e4b")
+	mock_settings.set_setting("enable_thinking", true)
+
+	mock_ai.send_prompt("Test prompt")
+	assert_eq(mock_ai.call_count, 1, "Should NOT escalate (call_count should remain 1) for conversational replies containing [ESCALATE].")

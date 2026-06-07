@@ -161,14 +161,14 @@ func _transcribe_whisper(wav_path: String) -> String:
 		"-nt"
 	]
 
-	var output := []
+	var output: Array[String] = []
 	var thread := Thread.new()
 
-	var thread_err = thread.start(_execute_whisper_task.bind(bin_path, args, output))
+	var thread_err: Error = thread.start(_execute_whisper_task.bind(bin_path, args, output))
 	if thread_err != OK:
 		printerr("STTService: Failed to start background transcription thread. Code: ", thread_err)
 		# Fallback to main thread execution if thread spawn fails
-		var exit_code = OS.execute(bin_path, args, output, true)
+		var exit_code: int = OS.execute(bin_path, args, output, true)
 		if exit_code == 0 and output.size() > 0:
 			return _clean_whisper_output(output)
 		return ""
@@ -177,7 +177,7 @@ func _transcribe_whisper(wav_path: String) -> String:
 	while thread.is_alive():
 		await get_tree().process_frame
 
-	var exit_code = thread.wait_to_finish()
+	var exit_code: int = thread.wait_to_finish()
 	if exit_code != 0:
 		printerr("STTService: Local whisper-cli failed with exit code ", exit_code)
 		return ""

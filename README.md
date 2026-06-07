@@ -11,7 +11,11 @@ Pressing a hotkey freezes the fairy in place on your screen and opens a subtle t
 
 Please review the following design and architectural specifications:
 - [AI Agent Guidelines](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/ai_agent.md): General architectural conventions, scene structures, styling rules, and GUT coding best practices.
-- [Development Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/tickets.md): Granular agile implementation tickets representing features in development order, with acceptance criteria for unit tests.
+- [Emotion System Design](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/emotions.md): Full specification for the Triforce Emotion System — Courage/Wisdom/Power dimensions, Tier 2 composite emotions, Love Meter, prompt injection, and visual feedback.
+- Development Tickets:
+  - [Active / In Progress Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/in_progress.md): Tickets currently in development.
+  - [Backlog Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/backlog.md): Future tickets scheduled for implementation.
+  - [Completed Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/done.md): Log of all completed, cancelled, or reverted tickets.
 
 ---
 
@@ -20,11 +24,15 @@ Please review the following design and architectural specifications:
 Navi utilizes a modular architecture to handle the desktop assistant workflow:
 - **`WindowController`**: Sets up borderless window sizes, allows transparency, and manages window focus switches.
 - **`FollowController`**: Tracks the global OS mouse coordinate and updates the window's position at a fixed offset so that it never overlaps the cursor (allowing mouse clicks to go to other desktop apps naturally).
-- **`FairyVisuals`**: Manages the glowing particle effects and flapping wings (supporting color configurations).
+- **`FairyVisuals`**: Manages the glowing particle effects, flapping wings, and the **Triforce Emotion visual system** — dynamically tints the fairy body using a RGB colour formula derived from Courage (green), Wisdom (blue), and Power (red) scores, with overall brightness controlled by the Love Meter. Also spawns transient floating emoji notifications when the emotion state changes.
 - **`InputManager`**: Registers global macOS hotkeys to trigger actions when Navi is in the background.
 - **`ScreenCaptureService`**: Captures high-fidelity desktop screen images via native OS APIs or Godot's DisplayServer, keeping Navi visible to preserve pointing context.
-- **`AIService`**: Orchestrates the direct real-time response streaming pipeline. When a prompt is received, it dispatches directly to the fast model first (bypassing pre-call planning delays for conversational speed under 3s). It intercepts and filters skill tags (`[SKILL: ...]`) to trigger screen captures or handoffs to the heavy reasoning model dynamically, displaying a status indicator light (amber/purple) to represent thinking states.
+- **`AIService`**: Orchestrates the direct real-time response streaming pipeline. When a prompt is received, it dispatches directly to the fast model first (bypassing pre-call planning delays for conversational speed under 3s). It intercepts and filters skill tags (`[SKILL: ...]`) to trigger screen captures or handoffs to the heavy reasoning model dynamically, displaying a status indicator light (amber/purple) to represent thinking states. After every response it calls **`EmotionEngine`** to score the interaction and injects the current emotion state into every outgoing system prompt via **`EmotionPromptBuilder`**.
 - **`SettingsManager`**: Manages the configuration file (`user://settings.json`) saving settings like prompt text, API endpoints, keys, visual colors, toggles for enabling screenshots or deep thinking, and a global font size offset that scales all UI text up or down.
+- **`EmotionState`** *(Autoload)*: Persistent data model for the Triforce Emotion System. Stores Courage, Wisdom, and Power dimension scores (−10 to +10), the derived Tier 2 composite emotion, the cumulative Love Meter score (−1000 to +1000), and the relationship level. Persisted to `user://emotion_state.json`.
+- **`EmotionEngine`**: Rule-based scoring engine. After each LLM response it evaluates the interaction context using relevance flags, updates dimension scores, derives the composite emotion, updates the Love Meter, and emits `emotion_updated` to drive the visual system.
+- **`EmotionPromptBuilder`**: Constructs a first-person inner-state character prompt block injected into every LLM system prompt so Navi's replies naturally reflect her current emotional tone and relationship level.
+- **`EmojiNotification`**: Transient scene spawned by `FairyVisuals` when the emotion changes. Plays a grow → hold → shrink tween animation above the fairy, then auto-frees.
 
 ---
 
@@ -34,36 +42,51 @@ We organize the Godot project folder structure as follows:
 
 ```text
 navi/
-├── .godot/                # Godot internal cache
+├── .godot/                      # Godot internal cache
 ├── addons/
-│   └── gut/               # GUT Unit testing addon
+│   └── gut/                     # GUT Unit testing addon
 ├── assets/
-│   ├── fonts/             # Modern typography (Outfit, Inter)
-│   ├── shaders/           # Glassmorphism blur shader, glows
-│   └── textures/          # Sprite sheets/particles
+│   ├── fonts/                   # Modern typography (Outfit, Inter)
+│   ├── shaders/                 # Glassmorphism blur shader, glows
+│   └── textures/                # Sprite sheets/particles
 ├── scenes/
-│   ├── Main.tscn          # Main orchestrator scene
-│   ├── FairyVisuals.tscn  # Particle effects & wing flap visual
-│   ├── ChatUI.tscn        # Translucent input/output panel with drag-to-resize corner handle
-│   └── SettingsUI.tscn    # Settings control panel (incl. font size adjustment)
+│   ├── Main.tscn                # Main orchestrator scene
+│   ├── FairyVisuals.tscn        # Particle effects & wing flap visual
+│   ├── ChatUI.tscn              # Translucent input/output panel
+│   ├── SettingsUI.tscn          # Settings control panel
+│   └── EmojiNotification.tscn  # Transient floating emoji notification
 ├── scripts/
-│   ├── WindowController.gd# Window state & transparency setup
-│   ├── FollowController.gd# Mouse tracking & lerp calculations
-│   ├── InputManager.gd    # Hotkey registration singleton
-│   ├── AIService.gd       # API request backend singleton
-│   ├── SettingsManager.gd # Local settings storage singleton
-│   └── ScreenCapture.gd   # Screenshot utility class
-├── test/                  # GUT Unit tests
+│   ├── WindowController.gd      # Window state & transparency setup
+│   ├── FollowController.gd      # Mouse tracking & lerp calculations
+│   ├── InputManager.gd          # Hotkey registration singleton
+│   ├── AIService.gd             # API request backend singleton
+│   ├── SettingsManager.gd       # Local settings storage singleton
+│   ├── ScreenCaptureService.gd  # Screenshot utility class
+│   ├── EmotionState.gd          # Emotion system data model (Autoload)
+│   ├── EmotionEngine.gd         # Rule-based emotion scoring engine
+│   ├── EmotionPromptBuilder.gd  # LLM system prompt injection builder
+│   └── EmojiNotification.gd     # Floating emoji animation controller
+├── test/                        # GUT Unit tests
 │   ├── test_agent_skills.gd
 │   ├── test_ai_service.gd
 │   ├── test_chat_ui.gd
+│   ├── test_emotion_engine.gd
+│   ├── test_emotion_prompt_builder.gd
+│   ├── test_emotion_state.gd
+│   ├── test_emoji_notification.gd
 │   ├── test_fairy_visuals.gd
 │   ├── test_follow.gd
 │   ├── test_hotkey.gd
+│   ├── test_navigation.gd
+│   ├── test_navi_utils.gd
 │   ├── test_screen_capture.gd
 │   ├── test_settings.gd
+│   ├── test_stt_tts.gd
 │   └── test_window.gd
-└── project.godot          # Godot project file
+├── emotions.md                  # Triforce Emotion System design spec
+├── backlog.md                   # Future feature tickets
+├── done.md                      # Completed ticket log
+└── project.godot                # Godot project file
 ```
 
 ---
@@ -74,11 +97,8 @@ navi/
 1. **Godot Engine**: Godot 4.3+ (Forward+ or Compatibility renderer).
 2. **Local AI Model (Optional)**: Ollama running locally. Verify it's active at `http://localhost:11434`.
 3. **Local Neural TTS (Piper)**: 
-   - To use the offline neural voice "Neural: Local Piper", install the system `piper-tts` Python package:
-     ```bash
-     pip install piper-tts
-     ```
-   - The project uses a wrapper script at `bin/piper` which executes Piper in your python environment. Make sure you download a Piper voice model (e.g., `en_US-amy-medium.onnx` and its companion `.onnx.json` config file) and place them in the `bin/voices/` folder.
+   - The application bundles standalone C++ and PyInstaller Piper binaries for macOS (Apple Silicon/Intel), Windows, and Linux under `bin/`. No Python, pip, or external system libraries are required.
+   - Simply download a Piper voice model (e.g., `en_US-amy-medium.onnx` and its companion `.onnx.json` config file) and place them in the `bin/voices/` folder. The app dynamically detects your OS/architecture and runs local neural TTS out-of-the-box.
 
 ### Running the App
 Open the project in the Godot Editor:

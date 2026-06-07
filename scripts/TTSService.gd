@@ -9,7 +9,7 @@ var _speak_active_id: int = 0
 
 var _stream_active: bool = false
 var _stream_buffer: String = ""
-var _stream_char_queue: Array = []
+var _stream_char_queue: Array[String] = []
 var _is_mutter_loop_running: bool = false
 var _playback_queue: Array[AudioStream] = []
 var _next_sequence_id: int = 0
@@ -35,9 +35,10 @@ func speak(text: String) -> void:
 	if not _settings_mgr.get_setting("enable_tts", true) or _settings_mgr.get_setting("tts_mute", false):
 		return
 
-	var clean_text := _strip_thinking_block(text)
-	clean_text = _strip_skill_and_pause_tags(clean_text)
+	var clean_text := NaviUtils.strip_thinking_block(text)
+	clean_text = NaviUtils.strip_skill_and_pause_tags(clean_text)
 	clean_text = _strip_bbcode(clean_text)
+	clean_text = _clean_text_for_tts(clean_text)
 	clean_text = clean_text.strip_edges()
 	if clean_text == "":
 		return
@@ -61,10 +62,12 @@ func speak(text: String) -> void:
 		var voice := voice_id
 		if voice == "":
 			voice = _get_best_voice()
+		var pitch: float = _settings_mgr.get_setting("tts_pitch", 1.0)
+		var rate: float = _settings_mgr.get_setting("tts_rate", 1.0)
 		if voice != "":
-			DisplayServer.tts_speak(clean_text, voice)
+			DisplayServer.tts_speak(clean_text, voice, 50, pitch, rate)
 		else:
-			DisplayServer.tts_speak(clean_text, "")
+			DisplayServer.tts_speak(clean_text, "", 50, pitch, rate)
 
 
 func _get_actual_path(path: String) -> String:
@@ -117,11 +120,11 @@ func _speak_local_piper(text: String) -> void:
 	]
 
 	var thread := Thread.new()
-	var output := []
-	var thread_err = thread.start(_execute_piper_task.bind(bin_path, args, output))
+	var output: Array[String] = []
+	var thread_err: Error = thread.start(_execute_piper_task.bind(bin_path, args, output))
 	if thread_err != OK:
 		printerr("TTSService: Failed to start background Piper thread.")
-		var exit_code = OS.execute(bin_path, args, output, true)
+		var exit_code: int = OS.execute(bin_path, args, output, true)
 		if exit_code == 0:
 			_play_generated_wav(temp_wav, current_id, seq_id)
 		else:
@@ -131,7 +134,7 @@ func _speak_local_piper(text: String) -> void:
 	while thread.is_alive():
 		await get_tree().process_frame
 
-	var exit_code = thread.wait_to_finish()
+	var exit_code: int = thread.wait_to_finish()
 	if exit_code == 0 and current_id == _speak_active_id:
 		_play_generated_wav(temp_wav, current_id, seq_id)
 	else:
@@ -276,6 +279,19 @@ func _speak_via_get_request(url: String, id: int, seq_id: int) -> void:
 		_on_synthesis_completed(seq_id, null, id)
 
 
+## Checks if the speech synthesizer, background synthesis, or mutter playback is active.
+func is_speaking() -> bool:
+	if _audio_player and _audio_player.playing:
+		return true
+	if _playback_queue.size() > 0:
+		return true
+	if _next_play_idx < _next_sequence_id:
+		return true
+	if DisplayServer.tts_is_speaking():
+		return true
+	return false
+
+
 ## Immediately stops any ongoing speech synthesis or mutter playback.
 func stop() -> void:
 	DisplayServer.tts_stop()
@@ -353,9 +369,10 @@ func _process_system_stream_buffer() -> void:
 
 
 func _speak_system_sentence(sentence: String) -> void:
-	var clean := _strip_thinking_block(sentence)
-	clean = _strip_skill_and_pause_tags(clean)
+	var clean := NaviUtils.strip_thinking_block(sentence)
+	clean = NaviUtils.strip_skill_and_pause_tags(clean)
 	clean = _strip_bbcode(clean)
+	clean = _clean_text_for_tts(clean)
 	clean = clean.strip_edges()
 	if clean == "":
 		return
@@ -369,10 +386,12 @@ func _speak_system_sentence(sentence: String) -> void:
 		var voice := voice_id
 		if voice == "":
 			voice = _get_best_voice()
+		var pitch: float = _settings_mgr.get_setting("tts_pitch", 1.0)
+		var rate: float = _settings_mgr.get_setting("tts_rate", 1.0)
 		if voice != "":
-			DisplayServer.tts_speak(clean, voice)
+			DisplayServer.tts_speak(clean, voice, 50, pitch, rate)
 		else:
-			DisplayServer.tts_speak(clean, "")
+			DisplayServer.tts_speak(clean, "", 50, pitch, rate)
 
 
 func _run_mutter_stream_loop(voice_id: String) -> void:
@@ -410,7 +429,7 @@ func _run_mutter_stream_loop(voice_id: String) -> void:
 		var character: String = _stream_char_queue.pop_front()
 		
 		if character == "<":
-			var tag_buffer = "<"
+			var tag_buffer := "<"
 			while not _stream_char_queue.is_empty() and character != ">":
 				character = _stream_char_queue.pop_front()
 				tag_buffer += character
@@ -436,17 +455,6 @@ func _run_mutter_stream_loop(voice_id: String) -> void:
 		
 	_is_mutter_loop_running = false
 
-
-func _strip_thinking_block(text: String) -> String:
-	var clean := text
-	while clean.contains("<think>") and clean.contains("</think>"):
-		var start := clean.find("<think>")
-		var end := clean.find("</think>")
-		clean = clean.substr(0, start) + clean.substr(end + 8)
-
-	if clean.contains("<think>"):
-		clean = clean.substr(0, clean.find("<think>"))
-	return clean
 
 
 func _strip_bbcode(text: String) -> String:
@@ -533,7 +541,21 @@ func _execute_piper_task(bin_path: String, args: PackedStringArray, output: Arra
 	return OS.execute(bin_path, args, output, true)
 
 
-func _strip_skill_and_pause_tags(input_text: String) -> String:
-	var tag_regex := RegEx.new()
-	tag_regex.compile("\\[PAUSE\\]|\\[(SKILL|SCREEN_CONTEXT|TOOL):[^\\]]*\\]")
-	return tag_regex.sub(input_text, "", true)
+
+func _clean_text_for_tts(text: String) -> String:
+	var cleaned := text
+	# Remove formatting characters that TTS reads aloud
+	cleaned = cleaned.replace("*", "")
+	cleaned = cleaned.replace("_", "")
+	cleaned = cleaned.replace("~", "")
+	cleaned = cleaned.replace("`", "")
+	cleaned = cleaned.replace("#", "")
+	cleaned = cleaned.replace(">", "")
+
+	# Remove emojis and miscellaneous symbols/pictographs
+	var emoji_regex := RegEx.new()
+	emoji_regex.compile("[\\x{1F600}-\\x{1F64F}\\x{1F300}-\\x{1F5FF}\\x{1F680}-\\x{1F6FF}\\x{1F900}-\\x{1F9FF}\\x{1FA70}-\\x{1FAFF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]")
+	if emoji_regex.is_valid():
+		cleaned = emoji_regex.sub(cleaned, "", true)
+
+	return cleaned

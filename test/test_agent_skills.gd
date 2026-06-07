@@ -230,7 +230,7 @@ func test_point_to_single_coordinate_execution() -> void:
 	
 	var outcome = await ai_service._execute_point_to(context)
 	assert_true(outcome.begins_with("Success"), "Execution should succeed.")
-	assert_eq(main_mock.follow_ctrl.last_fly_target, Vector2(500, 600), "Should call fly_to_screen_coordinate with correct vector.")
+	assert_eq(main_mock.follow_ctrl.last_fly_target, Vector2(960, 648), "Should call fly_to_screen_coordinate with correct mapped vector.")
 	
 	get_tree().root.remove_child(main_mock)
 	main_mock.free()
@@ -253,8 +253,8 @@ func test_point_to_sequence_coordinates_execution() -> void:
 	assert_true(outcome.begins_with("Success"), "Execution should succeed.")
 	assert_not_null(main_mock.follow_ctrl.last_nav_sequence, "Should trigger navigate_sequence.")
 	assert_eq(main_mock.follow_ctrl.last_nav_sequence.size(), 2, "Should parse two coordinates.")
-	assert_eq(main_mock.follow_ctrl.last_nav_sequence[0], Vector2(500, 600), "First coordinate matches.")
-	assert_eq(main_mock.follow_ctrl.last_nav_sequence[1], Vector2(300, 400), "Second coordinate matches.")
+	assert_eq(main_mock.follow_ctrl.last_nav_sequence[0], Vector2(960, 648), "First mapped coordinate matches.")
+	assert_eq(main_mock.follow_ctrl.last_nav_sequence[1], Vector2(576, 432), "Second mapped coordinate matches.")
 	
 	get_tree().root.remove_child(main_mock)
 	main_mock.free()

@@ -34,13 +34,13 @@ func before_each() -> void:
 
 func test_tts_strips_thinking_blocks() -> void:
 	var text_with_think := "<think>\n- Analysing visual data\n- Solving coding problem\n</think>Here is the answer!"
-	var clean: String = tts_service._strip_thinking_block(text_with_think)
+	var clean: String = NaviUtils.strip_thinking_block(text_with_think)
 	assert_eq(clean.strip_edges(), "Here is the answer!", "Thinking blocks must be stripped from the TTS stream.")
 
 
 func test_tts_strips_unclosed_thinking_blocks() -> void:
 	var text_with_unclosed_think := "<think>\n- Unfinished analysis\nNo response yet."
-	var clean: String = tts_service._strip_thinking_block(text_with_unclosed_think)
+	var clean: String = NaviUtils.strip_thinking_block(text_with_unclosed_think)
 	assert_eq(clean.strip_edges(), "", "Unclosed thinking blocks should be cleaned entirely.")
 
 
@@ -70,5 +70,12 @@ func test_voice_options_settings() -> void:
 	
 	mock_settings.data["custom_mutters"] = ["user://test_mutter.wav"]
 	assert_eq(mock_settings.get_setting("custom_mutters").size(), 1, "custom_mutters should persist array.")
+
+
+func test_clean_text_for_tts() -> void:
+	var raw_text := "Hello *world*! 🙄🙄 This is a #test with ~tildes~, `backticks`, and > blockquotes. ✨💖"
+	var cleaned: String = tts_service._clean_text_for_tts(raw_text)
+	assert_eq(cleaned, "Hello world!  This is a test with tildes, backticks, and  blockquotes. ", "Asterisks, other symbols, and emojis should be removed.")
+
 
 

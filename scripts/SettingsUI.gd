@@ -46,6 +46,31 @@ var _remove_voice_button: Button
 var _openai_api_key_label: Label
 var _openai_api_key_edit: LineEdit
 
+var _hotkey_button: Button
+var _tts_speed_spin: SpinBox
+var _tts_pitch_spin: SpinBox
+var _live_navi_toggle: CheckButton
+
+var _is_recording_hotkey := false
+var _recorded_keycode: int = 49
+var _recorded_modifiers: int = 6656
+var _recorded_text: String = "Ctrl + Shift + Opt + Space"
+
+const GODOT_TO_MACOS_KEYCODES := {
+	KEY_A: 0, KEY_B: 11, KEY_C: 8, KEY_D: 2, KEY_E: 14, KEY_F: 3, KEY_G: 5, KEY_H: 4,
+	KEY_I: 34, KEY_J: 38, KEY_K: 40, KEY_L: 37, KEY_M: 46, KEY_N: 45, KEY_O: 31, KEY_P: 35,
+	KEY_Q: 12, KEY_R: 15, KEY_S: 1, KEY_T: 17, KEY_U: 32, KEY_V: 9, KEY_W: 13, KEY_X: 7,
+	KEY_Y: 16, KEY_Z: 6,
+	KEY_0: 29, KEY_1: 18, KEY_2: 19, KEY_3: 20, KEY_4: 21, KEY_5: 23, KEY_6: 22, KEY_7: 26,
+	KEY_8: 28, KEY_9: 25,
+	KEY_SPACE: 49, KEY_ENTER: 36, KEY_KP_ENTER: 36, KEY_TAB: 48, KEY_ESCAPE: 53,
+	KEY_QUOTELEFT: 50, KEY_EQUAL: 24, KEY_MINUS: 27,
+	KEY_BRACKETLEFT: 33, KEY_BRACKETRIGHT: 30, KEY_BACKSLASH: 42,
+	KEY_SEMICOLON: 41, KEY_APOSTROPHE: 39, KEY_COMMA: 43, KEY_PERIOD: 47, KEY_SLASH: 44,
+	KEY_F1: 122, KEY_F2: 120, KEY_F3: 99, KEY_F4: 118, KEY_F5: 96, KEY_F6: 97,
+	KEY_F7: 98, KEY_F8: 100, KEY_F9: 101, KEY_F10: 109, KEY_F11: 103, KEY_F12: 111
+}
+
 
 var _settings_manager: Node = null
 var _tween: Tween = null
@@ -115,11 +140,40 @@ func _ready() -> void:
 			_mutter_pitch_min_spin = mutter_row.get_node_or_null("MutterPitchHBox/MutterPitchMinSpin")
 			_mutter_pitch_max_spin = mutter_row.get_node_or_null("MutterPitchHBox/MutterPitchMaxSpin")
 			_mutter_speed_spin = mutter_row.get_node_or_null("MutterSpeedHBox/MutterSpeedSpin")
+			_tts_speed_spin = mutter_row.get_node_or_null("TtsSpeedHBox/TtsSpeedSpin")
+			_tts_pitch_spin = mutter_row.get_node_or_null("TtsPitchHBox/TtsPitchSpin")
 			_openai_api_key_label = mutter_row.get_node_or_null("OpenAIApiKeyLabel")
 			_openai_api_key_edit = mutter_row.get_node_or_null("OpenAIApiKeyEdit")
+		
+		var hotkey_row = vbox.get_node_or_null("HotkeyRow")
+		if hotkey_row:
+			_hotkey_button = hotkey_row.get_node_or_null("HotkeyButton")
+
+		# Live Navi Mode toggle (NAV-65) — built programmatically like other toggle rows
+		var live_navi_row := vbox.get_node_or_null("LiveNaviRow")
+		if not live_navi_row:
+			live_navi_row = HBoxContainer.new()
+			live_navi_row.name = "LiveNaviRow"
+			var lnm_label := Label.new()
+			lnm_label.text = "⚡ Live Navi Mode"
+			lnm_label.tooltip_text = "When enabled, Navi's body colour and personality are driven entirely by the Emotion Engine. The colour picker and personality field become read-only."
+			lnm_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_live_navi_toggle = CheckButton.new()
+			_live_navi_toggle.name = "LiveNaviToggle"
+			live_navi_row.add_child(lnm_label)
+			live_navi_row.add_child(_live_navi_toggle)
+			# Insert as the first item in the VBox so it sits at the top of settings
+			vbox.add_child(live_navi_row)
+			vbox.move_child(live_navi_row, 0)
+		else:
+			_live_navi_toggle = live_navi_row.get_node_or_null("LiveNaviToggle")
+		if _live_navi_toggle:
+			_live_navi_toggle.toggled.connect(_on_live_navi_toggled)
 
 		if _voice_option:
 			_voice_option.item_selected.connect(_on_voice_selected)
+		if _hotkey_button:
+			_hotkey_button.pressed.connect(_on_hotkey_button_pressed)
 		if _add_mutter_button:
 			_add_mutter_button.pressed.connect(_on_add_mutter_pressed)
 		if _remove_mutter_button:
@@ -236,6 +290,21 @@ func _populate_fields() -> void:
 		_mutter_speed_spin.value = _settings_manager.get_setting("tts_mutter_speed", 0.06)
 	if _openai_api_key_edit:
 		_openai_api_key_edit.text = _settings_manager.get_setting("openai_api_key", "")
+	if _hotkey_button:
+		_recorded_keycode = _settings_manager.get_setting("hotkey_keycode", 49)
+		_recorded_modifiers = _settings_manager.get_setting("hotkey_modifiers", 6656)
+		_recorded_text = _settings_manager.get_setting("hotkey_text", "Ctrl + Shift + Opt + Space")
+		_hotkey_button.text = _recorded_text
+	if _tts_speed_spin:
+		_tts_speed_spin.value = _settings_manager.get_setting("tts_rate", 1.0)
+	if _tts_pitch_spin:
+		_tts_pitch_spin.value = _settings_manager.get_setting("tts_pitch", 1.0)
+
+	# Apply live mode grayed state last so it overrides field values (NAV-65)
+	var live_mode: bool = _settings_manager.get_setting("live_navi_mode", false)
+	if _live_navi_toggle:
+		_live_navi_toggle.set_pressed_no_signal(live_mode)
+	_apply_live_mode_ui(live_mode)
 
 
 func _populate_voice_options() -> void:
@@ -266,10 +335,10 @@ func _populate_voice_options() -> void:
 		var found_piper_voices := false
 		if dir:
 			dir.list_dir_begin()
-			var file_name = dir.get_next()
+			var file_name: String = dir.get_next()
 			while file_name != "":
 				if not dir.current_is_dir() and file_name.ends_with(".onnx"):
-					var voice_name = file_name.get_basename()
+					var voice_name: String = file_name.get_basename()
 					_voice_option.add_item("Neural: Local Piper (" + voice_name + ")")
 					_voice_option.set_item_metadata(_voice_option.get_item_count() - 1, "local_piper:res://bin/voices/".path_join(file_name))
 					found_piper_voices = true
@@ -303,7 +372,7 @@ func _populate_voice_options() -> void:
 			
 	# 3. System Voices
 	if show_system:
-		var voices = DisplayServer.tts_get_voices()
+		var voices: Array[Dictionary] = DisplayServer.tts_get_voices()
 		for voice in voices:
 			if voice is Dictionary and voice.has("id") and voice.has("name"):
 				var lang = voice.get("language", "")
@@ -313,9 +382,9 @@ func _populate_voice_options() -> void:
 				_voice_option.set_item_metadata(idx, voice["id"])
 			
 	# Select saved voice
-	var saved_voice = _settings_manager.get_setting("tts_voice", "")
-	var saved_model = _settings_manager.get_setting("piper_model_path", "res://bin/voices/en_US-amy-medium.onnx")
-	var selected_idx = 0
+	var saved_voice: String = _settings_manager.get_setting("tts_voice", "")
+	var saved_model: String = _settings_manager.get_setting("piper_model_path", "res://bin/voices/en_US-amy-medium.onnx")
+	var selected_idx: int = 0
 	for i in range(_voice_option.get_item_count()):
 		var meta = _voice_option.get_item_metadata(i)
 		if meta == saved_voice:
@@ -331,12 +400,12 @@ func _populate_voice_options() -> void:
 func _update_mutter_visibility() -> void:
 	if not _voice_option:
 		return
-	var selected_idx = _voice_option.selected
+	var selected_idx: int = _voice_option.selected
 	if selected_idx < 0 or selected_idx >= _voice_option.get_item_count():
 		return
-	var metadata = _voice_option.get_item_metadata(selected_idx)
-	var is_mutter = false
-	var is_cloud_voice = false
+	var metadata: Variant = _voice_option.get_item_metadata(selected_idx)
+	var is_mutter: bool = false
+	var is_cloud_voice: bool = false
 	if metadata is String:
 		is_mutter = metadata == "mutter_procedural" or metadata.begins_with("mutter_custom:")
 		is_cloud_voice = metadata.begins_with("cloud_")
@@ -345,9 +414,13 @@ func _update_mutter_visibility() -> void:
 		_mutter_pitch_min_spin.get_parent().visible = is_mutter
 	if _mutter_speed_spin and _mutter_speed_spin.get_parent():
 		_mutter_speed_spin.get_parent().visible = is_mutter
+	if _tts_speed_spin and _tts_speed_spin.get_parent():
+		_tts_speed_spin.get_parent().visible = not is_mutter
+	if _tts_pitch_spin and _tts_pitch_spin.get_parent():
+		_tts_pitch_spin.get_parent().visible = not is_mutter
 
 	# Show API Key if LLM Provider is cloud
-	var provider_is_cloud = false
+	var provider_is_cloud: bool = false
 	if _provider_option:
 		provider_is_cloud = _provider_option.selected == 1
 
@@ -357,7 +430,7 @@ func _update_mutter_visibility() -> void:
 		_api_key_label.visible = provider_is_cloud
 
 	# Show OpenAI API Key if cloud voice is selected (like cloud_openai)
-	var needs_openai_key = (metadata == "cloud_openai")
+	var needs_openai_key: bool = (metadata == "cloud_openai")
 	if _openai_api_key_edit:
 		_openai_api_key_edit.visible = needs_openai_key
 	if _openai_api_key_label:
@@ -546,74 +619,155 @@ func _on_save_pressed() -> void:
 	if _settings_manager == null:
 		return
 
+	var batch := {}
+
 	if _system_prompt_edit:
-		_settings_manager.set_setting("system_prompt", _system_prompt_edit.text)
-	if _personality_edit:
-		_settings_manager.set_setting("personality", _personality_edit.text)
-	if _color_picker:
-		_settings_manager.set_setting("fairy_color", _color_picker.color.to_html(false))
-		color_changed.emit(_color_picker.color)
+		batch["system_prompt"] = _system_prompt_edit.text
+
+	var live_on: bool = _live_navi_toggle != null and _live_navi_toggle.button_pressed
+	batch["live_navi_mode"] = live_on
+
+	# Only persist personality/color from the UI fields when NOT in live mode
+	# (preserves the user's saved values so they restore cleanly when toggling off)
+	if not live_on:
+		if _personality_edit:
+			batch["personality"] = _personality_edit.text
+		if _color_picker:
+			batch["fairy_color"] = _color_picker.color.to_html(false)
+			color_changed.emit(_color_picker.color)
 		
 	var is_cloud := false
 	if _provider_option:
 		var provider := "local" if _provider_option.selected == 0 else "cloud"
-		_settings_manager.set_setting("llm_provider", provider)
+		batch["llm_provider"] = provider
 		is_cloud = provider == "cloud"
 		
 	if _api_key_edit:
-		_settings_manager.set_setting("cloud_api_key", _api_key_edit.text)
+		batch["cloud_api_key"] = _api_key_edit.text
 	if _endpoint_edit:
-		_settings_manager.set_setting("cloud_url" if is_cloud else "local_url", _endpoint_edit.text)
+		batch["cloud_url" if is_cloud else "local_url"] = _endpoint_edit.text
 	if _model_edit:
-		_settings_manager.set_setting("cloud_model" if is_cloud else "local_model", _model_edit.text)
+		batch["cloud_model" if is_cloud else "local_model"] = _model_edit.text
 	if _thinking_model_edit:
-		_settings_manager.set_setting("cloud_thinking_model" if is_cloud else "local_thinking_model", _thinking_model_edit.text)
+		batch["cloud_thinking_model" if is_cloud else "local_thinking_model"] = _thinking_model_edit.text
 		
 	if _enable_screenshots_check:
-		_settings_manager.set_setting("enable_screenshots", _enable_screenshots_check.button_pressed)
+		batch["enable_screenshots"] = _enable_screenshots_check.button_pressed
 	if _enable_thinking_check:
-		_settings_manager.set_setting("enable_thinking", _enable_thinking_check.button_pressed)
+		batch["enable_thinking"] = _enable_thinking_check.button_pressed
 	if _enable_stt_check:
-		_settings_manager.set_setting("enable_stt", _enable_stt_check.button_pressed)
+		batch["enable_stt"] = _enable_stt_check.button_pressed
 	if _enable_tts_check:
-		_settings_manager.set_setting("enable_tts", _enable_tts_check.button_pressed)
+		batch["enable_tts"] = _enable_tts_check.button_pressed
 	if _whisper_url_edit:
-		_settings_manager.set_setting("whisper_url", _whisper_url_edit.text)
+		batch["whisper_url"] = _whisper_url_edit.text
 	if _whisper_model_edit:
-		_settings_manager.set_setting("whisper_model", _whisper_model_edit.text)
+		batch["whisper_model"] = _whisper_model_edit.text
 	if _font_size_spinbox:
-		_settings_manager.set_setting("font_size_offset", int(_font_size_spinbox.value))
+		batch["font_size_offset"] = int(_font_size_spinbox.value)
 	
 	if _voice_option:
 		var metadata = _voice_option.get_item_metadata(_voice_option.selected)
 		if metadata is String and metadata.begins_with("local_piper:"):
 			var model_path = metadata.substr("local_piper:".length())
-			_settings_manager.set_setting("tts_voice", "local_piper")
-			_settings_manager.set_setting("piper_model_path", model_path)
+			batch["tts_voice"] = "local_piper"
+			batch["piper_model_path"] = model_path
 		else:
-			_settings_manager.set_setting("tts_voice", metadata)
+			batch["tts_voice"] = metadata
 		
 	if _show_neural_check:
-		_settings_manager.set_setting("filter_show_neural", _show_neural_check.button_pressed)
+		batch["filter_show_neural"] = _show_neural_check.button_pressed
 	if _show_system_check:
-		_settings_manager.set_setting("filter_show_system", _show_system_check.button_pressed)
+		batch["filter_show_system"] = _show_system_check.button_pressed
 	if _show_mutter_check:
-		_settings_manager.set_setting("filter_show_mutter", _show_mutter_check.button_pressed)
+		batch["filter_show_mutter"] = _show_mutter_check.button_pressed
 	if _openai_api_key_edit:
-		_settings_manager.set_setting("openai_api_key", _openai_api_key_edit.text)
+		batch["openai_api_key"] = _openai_api_key_edit.text
 
 	if _mutter_pitch_min_spin:
-		_settings_manager.set_setting("tts_mutter_pitch_min", _mutter_pitch_min_spin.value)
+		batch["tts_mutter_pitch_min"] = _mutter_pitch_min_spin.value
 	if _mutter_pitch_max_spin:
-		_settings_manager.set_setting("tts_mutter_pitch_max", _mutter_pitch_max_spin.value)
+		batch["tts_mutter_pitch_max"] = _mutter_pitch_max_spin.value
 	if _mutter_speed_spin:
-		_settings_manager.set_setting("tts_mutter_speed", _mutter_speed_spin.value)
+		batch["tts_mutter_speed"] = _mutter_speed_spin.value
+	if _hotkey_button:
+		batch["hotkey_keycode"] = _recorded_keycode
+		batch["hotkey_modifiers"] = _recorded_modifiers
+		batch["hotkey_text"] = _recorded_text
+	if _tts_speed_spin:
+		batch["tts_rate"] = _tts_speed_spin.value
+		batch["piper_speed"] = _tts_speed_spin.value
+	if _tts_pitch_spin:
+		batch["tts_pitch"] = _tts_pitch_spin.value
+
+	if _settings_manager.has_method("set_settings_batch"):
+		_settings_manager.call("set_settings_batch", batch)
+	else:
+		for key in batch.keys():
+			_settings_manager.set_setting(key, batch[key])
 
 	close_settings()
 
 
 func _on_close_pressed() -> void:
 	close_settings()
+
+
+func _on_hotkey_button_pressed() -> void:
+	if _is_recording_hotkey:
+		return
+	_is_recording_hotkey = true
+	_hotkey_button.text = "[ Press keys... ]"
+	_hotkey_button.release_focus()
+
+
+func _input(event: InputEvent) -> void:
+	if not _is_recording_hotkey:
+		return
+		
+	if event is InputEventKey and event.pressed:
+		get_viewport().set_input_as_handled()
+		
+		if event.keycode == KEY_ESCAPE:
+			_is_recording_hotkey = false
+			_populate_fields() # Restore old text
+			return
+			
+		var keycode = event.keycode
+		if keycode in [KEY_CTRL, KEY_SHIFT, KEY_ALT, KEY_META]:
+			return
+			
+		if not keycode in GODOT_TO_MACOS_KEYCODES:
+			return
+			
+		var mac_keycode = GODOT_TO_MACOS_KEYCODES[keycode]
+		var modifiers := 0
+		var label_parts := []
+		
+		if event.ctrl_pressed:
+			modifiers += 4096
+			label_parts.append("Ctrl")
+		if event.shift_pressed:
+			modifiers += 512
+			label_parts.append("Shift")
+		if event.alt_pressed:
+			modifiers += 2048
+			label_parts.append("Opt")
+		if event.meta_pressed:
+			modifiers += 256
+			label_parts.append("Cmd")
+			
+		var key_name := OS.get_keycode_string(keycode)
+		label_parts.append(key_name)
+		
+		var hotkey_text = " + ".join(label_parts)
+		
+		_recorded_keycode = mac_keycode
+		_recorded_modifiers = modifiers
+		_recorded_text = hotkey_text
+		
+		_hotkey_button.text = hotkey_text
+		_is_recording_hotkey = false
 
 
 func _on_color_picked(color: Color) -> void:
@@ -664,3 +818,57 @@ func _update_provider_fields(provider: String) -> void:
 			_thinking_model_edit.text = _settings_manager.get_setting(
 				"cloud_thinking_model" if is_cloud else "local_thinking_model", ""
 			)
+
+
+# ---------------------------------------------------------------------------
+# Live Navi Mode (NAV-65)
+# ---------------------------------------------------------------------------
+
+## Grays out or restores the colour picker and personality field depending on
+## whether Live Navi Mode is active.
+func _apply_live_mode_ui(enabled: bool) -> void:
+	if _color_picker:
+		_color_picker.disabled = enabled
+		_color_picker.modulate.a = 0.45 if enabled else 1.0
+		if enabled and Engine.has_singleton("EmotionState"):
+			# Show the live emotion colour
+			var es := Engine.get_singleton("EmotionState")
+			var live_hex: String = _settings_manager.get_setting("fairy_color", "66b2ff")
+			if es:
+				var c: float = clampf((float(es.get("courage")) + 10.0) / 20.0, 0.0, 1.0)
+				var w: float = clampf((float(es.get("wisdom"))  + 10.0) / 20.0, 0.0, 1.0)
+				var p: float = clampf((float(es.get("power"))   + 10.0) / 20.0, 0.0, 1.0)
+				var brightness: float = clampf((float(es.get("love_score")) + 1000.0) / 2000.0, 0.0, 1.0)
+				var live_color := Color(p * brightness, c * brightness, w * brightness, 1.0)
+				live_hex = live_color.to_html(false)
+			_color_picker.color = Color.html(live_hex)
+
+	if _personality_edit:
+		_personality_edit.editable = not enabled
+		_personality_edit.modulate.a = 0.45 if enabled else 1.0
+		if enabled:
+			# Show live personality descriptor in the grayed field
+			var live_p: String = EmotionPromptBuilder.get_live_personality()
+			_personality_edit.text = live_p
+		else:
+			# Restore saved personality text
+			if _settings_manager:
+				_personality_edit.text = _settings_manager.get_setting("personality", "")
+
+
+## Called when the Live Navi Mode toggle changes.
+## Immediately applies the grayed/restored UI state and restores the fairy
+## colour via FairyVisuals when turning off.
+func _on_live_navi_toggled(enabled: bool) -> void:
+	_apply_live_mode_ui(enabled)
+
+	if not enabled:
+		# Restore fairy to saved user colour
+		var window_controller := get_tree().root.get_node_or_null("Main/WindowController")
+		if window_controller and "_fairy" in window_controller:
+			window_controller._fairy.restore_user_color()
+		else:
+			# Try direct scene tree search as fallback
+			var fairy := get_tree().root.find_child("FairyVisuals", true, false)
+			if fairy and fairy.has_method("restore_user_color"):
+				fairy.restore_user_color()

@@ -32,6 +32,13 @@ signal fairy_drag_finished(new_pos: Vector2)
 @onready var status_light: Sprite2D = $StatusLight
 
 var _pulse_tween: Tween = null
+## Tween used for smooth emotion-driven body colour transitions.
+var _emotion_tween: Tween = null
+## Last emotion key, used to avoid duplicate emoji spawns on unchanged emotion.
+var _last_emotion: String = ""
+
+## Preloaded emoji notification scene (NAV-64).
+const _EMOJI_NOTIF_SCENE := preload("res://scenes/EmojiNotification.tscn")
 
 ## Controls whether mouse interactions (drag, right-click settings) are active.
 ## Clicks are disabled during follow-mouse mode to let clicks pass through to background apps.
@@ -60,6 +67,21 @@ func _ready() -> void:
 	_pointer_arrow.visible = false
 	add_child(_pointer_arrow)
 
+	# Connect EmotionEngine signal if the engine is present
+	if has_node("/root/AIService"):
+		var ai_service := get_node("/root/AIService")
+		if ai_service.has_signal("_emotion_engine"):
+			pass # connection made via AIService reference below
+		# Connect via the engine child node if accessible
+		if "_emotion_engine" in ai_service and ai_service._emotion_engine != null:
+			var engine: Node = ai_service._emotion_engine
+			if not engine.emotion_updated.is_connected(_on_emotion_updated):
+				engine.emotion_updated.connect(_on_emotion_updated)
+
+	# Apply saved emotion colour immediately on startup when Live Navi Mode is ON (NAV-65)
+	# Deferred so SettingsManager and EmotionState autoloads have fully initialised.
+	call_deferred("_apply_startup_emotion_color")
+
 
 func _process(delta: float) -> void:
 	_time_passed += delta * flap_speed
@@ -73,50 +95,34 @@ func _process(delta: float) -> void:
 	right_wing.scale.x = scale_x
 
 
+## Called once via call_deferred at startup.
+## If Live Navi Mode is enabled and EmotionState has saved data, immediately applies
+## the correct emotion colour so the fairy never boots blue when it should be green/red.
+func _apply_startup_emotion_color() -> void:
+	if not has_node("/root/SettingsManager"):
+		return
+	var sm := get_node("/root/SettingsManager")
+	if not sm.get_setting("live_navi_mode", false):
+		return
+	if not Engine.has_singleton("EmotionState"):
+		return
+	var es: Node = Engine.get_singleton("EmotionState")
+	print("FairyVisuals: 🌅 Startup — applying saved emotion colour (live mode on). State: ", es.debug_string())
+	apply_emotion_color(es.courage, es.wisdom, es.power, es.love_score)
+
+
 ## Animates the pointer arrow fading in and pointing from the fairy body center (0,0)
 ## to the local target position [param local_target].
 func show_pointer_arrow(local_target: Vector2) -> void:
 	if not _pointer_arrow:
 		return
-	
-	# Clear previous points
-	_pointer_arrow.clear_points()
-	
-	# Compute direction vector and line endpoint (slightly before target to prevent overlap)
-	var dir := local_target.normalized()
-	var line_end := local_target - dir * 10.0
-	_pointer_arrow.add_point(Vector2.ZERO)
-	_pointer_arrow.add_point(line_end)
-	
-	# Retrieve or spawn arrowhead polygon
-	var arrowhead: Polygon2D = _pointer_arrow.get_node_or_null("Arrowhead")
-	if not arrowhead:
-		arrowhead = Polygon2D.new()
-		arrowhead.name = "Arrowhead"
-		arrowhead.color = _pointer_arrow.default_color
-		_pointer_arrow.add_child(arrowhead)
-	
-	# Draw arrowhead pointing in direction of 'dir'
-	var arrow_length := 12.0
-	var arrow_width := 6.0
-	var p1 := local_target
-	var p2 := local_target - dir * arrow_length + dir.rotated(PI / 2.0) * arrow_width
-	var p3 := local_target - dir * arrow_length - dir.rotated(PI / 2.0) * arrow_width
-	arrowhead.polygon = PackedVector2Array([p1, p2, p3])
-	
-	_pointer_arrow.visible = true
-	_pointer_arrow.modulate.a = 0.0
-	var tween := create_tween()
-	tween.tween_property(_pointer_arrow, "modulate:a", 1.0, 0.2)
+	_pointer_arrow.visible = false
 
 
 ## Smoothly fades out and deactivates the pointer arrow visual.
 func hide_pointer_arrow() -> void:
-	if not _pointer_arrow or not _pointer_arrow.visible:
+	if not _pointer_arrow:
 		return
-	var tween := create_tween()
-	tween.tween_property(_pointer_arrow, "modulate:a", 0.0, 0.15)
-	await tween.finished
 	_pointer_arrow.visible = false
 
 
@@ -131,7 +137,7 @@ func set_fairy_color(color: Color) -> void:
 		right_wing.color = color
 
 
-## Activates and configures the status notification dot above Navi.
+## Activates and configures the status notification dot in the center of Navi's body.
 func set_status_light(color: Color, pulsing: bool = false) -> void:
 	if not is_inside_tree() or not status_light:
 		return
@@ -144,22 +150,22 @@ func set_status_light(color: Color, pulsing: bool = false) -> void:
 		_pulse_tween = null
 		
 	if pulsing:
-		status_light.scale = Vector2(0.18, 0.18)
+		status_light.scale = Vector2(0.4, 0.4)
 		status_light.modulate.a = 0.4
 		
 		_pulse_tween = create_tween().set_loops()
 		_pulse_tween.set_parallel(true)
-		_pulse_tween.tween_property(status_light, "scale", Vector2(0.3, 0.3), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_pulse_tween.tween_property(status_light, "scale", Vector2(0.6, 0.6), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		_pulse_tween.tween_property(status_light, "modulate:a", 1.0, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		_pulse_tween.chain().set_parallel(true)
-		_pulse_tween.tween_property(status_light, "scale", Vector2(0.18, 0.18), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		_pulse_tween.tween_property(status_light, "scale", Vector2(0.4, 0.4), 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		_pulse_tween.tween_property(status_light, "modulate:a", 0.4, 0.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	else:
-		status_light.scale = Vector2(0.25, 0.25)
+		status_light.scale = Vector2(0.5, 0.5)
 		status_light.modulate.a = 1.0
 
 
-## Deactivates the status notification dot above Navi.
+## Deactivates the status notification dot in the center of Navi's body.
 func clear_status_light() -> void:
 	if _pulse_tween:
 		_pulse_tween.kill()
@@ -198,3 +204,102 @@ func _input(event: InputEvent) -> void:
 				# Terminate drag action and emit finished signal to trigger screenshot
 				_is_dragging = false
 				fairy_drag_finished.emit(global_position)
+
+
+# ---------------------------------------------------------------------------
+# Emotion Visual System (NAV-63)
+# ---------------------------------------------------------------------------
+
+## Applies a tricolor body tint derived from the three base emotion dimensions
+## and scales brightness from the Love Meter.
+##
+## [b]Color model[/b] (see emotions.md §9.1):[br]
+## - Red channel   → Power score[br]
+## - Green channel → Courage score[br]
+## - Blue channel  → Wisdom score[br]
+## - Brightness    → Love Meter (dark at -1000, bright at +1000)[br]
+##
+## All transitions are tweened over 0.8 s with EASE_IN_OUT.
+func apply_emotion_color(courage: float, wisdom: float, power: float, love_score: int) -> void:
+	if not is_inside_tree():
+		return
+
+	var brightness := clampf((love_score + 1000.0) / 2000.0, 0.0, 1.0)
+	var r := clampf((power   + 10.0) / 20.0, 0.0, 1.0) * brightness
+	var g := clampf((courage + 10.0) / 20.0, 0.0, 1.0) * brightness
+	var b := clampf((wisdom  + 10.0) / 20.0, 0.0, 1.0) * brightness
+	var target_color := Color(r, g, b, 1.0)
+
+	print("FairyVisuals: 🎨 Color update:")
+	print("FairyVisuals:   C=%.1f W=%.1f P=%.1f  love=%d  brightness=%.2f" % [
+		courage, wisdom, power, love_score, brightness])
+	print("FairyVisuals:   RGB target → (R=%.2f  G=%.2f  B=%.2f)  hex=%s" % [
+		r, g, b, target_color.to_html(false)])
+
+	if _emotion_tween:
+		_emotion_tween.kill()
+	_emotion_tween = create_tween().set_parallel(true)
+	_emotion_tween.set_ease(Tween.EASE_IN_OUT)
+	_emotion_tween.set_trans(Tween.TRANS_SINE)
+	_emotion_tween.tween_method(_apply_color_frame, base_color, target_color, 0.8)
+
+
+## Per-frame callback used by the emotion colour tween.
+func _apply_color_frame(color: Color) -> void:
+	if not is_inside_tree():
+		return
+	glow_core.self_modulate  = color
+	particles.self_modulate  = color
+	left_wing.color          = color
+	right_wing.color         = color
+	# Update base_color so set_fairy_color() keeps the new tint as baseline
+	base_color               = color
+
+
+## Signal handler for EmotionEngine.emotion_updated.
+## Only applies visuals when Live Navi Mode is active.
+func _on_emotion_updated(emotion: String, love_score: int, courage: float, wisdom: float, power: float) -> void:
+	var live_mode := false
+	if has_node("/root/SettingsManager"):
+		live_mode = get_node("/root/SettingsManager").get_setting("live_navi_mode", false)
+	if not live_mode:
+		return
+	apply_emotion_color(courage, wisdom, power, love_score)
+	spawn_emoji_notification(emotion)
+
+
+## Reverts the fairy body colour to the user-saved hex in SettingsManager.
+## Called when Live Navi Mode is toggled OFF.
+func restore_user_color() -> void:
+	if not has_node("/root/SettingsManager"):
+		return
+	var hex: String = get_node("/root/SettingsManager").get_setting("fairy_color", "66b2ff")
+	var color := Color.html(hex)
+	print("FairyVisuals: 🔄 Restoring user colour: #", hex)
+	set_fairy_color(color)
+	_last_emotion = ""  # Reset dedup so next live-mode activation can spawn again
+
+
+# ---------------------------------------------------------------------------
+# Emoji Notification System (NAV-64)
+# ---------------------------------------------------------------------------
+
+## Spawns a transient emoji notification above the fairy body when the
+## Tier 2 emotion has changed since the last response.
+## Does nothing if the emotion key is identical to the previous turn.
+func spawn_emoji_notification(emotion: String) -> void:
+	if not is_inside_tree():
+		return
+	if emotion == _last_emotion:
+		print("FairyVisuals: 🚫 Emoji suppressed — emotion unchanged ('%s')" % emotion)
+		return
+	_last_emotion = emotion
+
+	var notif: Node2D = _EMOJI_NOTIF_SCENE.instantiate()
+	# Add to scene root so it is not parented to the fairy (stays put as fairy moves)
+	get_tree().root.add_child(notif)
+
+	# Spawn 40px above the fairy's current world position
+	var spawn_pos := global_position + Vector2(0, -40)
+	print("FairyVisuals: ✨ Spawning emoji for '%s' at %s" % [emotion, str(spawn_pos)])
+	notif.play(emotion, spawn_pos)

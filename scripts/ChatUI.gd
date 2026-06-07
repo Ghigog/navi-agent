@@ -29,9 +29,11 @@ var _voice_button: Button = null
 var _mute_button: Button = null
 
 # Interactive guide/step-by-step state
-var _interactive_steps: Array[Dictionary] = []
-var _current_step_idx: int = 0
 var _is_interactive_mode: bool = false
+var _disable_stream_tts: bool = false
+var _use_step_playback: bool = false
+var _stream_is_running: bool = false
+var _guidance_controller: Node
 
 # Resize handle drag state
 var _is_resizing: bool = false
@@ -70,6 +72,8 @@ func _ready() -> void:
 			_ai_service.thinking_update.connect(_on_ai_thinking_update)
 		if _ai_service.has_signal("response_chunk"):
 			_ai_service.response_chunk.connect(_on_ai_response_chunk)
+		if _ai_service.has_signal("response_cleared"):
+			_ai_service.response_cleared.connect(_on_ai_response_cleared)
 			
 	# Enable auto-scrolling to bottom on new text content
 	if response_label:
@@ -92,6 +96,15 @@ func _ready() -> void:
 		_mute_button.tooltip_text = "Mute/Unmute response reader (TTS)"
 		_mute_button.pressed.connect(_on_mute_pressed)
 		input_bar.add_child(_mute_button)
+
+	# Initialize GuidanceController
+	var GC_script := load("res://scripts/GuidanceController.gd")
+	_guidance_controller = GC_script.new()
+	_guidance_controller.name = "GuidanceController"
+	add_child(_guidance_controller)
+	_guidance_controller.guidance_started.connect(_on_guidance_started)
+	_guidance_controller.step_started.connect(_on_guidance_step_started)
+	_guidance_controller.guidance_finished.connect(_on_guidance_finished)
 
 
 ## Opens the chat panel with a scale-in/fade-in animation, populating screenshot context.
@@ -118,7 +131,7 @@ func open_chat(screenshot: Image = null, fairy_pos: Vector2 = Vector2.ZERO, wind
 	_visual_history = "[color=#66b2ff]Hello! How can I help you?[/color]"
 	_current_response_text = ""
 	_thought_trail = []
-	response_label.text = _visual_history
+	response_label.text = NaviUtils.markdown_to_bbcode(_visual_history)
 	
 	# Setup initial tween states
 	visible = true
@@ -146,16 +159,7 @@ func open_chat(screenshot: Image = null, fairy_pos: Vector2 = Vector2.ZERO, wind
 func close_chat() -> void:
 	if _is_interactive_mode:
 		print("ChatUI: [MOVEMENT] closing/preempting guidance sequence.")
-		_is_interactive_mode = false
-		_interactive_steps.clear()
-		_update_send_button_ui()
-		var main_node = get_parent()
-		var follow_ctrl = main_node.get_node_or_null("FollowController") if main_node else null
-		if follow_ctrl:
-			follow_ctrl.call("abort_navigation", true)
-		var fairy = main_node.get_node_or_null("FairyVisuals") if main_node else null
-		if fairy and fairy.has_method("clear_status_light"):
-			fairy.clear_status_light()
+		_guidance_controller.abort_guidance(true)
 
 	# Hide handle immediately so it doesn't linger during fade
 	if _resize_handle:
@@ -190,29 +194,24 @@ func _on_prompt_submitted(text: String) -> void:
 	var prompt := text.strip_edges()
 	
 	if _is_interactive_mode and prompt == "":
-		_current_step_idx += 1
 		input_edit.text = ""
-		_update_send_button_ui()
-		_execute_current_interactive_step()
+		_guidance_controller.advance_step()
 		return
 		
 	if _is_interactive_mode:
 		print("ChatUI: [MOVEMENT] closing/preempting guidance sequence.")
-		_is_interactive_mode = false
-		_interactive_steps.clear()
-		_update_send_button_ui()
-		
-	var main_node = get_parent()
-	var follow_ctrl = main_node.get_node_or_null("FollowController") if main_node else null
-	if follow_ctrl:
-		follow_ctrl.call("abort_navigation", false)
-	var fairy = main_node.get_node_or_null("FairyVisuals") if main_node else null
-	if fairy and fairy.has_method("clear_status_light"):
-		fairy.clear_status_light()
+		_guidance_controller.abort_guidance(false)
 
 	if prompt == "":
 		return
 		
+	# Preemptively disable stream TTS if prompt is classified as visual or complex
+	_disable_stream_tts = false
+	if _ai_service and _ai_service.has_method("_classify_prompt"):
+		var classification: Dictionary = _ai_service.call("_classify_prompt", prompt)
+		if not classification.is_empty():
+			_disable_stream_tts = true
+			
 	# Halt vocalization when a new prompt is sent
 	if has_node("/root/TTSService"):
 		get_node("/root/TTSService").stop()
@@ -224,7 +223,7 @@ func _on_prompt_submitted(text: String) -> void:
 		_visual_history += "\n\n[color=#e0e0e0]> " + prompt + "[/color]"
 		
 	_current_response_text = ""
-	response_label.text = _visual_history + "\n\n[color=#888888]Thinking...[/color]"
+	response_label.text = NaviUtils.markdown_to_bbcode(_visual_history + "\n\n[color=#888888]Thinking...[/color]")
 	
 	# Trigger LLM dispatch via AIService Autoload
 	if _ai_service:
@@ -238,6 +237,19 @@ func _on_ai_request_started() -> void:
 	_current_response_text = ""
 	_is_start_of_paragraph = true
 	_response_active = false
+	_stream_is_running = true
+	
+	if _guidance_controller.has_method("reset"):
+		_guidance_controller.reset()
+	else:
+		_guidance_controller.is_active = false
+		_guidance_controller.stream_is_running = true
+		_guidance_controller.steps.clear()
+		_guidance_controller.current_step_idx = 0
+		_guidance_controller._unprocessed_stream_idx = 0
+		_guidance_controller._current_point = null
+	
+	_use_step_playback = _disable_stream_tts
 	_render_display()
 	
 	if has_node("/root/TTSService"):
@@ -248,42 +260,16 @@ func _on_ai_request_started() -> void:
 func _on_ai_response_received(response_text: String) -> void:
 	input_edit.editable = true
 	input_edit.text = ""
+	_stream_is_running = false
 
 	var final_reply := _current_response_text
 	if response_text != "":
 		final_reply = response_text
 
-	var think_regex := RegEx.new()
-	think_regex.compile("(?s)<think>.*?</think>")
-	var clean_reply := think_regex.sub(final_reply, "", true)
-
-	_interactive_steps = _parse_interactive_steps(clean_reply)
-
-	if _interactive_steps.size() > 1:
-		_is_interactive_mode = true
-		_current_step_idx = 0
-		
-		if _thought_trail.size() > 0:
-			var trail_text := ""
-			for i in _thought_trail.size():
-				if i > 0:
-					trail_text += "\n"
-				trail_text += _thought_trail[i]
-			if _visual_history == "":
-				_visual_history = trail_text
-			else:
-				_visual_history += "\n\n" + trail_text
-				
-		_thought_trail = []
-		_current_response_text = ""
-		
-		if has_node("/root/TTSService"):
-			get_node("/root/TTSService").end_speech_stream()
-			
-		_execute_current_interactive_step()
+	if _use_step_playback:
+		_guidance_controller.finish_stream(final_reply)
 	else:
 		_is_interactive_mode = false
-		_interactive_steps.clear()
 		_update_send_button_ui()
 		
 		var committed := ""
@@ -295,9 +281,9 @@ func _on_ai_response_received(response_text: String) -> void:
 				trail_text += _thought_trail[i]
 			committed = trail_text
 			if final_reply != "":
-				committed += "\n\n" + _strip_skill_and_pause_tags(final_reply)
+				committed += "\n\n" + NaviUtils.strip_skill_and_pause_tags(final_reply)
 		else:
-			committed = _strip_skill_and_pause_tags(final_reply)
+			committed = NaviUtils.strip_skill_and_pause_tags(final_reply)
 
 		if committed != "":
 			if _visual_history == "":
@@ -307,7 +293,7 @@ func _on_ai_response_received(response_text: String) -> void:
 
 		_thought_trail = []
 		_current_response_text = ""
-		response_label.text = _visual_history
+		response_label.text = NaviUtils.markdown_to_bbcode(_visual_history)
 
 		if has_node("/root/TTSService"):
 			get_node("/root/TTSService").end_speech_stream()
@@ -331,22 +317,70 @@ func _on_ai_thinking_update(update_text: String) -> void:
 func _on_ai_response_chunk(chunk: String) -> void:
 	_response_active = true
 	_current_response_text += chunk
-	_render_display()
 	
+	if _use_step_playback:
+		_guidance_controller.parse_and_append_new_steps(_current_response_text)
+	else:
+		if not _disable_stream_tts:
+			var has_step_tag := _current_response_text.contains("[PAUSE]") or _current_response_text.contains("[SKILL: point_to:") or _current_response_text.contains("[ESCALATE]")
+			if has_step_tag:
+				_disable_stream_tts = true
+				if has_node("/root/TTSService"):
+					get_node("/root/TTSService").stop()
+			else:
+				if has_node("/root/TTSService"):
+					get_node("/root/TTSService").add_speech_chunk(chunk)
+	_render_display()
+
+
+func _on_ai_response_cleared() -> void:
+	_current_response_text = ""
+	_response_active = false
 	if has_node("/root/TTSService"):
-		get_node("/root/TTSService").add_speech_chunk(chunk)
+		get_node("/root/TTSService").stop()
+	_render_display()
 
 
 # Callback triggered when request errors out
 func _on_ai_request_failed(error_message: String) -> void:
 	input_edit.editable = true
 	_response_active = false
+	_stream_is_running = false
+	_guidance_controller.abort_guidance(false)
 	_thought_trail = []
 	_current_response_text = ""
 	if _visual_history == "":
-		response_label.text = "[color=#ff6666]Error: " + error_message + "[/color]"
+		response_label.text = NaviUtils.markdown_to_bbcode("[color=#ff6666]Error: " + error_message + "[/color]")
 	else:
-		response_label.text = _visual_history + "\n\n[color=#ff6666]Error: " + error_message + "[/color]"
+		response_label.text = NaviUtils.markdown_to_bbcode(_visual_history + "\n\n[color=#ff6666]Error: " + error_message + "[/color]")
+	input_edit.grab_focus.call_deferred()
+
+
+func _on_guidance_started() -> void:
+	_is_interactive_mode = true
+	input_edit.placeholder_text = "Navi is presenting..."
+	input_edit.editable = false
+	_update_send_button_ui()
+
+
+func _on_guidance_step_started(text: String, point: Variant, current_idx: int, total_steps: int) -> void:
+	if current_idx == 0:
+		if _visual_history == "":
+			_visual_history = text
+		else:
+			_visual_history += "\n\n" + text
+	else:
+		_visual_history += "\n\n" + text
+		
+	response_label.text = NaviUtils.markdown_to_bbcode(_visual_history)
+	_update_send_button_ui()
+
+
+func _on_guidance_finished(_restore_follow: bool) -> void:
+	_is_interactive_mode = false
+	input_edit.placeholder_text = "Ask Navi..."
+	input_edit.editable = true
+	_update_send_button_ui()
 	input_edit.grab_focus.call_deferred()
 
 
@@ -368,7 +402,11 @@ func _render_display() -> void:
 	if _current_response_text != "":
 		if text != "":
 			text += "\n\n"
-		text += _current_response_text
+		if _use_step_playback:
+			if _guidance_controller.has_method("get_display_active_text"):
+				text += _guidance_controller.get_display_active_text()
+		else:
+			text += NaviUtils.strip_skill_and_pause_tags(_current_response_text)
 
 	# Show placeholder only when the turn has just started (no trail, no response yet)
 	if _thought_trail.is_empty() and _current_response_text == "":
@@ -376,7 +414,7 @@ func _render_display() -> void:
 			text += "\n\n"
 		text += "[color=#888888]Thinking...[/color]"
 
-	response_label.text = text
+	response_label.text = NaviUtils.markdown_to_bbcode(text)
 
 
 ## Manually updates the cached screenshot image context.
@@ -531,11 +569,11 @@ func _on_voice_toggled(toggled_on: bool) -> void:
 	else:
 		_voice_button.text = "🎙️"
 		if has_node("/root/STTService"):
-			var recording = get_node("/root/STTService").stop_recording()
+			var recording: AudioStreamWAV = get_node("/root/STTService").stop_recording()
 			if recording:
 				_voice_button.disabled = true
 				_voice_button.text = "⏳"
-				var text = await get_node("/root/STTService").transcribe_audio(recording)
+				var text: String = await get_node("/root/STTService").transcribe_audio(recording)
 				_voice_button.disabled = false
 				_voice_button.text = "🎙️"
 				input_edit.editable = true
@@ -548,7 +586,7 @@ func _on_voice_toggled(toggled_on: bool) -> void:
 func _on_mute_pressed() -> void:
 	if not _settings_mgr:
 		return
-	var is_muted = _settings_mgr.get_setting("tts_mute", false)
+	var is_muted: bool = _settings_mgr.get_setting("tts_mute", false)
 	_settings_mgr.set_setting("tts_mute", not is_muted)
 	_update_mute_button_ui()
 
@@ -556,8 +594,8 @@ func _on_mute_pressed() -> void:
 func _update_mute_button_ui() -> void:
 	if not _mute_button or not _settings_mgr:
 		return
-	var is_muted = _settings_mgr.get_setting("tts_mute", false)
-	var enable_tts = _settings_mgr.get_setting("enable_tts", true)
+	var is_muted: bool = _settings_mgr.get_setting("tts_mute", false)
+	var enable_tts: bool = _settings_mgr.get_setting("enable_tts", true)
 	if not enable_tts:
 		_mute_button.text = "🔇"
 		_mute_button.disabled = true
@@ -575,48 +613,7 @@ func _update_voice_buttons_visibility() -> void:
 		_mute_button.visible = _settings_mgr.get_setting("enable_tts", true)
 
 
-func _parse_interactive_steps(text: String) -> Array[Dictionary]:
-	var steps: Array[Dictionary] = []
-	
-	var regex := RegEx.new()
-	regex.compile("\\[PAUSE\\]|\\[SKILL:\\s*point_to:\\s*(.*?)\\]")
-	
-	var matches := regex.search_all(text)
-	
-	var last_idx := 0
-	var current_point: Variant = null
-	
-	for m in matches:
-		var start := m.get_start()
-		var segment := text.substr(last_idx, start - last_idx).strip_edges()
-		
-		if segment != "" or steps.is_empty():
-			steps.append({
-				"text": segment,
-				"point": current_point
-			})
-		
-		var matched_str := m.get_string(0)
-		if matched_str.begins_with("[SKILL:"):
-			var args := m.get_string(1).strip_edges()
-			var coords := args.split(",")
-			if coords.size() >= 2:
-				current_point = Vector2(float(coords[0].strip_edges()), float(coords[1].strip_edges()))
-			else:
-				current_point = null
-		else:
-			current_point = null
-			
-		last_idx = m.get_end()
-		
-	var final_segment := text.substr(last_idx).strip_edges()
-	if final_segment != "" or steps.is_empty():
-		steps.append({
-			"text": final_segment,
-			"point": current_point
-		})
-		
-	return steps
+
 
 
 func _update_send_button_ui() -> void:
@@ -624,76 +621,3 @@ func _update_send_button_ui() -> void:
 		send_button.text = "Next"
 	else:
 		send_button.text = "Send"
-
-
-func _execute_current_interactive_step() -> void:
-	var step = _interactive_steps[_current_step_idx]
-	var text: String = _strip_skill_and_pause_tags(step["text"])
-	var point = step["point"]
-	
-	if point == null:
-		if _current_step_idx == 0 and _interactive_steps.size() > 1:
-			if _visual_history == "":
-				_visual_history = text
-			else:
-				_visual_history += "\n\n" + text
-			_current_step_idx = 1
-			_execute_current_interactive_step()
-			return
-			
-	if _current_step_idx == 0:
-		if _visual_history == "":
-			_visual_history = text
-		else:
-			_visual_history += "\n\n" + text
-	else:
-		_visual_history += "\n\n" + text
-		
-	response_label.text = _visual_history
-	
-	var main_node = get_parent()
-	var fairy = main_node.get_node_or_null("FairyVisuals") if main_node else null
-	var follow_ctrl = main_node.get_node_or_null("FollowController") if main_node else null
-	
-	if point != null:
-		print("ChatUI: [MOVEMENT] Moving to step coordinate: ", point)
-		if fairy and fairy.has_method("set_status_light"):
-			fairy.set_status_light(Color(0.2, 0.8, 0.2, 1.0), true) # Pulsing Green
-		if follow_ctrl:
-			follow_ctrl.call("fly_to_screen_coordinate", point)
-	else:
-		print("ChatUI: [MOVEMENT] Step has no coordinate; maintaining position.")
-		if fairy and fairy.has_method("clear_status_light"):
-			fairy.clear_status_light()
-		if follow_ctrl:
-			follow_ctrl.call("abort_navigation", false)
-			
-	if _current_step_idx < _interactive_steps.size() - 1:
-		input_edit.editable = true
-		input_edit.placeholder_text = "Press Enter or click Next to continue..."
-		_update_send_button_ui()
-	else:
-		_is_interactive_mode = false
-		_interactive_steps.clear()
-		_update_send_button_ui()
-		input_edit.editable = true
-		input_edit.placeholder_text = "Ask Navi..."
-		
-		if point == null:
-			if follow_ctrl:
-				follow_ctrl.call("abort_navigation", true)
-			if fairy and fairy.has_method("clear_status_light"):
-				fairy.clear_status_light()
-		
-		input_edit.grab_focus.call_deferred()
-
-
-func _strip_skill_and_pause_tags(input_text: String) -> String:
-	var think_regex := RegEx.new()
-	think_regex.compile("(?s)<think>.*?</think>")
-	var no_think := think_regex.sub(input_text, "", true)
-	
-	var tag_regex := RegEx.new()
-	tag_regex.compile("\\[PAUSE\\]|\\[(SKILL|SCREEN_CONTEXT|TOOL):[^\\]]*\\]")
-	var cleaned := tag_regex.sub(no_think, "", true)
-	return cleaned.strip_edges()
