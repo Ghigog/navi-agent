@@ -28,12 +28,26 @@ static func strip_thinking_block(text: String) -> String:
 	return clean
 
 
-## Strips skill tags and [PAUSE] tags from text for presentation or speech synthesis.
+## Cleanly strips <scratchpad>...</scratchpad> blocks from response strings.
+static func strip_scratchpad_block(text: String) -> String:
+	var clean := text
+	while clean.contains("<scratchpad>") and clean.contains("</scratchpad>"):
+		var start := clean.find("<scratchpad>")
+		var end := clean.find("</scratchpad>")
+		clean = clean.substr(0, start) + clean.substr(end + 13)
+
+	if clean.contains("<scratchpad>"):
+		clean = clean.substr(0, clean.find("<scratchpad>"))
+	return clean
+
+
+## Strips skill tags, pause tags, continue tags, scratchpad, and thinking blocks from text for presentation or speech synthesis.
 static func strip_skill_and_pause_tags(input_text: String) -> String:
 	var no_think := strip_thinking_block(input_text)
+	var no_scratch := strip_scratchpad_block(no_think)
 	var tag_regex := RegEx.new()
-	tag_regex.compile("\\[PAUSE\\]|\\[(SKILL|SCREEN_CONTEXT|TOOL):[^\\]]*\\]")
-	var cleaned := tag_regex.sub(no_think, "", true)
+	tag_regex.compile("\\[PAUSE\\]|\\[CONTINUE\\]|\\[(SKILL|SCREEN_CONTEXT|TOOL):[^\\]]*\\]")
+	var cleaned := tag_regex.sub(no_scratch, "", true)
 	return cleaned.strip_edges()
 
 

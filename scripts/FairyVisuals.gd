@@ -9,6 +9,8 @@ signal fairy_clicked
 signal fairy_dragged(new_pos: Vector2)
 ## Emitted when mouse dragging ends with the final screen-space coordinate.
 signal fairy_drag_finished(new_pos: Vector2)
+## Emitted when the fairy's base color is changed.
+signal fairy_color_changed(new_color: Color)
 
 
 @export_group("Fairy Customization")
@@ -31,6 +33,10 @@ signal fairy_drag_finished(new_pos: Vector2)
 @onready var click_area: Area2D = $ClickArea
 @onready var status_light: Sprite2D = $StatusLight
 
+var glow_core_outline: Sprite2D = null
+var left_outline: Line2D = null
+var right_outline: Line2D = null
+
 var _pulse_tween: Tween = null
 ## Tween used for smooth emotion-driven body colour transitions.
 var _emotion_tween: Tween = null
@@ -49,8 +55,58 @@ var _drag_offset: Vector2 = Vector2.ZERO
 var _time_passed: float = 0.0
 var _pointer_arrow: Line2D = null
 
+var is_loading: bool = false : set = set_loading
+var _loading_spin_angle: float = 0.0
+
+
+func set_loading(value: bool) -> void:
+	is_loading = value
+	if is_inside_tree():
+		glow_core.visible = not is_loading
+		if glow_core_outline:
+			glow_core_outline.visible = not is_loading
+		left_wing.visible = not is_loading
+		right_wing.visible = not is_loading
+		particles.emitting = not is_loading
+		if is_loading:
+			if status_light:
+				status_light.visible = false
+		queue_redraw()
+
 
 func _ready() -> void:
+	# Dynamically instantiate outline sprite behind GlowCore
+	glow_core_outline = Sprite2D.new()
+	glow_core_outline.name = "GlowCoreOutline"
+	glow_core_outline.texture = glow_core.texture
+	glow_core_outline.scale = glow_core.scale * 1.35
+	add_child(glow_core_outline)
+	move_child(glow_core_outline, glow_core.get_index())
+
+	# Dynamically instantiate Left Wing Outline Line2D
+	left_outline = Line2D.new()
+	left_outline.name = "Outline"
+	var left_pts := left_wing.polygon.duplicate()
+	left_pts.append(left_pts[0]) # Close loop
+	left_outline.points = left_pts
+	left_outline.width = 2.5
+	left_outline.joint_mode = Line2D.LINE_JOINT_ROUND
+	left_outline.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	left_outline.end_cap_mode = Line2D.LINE_CAP_ROUND
+	left_wing.add_child(left_outline)
+
+	# Dynamically instantiate Right Wing Outline Line2D
+	right_outline = Line2D.new()
+	right_outline.name = "Outline"
+	var right_pts := right_wing.polygon.duplicate()
+	right_pts.append(right_pts[0]) # Close loop
+	right_outline.points = right_pts
+	right_outline.width = 2.5
+	right_outline.joint_mode = Line2D.LINE_JOINT_ROUND
+	right_outline.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	right_outline.end_cap_mode = Line2D.LINE_CAP_ROUND
+	right_wing.add_child(right_outline)
+
 	# Apply initial customization color
 	set_fairy_color(base_color)
 	
@@ -77,10 +133,40 @@ func _ready() -> void:
 			var engine: Node = ai_service._emotion_engine
 			if not engine.emotion_updated.is_connected(_on_emotion_updated):
 				engine.emotion_updated.connect(_on_emotion_updated)
+		if "is_warming_up" in ai_service and ai_service.is_warming_up:
+			is_loading = true
 
 	# Apply saved emotion colour immediately on startup when Live Navi Mode is ON (NAV-65)
 	# Deferred so SettingsManager and EmotionState autoloads have fully initialised.
 	call_deferred("_apply_startup_emotion_color")
+
+
+func show_initial_guidance_subtitle() -> void:
+	if has_node("SubtitleLabel"):
+		return
+		
+	var hotkey_text := "Shift + Up"
+	if has_node("/root/SettingsManager"):
+		hotkey_text = get_node("/root/SettingsManager").get_setting("hotkey_text", "Shift + Up")
+		
+	var subtitle_label = Label.new()
+	subtitle_label.name = "SubtitleLabel"
+	subtitle_label.text = "hold " + hotkey_text + " to talk"
+	subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	subtitle_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.8))
+	subtitle_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	subtitle_label.add_theme_constant_override("outline_size", 4)
+	subtitle_label.add_theme_font_size_override("font_size", 10)
+	subtitle_label.custom_minimum_size = Vector2(200, 20)
+	subtitle_label.position = Vector2(-100, 35)
+	add_child(subtitle_label)
+
+	# Fade out after 5 seconds
+	var t = create_tween()
+	t.tween_interval(5.0)
+	t.tween_property(subtitle_label, "modulate:a", 0.0, 1.0)
+	t.tween_callback(subtitle_label.queue_free)
 
 
 func _process(delta: float) -> void:
@@ -94,6 +180,43 @@ func _process(delta: float) -> void:
 	left_wing.scale.x = -scale_x
 	right_wing.scale.x = scale_x
 
+	if is_loading:
+		_loading_spin_angle += delta * 6.0
+		queue_redraw()
+
+
+func _draw() -> void:
+	if is_loading:
+		var points := PackedVector2Array()
+		var colors := PackedColorArray()
+		var shadow_colors := PackedColorArray()
+		var steps := 60
+		var max_radius := 25.0
+		var coils := 2.0
+		
+		var shadow_base := base_color.darkened(0.5)
+		for idx in range(steps):
+			var t := float(idx) / float(steps - 1)
+			var angle := t * coils * 2.0 * PI + _loading_spin_angle
+			var r := t * max_radius
+			var pos := Vector2(cos(angle), sin(angle)) * r
+			points.append(pos)
+			
+			var alpha := (1.0 - t) * 0.8
+			
+			var color := base_color
+			color.a = alpha
+			colors.append(color)
+			
+			var shadow_c := shadow_base
+			shadow_c.a = (1.0 - t) * 0.95
+			shadow_colors.append(shadow_c)
+			
+		# Draw outline/shadow spiral first
+		draw_polyline_colors(points, shadow_colors, 4.5, true)
+		# Draw main colored spiral on top
+		draw_polyline_colors(points, colors, 2.5, true)
+
 
 ## Called once via call_deferred at startup.
 ## If Live Navi Mode is enabled and EmotionState has saved data, immediately applies
@@ -104,9 +227,9 @@ func _apply_startup_emotion_color() -> void:
 	var sm := get_node("/root/SettingsManager")
 	if not sm.get_setting("live_navi_mode", false):
 		return
-	if not Engine.has_singleton("EmotionState"):
+	if not has_node("/root/EmotionState"):
 		return
-	var es: Node = Engine.get_singleton("EmotionState")
+	var es: Node = get_node("/root/EmotionState")
 	print("FairyVisuals: 🌅 Startup — applying saved emotion colour (live mode on). State: ", es.debug_string())
 	apply_emotion_color(es.courage, es.wisdom, es.power, es.love_score)
 
@@ -135,6 +258,17 @@ func set_fairy_color(color: Color) -> void:
 		particles.self_modulate = color
 		left_wing.color = color
 		right_wing.color = color
+		
+		# Update outlines with secondary accent color
+		var accent := color.darkened(0.4)
+		if glow_core_outline:
+			glow_core_outline.self_modulate = accent
+		if left_outline:
+			left_outline.default_color = accent
+		if right_outline:
+			right_outline.default_color = accent
+			
+	fairy_color_changed.emit(color)
 
 
 ## Activates and configures the status notification dot in the center of Navi's body.
@@ -254,6 +388,17 @@ func _apply_color_frame(color: Color) -> void:
 	right_wing.color         = color
 	# Update base_color so set_fairy_color() keeps the new tint as baseline
 	base_color               = color
+	
+	# Update outlines with secondary accent color
+	var accent := color.darkened(0.4)
+	if glow_core_outline:
+		glow_core_outline.self_modulate = accent
+	if left_outline:
+		left_outline.default_color = accent
+	if right_outline:
+		right_outline.default_color = accent
+		
+	fairy_color_changed.emit(color)
 
 
 ## Signal handler for EmotionEngine.emotion_updated.
@@ -303,3 +448,31 @@ func spawn_emoji_notification(emotion: String) -> void:
 	var spawn_pos := global_position + Vector2(0, -40)
 	print("FairyVisuals: ✨ Spawning emoji for '%s' at %s" % [emotion, str(spawn_pos)])
 	notif.play(emotion, spawn_pos)
+
+
+## Displays a temporary subtitle label under Navi's body that automatically fades out.
+func show_subtitle(text: String, duration: float = 3.0) -> void:
+	if not is_inside_tree():
+		return
+	var old_label = get_node_or_null("SubtitleLabel")
+	if old_label:
+		remove_child(old_label)
+		old_label.queue_free()
+
+	var subtitle_label = Label.new()
+	subtitle_label.name = "SubtitleLabel"
+	subtitle_label.text = text
+	subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	subtitle_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.8))
+	subtitle_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	subtitle_label.add_theme_constant_override("outline_size", 4)
+	subtitle_label.add_theme_font_size_override("font_size", 10)
+	subtitle_label.custom_minimum_size = Vector2(200, 20)
+	subtitle_label.position = Vector2(-100, 35)
+	add_child(subtitle_label)
+
+	var t = create_tween()
+	t.tween_interval(duration)
+	t.tween_property(subtitle_label, "modulate:a", 0.0, 1.0)
+	t.tween_callback(subtitle_label.queue_free)

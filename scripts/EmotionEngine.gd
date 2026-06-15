@@ -80,6 +80,7 @@ func evaluate(context: Dictionary) -> void:
 	var skills_available: bool   = context.get("skills_available", false)
 	var skill_succeeded:  bool   = context.get("skill_succeeded",  false)
 	var memory_entries:   int    = context.get("memory_entries",   0)
+	var retrieval_relevance: float = context.get("retrieval_relevance", 0.0)
 	var prompt_length:    int    = context.get("prompt_length",    0)
 	var response_text:    String = context.get("response_text",    "").to_lower()
 
@@ -112,11 +113,11 @@ func evaluate(context: Dictionary) -> void:
 	var wisdom_contribution: float = 0.0
 	if wisdom_relevant:
 		wisdom = 0.0
-		if memory_entries >= 5:
+		if retrieval_relevance >= 0.8:
 			wisdom += 6.0
-		elif memory_entries >= 2:
+		elif retrieval_relevance >= 0.3:
 			wisdom += 3.0
-		elif memory_entries == 0:
+		elif retrieval_relevance == 0.0:
 			wisdom -= 5.0
 		if hedging_found:
 			wisdom -= 3.0
@@ -137,6 +138,22 @@ func evaluate(context: Dictionary) -> void:
 		power = clampf(power, -10.0, 10.0)
 		power_contribution = power
 
+	# ── User Sentiment Adjustments ───────────────────────────────────────
+	var user_sentiment: String = context.get("user_sentiment", "neutral")
+	var sentiment_love_adjustment := 0
+	if user_sentiment == "kind":
+		courage += 3.0
+		wisdom += 2.0
+		sentiment_love_adjustment = 15
+	elif user_sentiment == "mean":
+		courage -= 5.0
+		power -= 4.0
+		sentiment_love_adjustment = -40
+
+	courage = clampf(courage, -10.0, 10.0)
+	wisdom = clampf(wisdom, -10.0, 10.0)
+	power = clampf(power, -10.0, 10.0)
+
 	# ── Derive Tier 2 emotion ─────────────────────────────────────────────
 	var c_key := "H" if courage >= 0.0 else "L"
 	var w_key := "H" if wisdom  >= 0.0 else "L"
@@ -144,7 +161,7 @@ func evaluate(context: Dictionary) -> void:
 	var emotion: String = _EMOTION_MAP.get(c_key + w_key + p_key, "serenity")
 
 	# ── Update Love Meter ─────────────────────────────────────────────────
-	var prompt_score: int = roundi(courage_contribution + wisdom_contribution + power_contribution)
+	var prompt_score: int = roundi(courage_contribution + wisdom_contribution + power_contribution) + sentiment_love_adjustment
 	var prev_love: int    = EmotionState.love_score
 	var prev_emotion: String = EmotionState.emotion
 	var prev_relationship: String = EmotionState.relationship_level
@@ -170,10 +187,12 @@ func evaluate(context: Dictionary) -> void:
 	print("EmotionEngine:   Input context:")
 	print("EmotionEngine:     intent_clear     = ", intent_clear,
 		  "  (prompt words: ", prompt_length, ")")
-	print("EmotionEngine:     memory_entries   = ", memory_entries)
+	print("EmotionEngine:     memory_entries   = ", memory_entries,
+		  "  retrieval_relevance = ", retrieval_relevance)
 	print("EmotionEngine:     skills_available = ", skills_available,
 		  "  succeeded: ", skill_succeeded)
 	print("EmotionEngine:     hedging detected = ", hedging_found)
+	print("EmotionEngine:     user_sentiment   = ", user_sentiment)
 	print("EmotionEngine:   Scores:")
 	print("EmotionEngine:     Courage  → %+.1f  [%s]" % [courage, c_key])
 	print("EmotionEngine:     Wisdom   → %+.1f  [%s]" % [wisdom,  w_key])

@@ -78,4 +78,25 @@ func test_clean_text_for_tts() -> void:
 	assert_eq(cleaned, "Hello world!  This is a test with tildes, backticks, and  blockquotes. ", "Asterisks, other symbols, and emojis should be removed.")
 
 
+func test_clean_transcription() -> void:
+	var raw_trans := "Hello [BLANK_AUDIO] world (keyboard clicking) and some [laughter] text."
+	var cleaned := stt_service._clean_transcription(raw_trans)
+	assert_eq(cleaned, "Hello world and some text.", "Should strip bracketed and parenthesized noise text.")
+	
+	var blank_trans := "[BLANK_AUDIO]"
+	assert_eq(stt_service._clean_transcription(blank_trans), "", "Should return empty string if only noise is transcribed.")
+
+
+func test_tts_stream_buffer_strips_scratchpad() -> void:
+	tts_service._stream_active = true
+	
+	# Simulate receiving scratchpad tag block in system stream buffer
+	tts_service._stream_buffer = "<scratchpad>\n* Plan: warm greeting\n* Step: talk\n</scratchpad>\nHello there! How's it going?"
+	tts_service._process_system_stream_buffer()
+	
+	# After processing completed block, the scratchpad should be fully stripped from the buffer
+	# (Only the trailing sentence part remains)
+	assert_eq(tts_service._stream_buffer.strip_edges(), "Hello there! How's it going?", "Scratchpad tag block and contents must be stripped completely from stream buffer.")
+
+
 

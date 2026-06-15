@@ -112,3 +112,9 @@ func test_font_size_offset_stored_and_retrieved() -> void:
 	var result: int = _manager.get_setting("font_size_offset", 0)
 	assert_eq(result, 4,
 		"font_size_offset should be stored and returned correctly.")
+
+
+# func test_enable_push_to_talk_stored_and_retrieved() -> void:
+# 	_manager.set_setting("enable_push_to_talk", false)
+# 	var result: bool = _manager.get_setting("enable_push_to_talk", true)
+# 	assert_false(result, "enable_push_to_talk should be saved and retrieved correctly.")

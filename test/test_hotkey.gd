@@ -39,3 +39,30 @@ func test_hotkey_packet_emits_signal() -> void:
 		"InputManager should emit hotkey_pressed after receiving the UDP packet.")
 
 	client.close()
+
+
+func test_hotkey_released_packet_emits_signal() -> void:
+	assert_not_null(input_mgr, "InputManager Autoload should exist in the scene tree.")
+
+	var test_peer := PacketPeerUDP.new()
+	var bind_check := test_peer.bind(9999, "127.0.0.1")
+	test_peer.close()
+	if bind_check != OK:
+		pending("Skipping: UDP port 9999 is already in use (Navi may be running).")
+		return
+
+	watch_signals(input_mgr)
+
+	var client := PacketPeerUDP.new()
+	var err := client.connect_to_host("127.0.0.1", 9999)
+	assert_eq(err, OK, "UDP client should connect to local port 9999.")
+
+	err = client.put_packet("hotkey_up".to_utf8_buffer())
+	assert_eq(err, OK, "UDP client should send packet successfully.")
+
+	await get_tree().create_timer(0.15).timeout
+
+	assert_signal_emitted(input_mgr, "hotkey_released",
+		"InputManager should emit hotkey_released after receiving hotkey_up.")
+
+	client.close()

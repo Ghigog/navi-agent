@@ -12,6 +12,46 @@ This document contains completed, cancelled, or reverted historical tickets.
 
 ## Tickets
 
+### NAV-68: Voice-Text Streaming Sync, Emotion State Preservation & In-Character Responses (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to stream voice and text simultaneously, retain her emotional state across system reboots, and output natural in-character thoughts and status lines
+- **So that:** Navi behaves like a fluid, persistent, and authentic personal companion with zero lag and no hardcoded tone templates.
+
+**Context:**
+1. Visual/complex queries preemptively disabled stream-based TTS, causing Navi to remain completely silent during generation and then read back the full output at the very end.
+2. Running unit tests directly overwrote and deleted the persistent state file `user://emotion_state.json`, resetting Navi to gray defaults on the subsequent boot.
+3. Streaming thoughts from the `<think>` block were discarded and replaced with hard-coded rephrasing templates (often with legacy annoying tones).
+
+**Description:**
+1. Commented out preemptive disabling of stream TTS. Dynamically transition from streaming TTS to step-by-step guidance only when a step or pause tag is actually parsed in response chunks.
+2. Implemented `before_all()` and `after_all()` backup/restore logic in `test_emotion_state.gd` to protect the user's real `emotion_state.json` file.
+3. Bypassed the template-based `_apply_personality_voice()` translation table in `AIService.gd` to return raw cleaned thoughts. Added a category-mapped status helper for deterministic Stage 0 status updates.
+
+**Acceptance Criteria:**
+- **GUT Test**: Running the test suite passes with zero errors/regressions and restores the user's state.
+- **Manual Verification**: Verify simultaneous voice/text streaming for complex/visual queries, persistent wings color on restart, and personality-aligned status lines.
+
+---
+
+### NAV-67: Unify Visual Features (Two-Color Theme) (DONE)
+**User Story:**
+- **As a:** Navi user on various desktop backgrounds
+- **I want:** Navi's visuals (fairy body, wings, loading spiral, settings UI, and chat bubble) to follow a clean two-color theme (mood base color + darker accent outline) with highly-legible outlined white text
+- **So that:** Navi is extremely visible and readable on all kinds of dark, light, or busy wallpapers/screens.
+
+**Context:**
+The UI backgrounds, text colorings, and fairy outlines are currently hardcoded or use semi-translucent blue borders. Everything should dynamically adapt to the active fairy base color and its darker `.darkened(0.4)` counterpart.
+
+**Description:**
+Implement outline drawing on the fairy core, wings, and loading spiral. Update the panel backgrounds and borders of the Chat and Settings UI dynamically based on the fairy's base color. Apply recursive white coloring and black outlines to all text overlay controls.
+
+**Acceptance Criteria:**
+- **GUT Test**: Running the test suite passes with zero errors/regressions.
+- **Manual Verification**: Run the app, verify that the spiral, wings, and core have distinct darker outlines, the Settings/Chat panels match the base color with a darker border, and all text has clean outlines.
+
+---
+
 ### NAV-01: Transparent Borderless Window Setup (DONE)
 **User Story:**
 - **As a:** Desktop user
@@ -255,6 +295,42 @@ Create a `SettingsUI.tscn` panel that opens when clicking the fairy in stationar
 ---
 
 ## Bug Fix Tickets
+
+---
+
+### NAV-BUG-07: Deprecate Llama Model References in Settings UI (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The Settings UI to reference only the consolidated local model (`gemma4:e4b`)
+- **So that:** I am not confused by references to the deprecated Llama model.
+
+**Root Cause:**
+With the recent consolidation of local models around `gemma4:e4b`, references to `llama3` in the Settings UI placeholder text were outdated.
+
+**Fix:**
+Removed the deprecated `"llama3 / "` prefix from the `ModelEdit` LineEdit placeholder text in `SettingsUI.tscn` so that it reads `"gemma4:e4b"`.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Open Settings and verify the placeholder for the AI Model is `"gemma4:e4b"`.
+
+---
+
+### NAV-BUG-06: Local Model Startup Preload Discrepancy & TTSService Execution Logging (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to preload the correct thinking model at startup and output debugging information for TTS failures
+- **So that:** The first prompt response starts immediately without model loading delays, and TTS issues can be easily diagnosed.
+
+**Root Cause:**
+1. **Model Loading Delay**: At startup, `AIService._ready()` preloaded the model configured in the settings manager (`local_model`, e.g., `llama3.2:3b`). However, since thinking was enabled, the `WindowController` initialization ran shortly after and updated `AIService`'s config to use `local_thinking_model` (`gemma4:e4b`). When the first prompt arrived, Ollama had to load `gemma4:e4b` on the fly because it was never preloaded, causing a significant response delay.
+2. **Silent TTS Failure**: TTS playback did not print any logs, making failures (such as subprocess execution errors or active speaker ID mismatches) impossible to diagnose from standard logs.
+
+**Fix:**
+1. Updated `AIService._on_settings_updated()` to check if `enable_thinking` is true, and if so, correctly set `heavy_model` to `local_thinking_model` or `cloud_thinking_model` at startup, ensuring the correct model is preloaded.
+2. Added comprehensive execution and playback logging to `TTSService.gd` in `_speak_local_piper()`, `_play_generated_wav()`, and `_on_synthesis_completed()`.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Verify that the correct model is logged under `AIService: Preloading local model` at startup, and that any local piper synthesis steps are logged to stdout/stderr.
 
 ---
 
@@ -1562,6 +1638,722 @@ The previous implementation used process-based screenshots (`screencapture` comm
 **Acceptance Criteria:**
 - **Manual Verification**: Asking spatial queries like "Find the clocks" triggers screenshot capture, streams the response in character-by-character, and causes Navi to fly and point to each clock in real-time as the text streams in.
 - **GUT Test**: The test suite runs and passes 100% successfully.
+
+---
+
+### NAV-59: Consolidate Local Model Architecture and Bypass Thinking (DONE)
+**User Story:**
+- **As a:** Navi user/developer
+- **I want:** The system to use a single consolidated model for both fast responses (thinking bypassed) and complex reasoning (thinking enabled)
+- **So that:** VRAM freezing and swapping delays are avoided on limited-VRAM machines, and the settings interface is simplified.
+
+**Context:**
+Previously, Navi maintained separate "fast" (Tier 1) and "heavy" (Tier 2) model configurations. This resulted in dual models loading concurrently, leading to VRAM swaps, startup freezes, and complex escalation routing logic.
+
+**Description:**
+1. Consolidated the model settings to a single provider configuration ("AI Model") instead of separate Fast and Heavy fields, while preserving backward compatibility by writing the value to both `local_model`/`local_thinking_model` and `cloud_model`/`cloud_thinking_model` keys.
+2. Removed the multi-stage escalation and visual refusal self-correction pipeline from `AIService.gd`, routing all queries directly through a single-tier direct path.
+3. Implemented thinking bypass for non-complex queries in the consolidated model by setting the temperature to `0.1` and adding a prompt-level override directive for local models, and passing `thinkingBudget = 0` inside the `generationConfig` payload for cloud Gemini models.
+
+- **GUT Test**: Refactored `test_ai_service.gd` to verify single-model direct routing, settings synchronization, and correct thinking configurations.
+- **Manual Verification**: Verify that the Settings UI displays a single "AI Model" field, saving settings works correctly, and conversational vs. complex queries invoke thinking mode conditionally on the same consolidated model.
+
+---
+
+### NAV-60: Emotion State Data Model & Persistence (DONE)
+**User Story:**
+- **As a:** Navi developer
+- **I want:** A dedicated, persistent data model that tracks Navi's current Courage, Wisdom, and Power scores, the derived Tier 2 emotion, and the cumulative Love Meter value
+- **So that:** Every other emotion-system component has a single source of truth that survives across sessions.
+
+**Context:**
+See [`emotions.md`](emotions.md) for the full system design. This ticket establishes the foundational data layer all other emotion tickets depend on. Nothing else in the emotion system should be implemented before this ticket is complete.
+
+**Description:**
+1. Create `EmotionState.gd` as a lightweight `RefCounted` data class that holds all live emotion values.
+2. Implement load/save methods that persist state to `user://emotion_state.json` so the Love Meter survives restarts.
+3. Expose a singleton autoload (`EmotionState`) so all scripts can read the current state without passing references.
+
+**Requirements:**
+1. Create `res://scripts/EmotionState.gd` with the following properties:
+   ```gdscript
+   # Tier 1 scores, range -10 to +10
+   var courage: float = 0.0
+   var wisdom: float = 0.0
+   var power: float = 0.0
+
+   # Tier 2 derived emotion (string key, e.g. "serenity", "fear", "oblivion")
+   var emotion: String = "serenity"
+
+   # Love Meter, range -1000 to +1000
+   var love_score: int = 0
+
+   # Derived relationship level string ("nemesis" | "enemy" | "acquaintance" | "friend" | "best_friend")
+   var relationship_level: String = "acquaintance"
+   ```
+2. Implement `save()` — serialises the above to `user://emotion_state.json`.
+3. Implement `load()` — deserialises from `user://emotion_state.json`; falls back to defaults if file is missing.
+4. Register `EmotionState` as a project Autoload in `project.godot` so it is globally accessible as `EmotionState`.
+5. Add clamp guards: `love_score` must always remain within `[-1000, 1000]`; tier 1 scores within `[-10, 10]`.
+
+**Acceptance Criteria:**
+- **GUT Test** (`test/test_emotion_state.gd`): Verify that saving and reloading produces identical values. Verify clamp guards prevent out-of-range assignments. Verify default state initialises without errors.
+- **Manual Verification**: Run the project, submit two prompts, quit, relaunch — confirm the Love Meter value is preserved between sessions.
+
+---
+
+### NAV-61: Emotion Scoring Engine (DONE)
+**User Story:**
+- **As a:** Navi developer
+- **I want:** An `EmotionEngine` service that evaluates the current prompt context after each response and produces Courage, Wisdom, and Power scores, derives the Tier 2 emotion, and updates the Love Meter
+- **So that:** The emotion state is grounded in Navi's actual runtime situation rather than being static or arbitrary.
+
+**Context:**
+See [`emotions.md`](emotions.md) §4 (Scoring) and §3 (Tier 2 Composite Emotions) for the full scoring rules. This ticket depends on **NAV-60** being complete. Scoring should be **rule-based and synchronous** (no additional LLM call) to avoid latency. Future iterations can upgrade to LLM self-reflection if needed.
+
+**Description:**
+1. Implement `EmotionEngine.gd` as an `_ready()`-initialised node that performs rule-based scoring after each LLM response.
+2. Define scoring heuristics for each dimension based on observable runtime signals.
+3. Map the resulting High/Low binary state per dimension to the correct Tier 2 emotion.
+4. Apply the prompt score to the Love Meter and update `EmotionState`.
+
+**Requirements:**
+1. Create `res://scripts/EmotionEngine.gd`. Expose a single public method:
+   ```gdscript
+   func evaluate(context: Dictionary) -> void
+   # context keys:
+   #   "intent_clear": bool      — was the prompt parsed without ambiguity?
+   #   "skills_available": bool  — did AIService have at least one matching skill?
+   #   "skill_succeeded": bool   — did all triggered skills complete without error?
+   #   "memory_entries": int     — number of relevant memory/context entries found
+   #   "prompt_length": int      — word count of the user's prompt
+   ```
+2. Implement scoring rules:
+   - **Courage**: Start at 0. `+5` if `intent_clear`, `+3` if `memory_entries >= 3`, `-4` if `prompt_length > 80` (ambiguity risk), `-5` if `!intent_clear`. Clamp to [-10, 10].
+   - **Wisdom**: Start at 0. `+6` if `memory_entries >= 5`, `+3` if `memory_entries >= 2`, `-5` if `memory_entries == 0`, `-3` if the response contained a hedging phrase (e.g. "I'm not sure", "I don't know"). Clamp to [-10, 10].
+   - **Power**: Start at 0. `+7` if `skills_available && skill_succeeded`, `+3` if `skills_available && !skill_succeeded`, `-6` if `!skills_available`. Clamp to [-10, 10].
+3. Derive Tier 2 emotion: treat a score ≥ 1 as High, ≤ 0 as Low for each dimension. Map to the 8-emotion table in `emotions.md` §3.
+4. Compute `prompt_score = courage + wisdom + power`. Call `EmotionState.love_score += prompt_score` (clamped).
+5. Update `EmotionState.emotion`, `EmotionState.relationship_level` (see Love Meter thresholds in `emotions.md` §5), then call `EmotionState.save()`.
+6. Emit a signal `emotion_updated(emotion: String, love_score: int)` for any UI listeners.
+
+**Acceptance Criteria:**
+- **GUT Test** (`test/test_emotion_engine.gd`):
+  - Pass a context with all positive flags → assert emotion is `"serenity"`, love_score increased.
+  - Pass a context with `intent_clear=false, skills_available=false, memory_entries=0` → assert emotion is `"oblivion"`, love_score decreased.
+  - Pass a context with `intent_clear=true, skills_available=false, memory_entries=0` → assert emotion is `"pain"`.
+  - Verify love_score never exceeds 1000 or falls below -1000.
+- **Manual Verification**: Submit a clear skill-based prompt (e.g. "point to the clock"). Open the Godot Output panel and confirm the engine logs the derived emotion and the love score delta.
+
+---
+
+### NAV-62: Emotion-Aware Prompt Injection (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's responses to subtly reflect her current emotional state and relationship level through tone, word choice, and energy — without her explicitly announcing how she feels
+- **So that:** Interacting with Navi feels alive and personal rather than robotic.
+
+**Context:**
+See [`emotions.md`](emotions.md) §6 (Prompt Injection) for the full injection block format and per-emotion tone guidance. This ticket depends on **NAV-60** and **NAV-61** being complete. The injection is prepended to the existing system prompt in `AIService.gd`.
+
+**Description:**
+1. Create `EmotionPromptBuilder.gd` which reads `EmotionState` and constructs a system-prompt block describing Navi's inner state.
+2. Integrate the builder into `AIService.gd` so the block is prepended on every prompt before the LLM call.
+3. Include per-emotion and per-relationship-level tone guidance as defined in `emotions.md` §6.2 and §6.3.
+
+**Requirements:**
+1. Create `res://scripts/EmotionPromptBuilder.gd` with a static method:
+   ```gdscript
+   static func build() -> String
+   ```
+   Returns a formatted string block based on the current `EmotionState` values, following the template in `emotions.md` §6.1.
+2. Include the tone guidance snippets for the current `EmotionState.emotion` and `EmotionState.relationship_level` in the returned block (drawn from the tables in §6.2 and §6.3 — hardcode these as a `Dictionary` constant in the file).
+3. In `AIService.gd`, call `EmotionPromptBuilder.build()` and prepend the result to the system prompt string before every LLM request.
+4. Ensure the injection block is **stripped from the conversation history** displayed in `ChatUI` — it must never appear in the visible chat bubbles.
+
+**Acceptance Criteria:**
+- **GUT Test** (`test/test_emotion_prompt_builder.gd`):
+  - Set `EmotionState.emotion = "fear"` and `EmotionState.relationship_level = "friend"` → assert the built string contains "fear" and the correct tone guidance for both.
+  - Assert the built string does not exceed 300 tokens (keep it concise).
+- **Manual Verification**: Enable Godot's print-request-body debug flag. Submit a prompt and confirm the injected emotion block appears in the outgoing payload. Confirm the chat UI shows no trace of the injection text.
+
+---
+
+### NAV-63: Tricolor Emotion Body Color (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's body colour to reflect her emotional state using a dynamic RGB mix driven by her Courage, Wisdom, and Power scores, with the Love Meter controlling overall brightness
+- **So that:** I can read her emotional state at a glance without any UI label or readout.
+
+**Context:**
+See [`emotions.md`](emotions.md) §9 (Visual Feedback). This ticket supersedes the static colour approach in the original NAV-63 draft. Depends on **NAV-60** and **NAV-61**.
+
+The colour model treats the three base dimension scores as RGB primaries:
+- **Red channel** → Power score
+- **Green channel** → Courage score
+- **Blue channel** → Wisdom score
+
+Each score is normalised from its [-10, +10] range to [0.0, 1.0] to produce the channel intensity. The Love Meter (-1000 to +1000) is normalised to a brightness multiplier [0.0, 1.0]. The final colour applied to the fairy body is:
+
+```
+brightness = (love_score + 1000) / 2000.0           # 0.0 → 1.0
+r = (power_score  + 10) / 20.0 * brightness
+g = (courage_score + 10) / 20.0 * brightness
+b = (wisdom_score  + 10) / 20.0 * brightness
+final_colour = Color(r, g, b)
+```
+
+At maximum hate (love=-1000) the fairy is fully black regardless of dimension scores. At maximum love (love=+1000) the fairy glows at full intensity. All three dimensions at -10 yields a near-black tint; all at +10 yields near-white.
+
+**Description:**
+1. In `FairyVisuals.gd`, add a method `apply_emotion_color(courage: float, wisdom: float, power: float, love_score: int) -> void` implementing the formula above.
+2. Connect `EmotionEngine.emotion_updated` (extend the signal to also pass the three raw scores) to this method.
+3. Tween all colour transitions smoothly.
+
+**Requirements:**
+1. Extend the `EmotionEngine.emotion_updated` signal signature to:
+   ```gdscript
+   signal emotion_updated(emotion: String, love_score: int, courage: float, wisdom: float, power: float)
+   ```
+2. In `FairyVisuals.gd`, add:
+   ```gdscript
+   func apply_emotion_color(courage: float, wisdom: float, power: float, love_score: int) -> void:
+       var brightness := clampf((love_score + 1000.0) / 2000.0, 0.0, 1.0)
+       var r := clampf((power   + 10.0) / 20.0, 0.0, 1.0) * brightness
+       var g := clampf((courage + 10.0) / 20.0, 0.0, 1.0) * brightness
+       var b := clampf((wisdom  + 10.0) / 20.0, 0.0, 1.0) * brightness
+       var target_color := Color(r, g, b)
+       # Tween current body modulate to target_color
+       var tween := create_tween()
+       tween.tween_property(_body_polygon, "color", target_color, 0.8)\
+            .set_ease(Tween.EASE_IN_OUT)
+   ```
+   Where `_body_polygon` is the main `Polygon2D` node for the fairy body.
+3. Connect `EmotionEngine.emotion_updated` → `FairyVisuals.apply_emotion_color` in the scene root or `AIService._ready()`.
+4. Remove any previous static `EMOTION_COLOURS` or `RELATIONSHIP_GLOW_INTENSITY` dictionary references from `FairyVisuals.gd`.
+
+**Acceptance Criteria:**
+- **GUT Test** (`test/test_fairy_visuals.gd`):
+  - Call `apply_emotion_color(10, 10, 10, 1000)` → assert resulting `Color` is close to `Color(1, 1, 1)` (near-white).
+  - Call `apply_emotion_color(0, 0, 0, -1000)` → assert resulting `Color` is `Color(0, 0, 0)` (black).
+  - Call `apply_emotion_color(10, -10, -10, 1000)` → assert green channel dominates (high courage, zero wisdom/power).
+- **Manual Verification**: Submit a clear skill prompt; observe Navi glowing a mixed colour. Ask a confusing/vague question; observe a duller, darker tint. After many positive interactions, brightness should increase noticeably.
+
+---
+
+### NAV-64: Floating Emoji Emotion Notifications (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** A small emoji to appear near Navi's body at the start of each response, animate in with a grow-and-shrink tween, hold briefly, then disappear
+- **So that:** I can feel Navi's emotion in the moment without interrupting the flow of the conversation.
+
+**Context:**
+See [`emotions.md`](emotions.md) §9.2 (Emoji Notifications). Depends on **NAV-60** and **NAV-61**. The emoji is chosen randomly from a pool of up to four associated with the current Tier 2 emotion. The notification is a transient scene instance — it creates itself, runs its animation, and then frees itself automatically.
+
+**Emoji Pools per Tier 2 Emotion:**
+
+| Emotion | Emoji Pool |
+|---|---|
+| Serenity | 😌 ✨ 💫 🌟 |
+| Happiness | 😊 🌟 💛 🎉 |
+| Boredom | 😑 💤 🌀 😶 |
+| Fear | 😨 😰 🫨 💙 |
+| Sadness | 😢 💙 🌧️ 😔 |
+| Anger | 😠 🔥 ⚡ 😤 |
+| Pain | 😣 💔 😖 🫤 |
+| Oblivion | 😶‍🌫️ 🕳️ ⬛ 😑 |
+
+**Description:**
+1. Create a lightweight scene `res://scenes/EmojiNotification.tscn` containing a single `Label` node sized to display one large emoji.
+2. Implement the grow → hold → shrink → free tween sequence in `EmojiNotification.gd`.
+3. In `FairyVisuals.gd` (or a dedicated `EmojiNotificationSpawner`), spawn one instance per response when `EmotionEngine.emotion_updated` fires.
+
+**Requirements:**
+1. Create `res://scenes/EmojiNotification.tscn`:
+   - Root node: `Node2D` named `EmojiNotification`.
+   - Child: `Label` named `EmojiLabel`, font size `48px`, no background, centered anchor.
+2. Create `res://scripts/EmojiNotification.gd` attached to the root node:
+   ```gdscript
+   extends Node2D
+
+   func play(emoji: String, position: Vector2) -> void:
+       $EmojiLabel.text = emoji
+       global_position = position
+       scale = Vector2(0.1, 0.1)
+       var tween := create_tween()
+       # Grow in
+       tween.tween_property(self, "scale", Vector2(1.2, 1.2), 0.25)\
+            .set_ease(Tween.EASE_OUT)
+       # Settle
+       tween.tween_property(self, "scale", Vector2(1.0, 1.0), 0.1)
+       # Hold
+       tween.tween_interval(1.0)
+       # Shrink out
+       tween.tween_property(self, "scale", Vector2(0.0, 0.0), 0.2)\
+            .set_ease(Tween.EASE_IN)
+       # Auto-free
+       tween.tween_callback(queue_free)
+   ```
+3. Define the emoji pool dictionary as a `const` in `EmojiNotification.gd`:
+   ```gdscript
+   const EMOJI_POOLS := {
+       "serenity":  ["😌", "✨", "💫", "🌟"],
+       "happiness": ["😊", "🌟", "💛", "🎉"],
+       "boredom":   ["😑", "💤", "🌀", "😶"],
+       "fear":      ["😨", "😰", "🫨", "💙"],
+       "sadness":   ["😢", "💙", "🌧️", "😔"],
+       "anger":     ["😠", "🔥", "⚡", "😤"],
+       "pain":      ["😣", "💔", "😖", "🫤"],
+       "oblivion":  ["😶\u200d🌫️", "🕳️", "⬛", "😑"],
+   }
+
+   static func pick_emoji(emotion: String) -> String:
+       var pool: Array = EMOJI_POOLS.get(emotion, ["✨"])
+       return pool[randi() % pool.size()]
+   ```
+4. In `FairyVisuals.gd`, add a method `spawn_emoji_notification(emotion: String) -> void`:
+   - Instance `EmojiNotification.tscn`.
+   - Determine spawn position: 40px directly above the fairy body's current `global_position`.
+   - Add as a child of the scene root (not the fairy body, so it doesn't move with her).
+   - Call `play(EmojiNotification.pick_emoji(emotion), spawn_position)`.
+5. Connect `EmotionEngine.emotion_updated` → `FairyVisuals.spawn_emoji_notification` (pass only the `emotion` string argument).
+6. Do **not** spawn an emoji if the emotion is identical to the previous turn's emotion (avoid repetition on unchanged state).
+
+**Acceptance Criteria:**
+- **GUT Test** (`test/test_emoji_notification.gd`):
+  - Verify `pick_emoji("serenity")` always returns one of the four serenity pool values.
+  - Verify `pick_emoji("oblivion")` returns a valid string and does not crash.
+  - Verify that two consecutive calls with the same emotion string do not both spawn (the deduplication guard fires).
+- **Manual Verification**: Submit a clear prompt. Confirm a single emoji appears near Navi's head, grows from small, holds for ~1 second, then shrinks and disappears. Submit a second identical-emotion prompt and confirm no second emoji appears. Change the emotion by submitting a vague/unsupported prompt and confirm a different emoji appears.
+
+---
+
+### NAV-65: Live Navi Mode Toggle (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** A "Live Navi Mode" toggle in Settings that hands full control of Navi's body colour and personality to the Emotion Engine
+- **So that:** Navi's appearance and voice feel alive and reactive to her current emotional state, without me having to manually configure them
+
+**Description:**
+When Live Navi Mode is OFF (default), all existing behaviour is unchanged — the user sets body colour and personality freely.
+
+When Live Navi Mode is ON:
+1. `EmotionEngine` scoring fires after every response.
+2. The emotion inner-state block is injected into every LLM system prompt (NAV-62).
+3. The personality string in the system prompt is replaced with a short emotion/relationship descriptor (e.g. `"anxious acquaintance"`).
+4. `FairyVisuals` applies the tricolor RGB emotion tint and spawns emoji notifications on emotion change.
+5. In Settings, the colour picker and personality field are grayed out (alpha 0.45, non-editable), showing their live current values.
+6. Toggling OFF immediately restores the saved user colour via `FairyVisuals.restore_user_color()` and makes both fields editable again.
+7. Toggling ON/OFF never overwrites the user's saved `fairy_color` or `personality` settings.
+
+**Files Changed:**
+- `SettingsManager.gd`: `live_navi_mode` default + migration guard
+- `SettingsUI.gd`: `_live_navi_toggle` CheckButton, `_apply_live_mode_ui()`, `_on_live_navi_toggled()`
+- `FairyVisuals.gd`: Live mode gate in `_on_emotion_updated()`, `restore_user_color()`
+- `AIService.gd`: Gates `_evaluate_emotion()` and `EmotionPromptBuilder.build()` behind `live_navi_mode`
+- `EmotionPromptBuilder.gd`: `get_live_personality()` static helper
+
+**Acceptance Criteria:**
+- Settings panel shows "⚡ Live Navi Mode" toggle at the top.
+- When OFF: colour picker + personality field editable; no emotion scoring in Output.
+- When ON: both fields grayed out showing live values; emotion scoring logs appear in Output; fairy colour tweens; emoji fires on emotion change.
+- Toggling OFF restores saved colour without touching the stored settings values.
+
+---
+
+### NAV-53: Migrate to Native LLM Tool Calling (Function Calling) (DONE)
+**User Story:**
+- **As a:** Navi developer
+- **I want:** The LLM integration to utilize native tool/function calling schemas instead of parsing arbitrary text tags from the streaming content
+- **So that:** The communication is robust, strictly typed, and free of regex formatting bugs or accidental tag leaks in the chat UI.
+
+**Context:**
+Currently, `AIService.gd` uses a custom regex parser (`_filter_stream_chunk`) to intercept tag strings like `[SKILL: point_to: X,Y]`. This is brittle and consumes context tokens by forcing system prompt parsing. Modern LLMs (like Gemini 2.0/2.5 and Ollama/Gemma) natively support function/tool schemas.
+
+**Description:**
+1. Convert `AIService.gd` payload generation to support native `tools` parameters.
+2. Update the local (Ollama) and cloud (Gemini) API payload formats to pass JSON schemas defining the available actions.
+3. Refactor the chunk stream parser to detect tool call choices delta and resolve arguments directly.
+
+**Requirements:**
+1. Define JSON schemas for the existing skills: `take_screenshot`, `take_crop_screenshot`, `heavy_thinking`, `summarize_session`, and `point_to` (with coordinate arguments).
+2. For Gemini requests, pass these schemas in the `tools` array parameter.
+3. For Ollama requests, define them under the `/v1/chat/completions` API `tools` specification.
+4. Refactor the stream read loop in `_request_llm_stream` to parse tool calls delta instead of parsing raw bracket markers.
+5. Emit a signal `tool_call_received(tool_name: String, args: Dictionary)` when a call is parsed from the stream.
+
+**Acceptance Criteria:**
+- **GUT Test**: Add unit tests in `test_ai_service.gd` that mock Ollama/Gemini chunk packets containing `tool_calls` and verify they parse correctly into dictionaries.
+- **Manual Verification**: Submit a visual query (e.g. "point to the top-right corner") and verify the log shows native function execution with structured arguments instead of regex tag intercepts.
+
+---
+
+### NAV-54: Decouple Skills into Standalone Modular Classes (DONE)
+**User Story:**
+- **As a:** Navi developer
+- **I want:** Each agent capability/skill to be isolated in its own dedicated class/script file
+- **So that:** Adding a new skill is plug-and-play and does not require modifying or bloating `AIService.gd`.
+
+**Context:**
+`AIService.gd` contains all execution logic for screenshotting, cropping, pointing, and session summarization. This violates the single-responsibility principle and makes the service file harder to maintain as new skills are introduced.
+
+**Description:**
+1. Design a base `Skill` class that defines the naming, schema generation, and execution interfaces.
+2. Refactor existing capabilities into standalone script files extending this base class.
+3. Update `AIService.gd` to scan, load, and register all skill scripts dynamically at runtime.
+
+**Requirements:**
+1. Create a base script `res://scripts/skills/Skill.gd`:
+   ```gdscript
+   extends RefCounted
+   class_name Skill
+   func get_name() -> String: return ""
+   func get_description() -> String: return ""
+   func get_schema() -> Dictionary: return {}
+   func execute(context: Dictionary) -> String: return ""
+   ```
+2. Implement subclasses in `res://scripts/skills/`:
+   * `TakeScreenshotSkill.gd`
+   * `TakeCropScreenshotSkill.gd`
+   * `HeavyThinkingSkill.gd`
+   * `PointToSkill.gd`
+   * `SummarizeSessionSkill.gd`
+3. Modify `AIService.gd` to load and instantiate all script files under the `res://scripts/skills/` directory on `_ready()`, storing them in `_skills_registry`.
+
+**Acceptance Criteria:**
+- **GUT Test**: Add a test verifying that adding a mock skill script to `res://scripts/skills/` registers it automatically at startup.
+- **GUT Test**: Verify all existing skill integration tests pass under the new decoupled class structure.
+
+
+### NAV-59: Fix TTS Stream State Issue and Disable Startup Greeting (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Text-to-Speech vocalization (mutter, local piper, or system voices) to play reliably when the response streams in, without getting silenced or interrupted by background events
+- **So that:** I can hear Navi's response without issues.
+
+**Context:**
+A race condition occurred because `ChatUI.gd` called `start_speech_stream()` when the request started, but `AIService`'s asynchronous dispatch immediately emitted `response_cleared`, calling `TTSService.stop()` and silencing the stream (`_stream_active = false`). Additionally, the model preloading startup greeting could trigger at any time and interrupt ongoing chat sessions.
+
+**Description:**
+1. Move `start_speech_stream()` to trigger on the first response chunk received in `_on_ai_response_chunk` in `ChatUI.gd`.
+2. Disable the startup preload greeting in `AIService.gd` to ensure zero interruptions.
+
+**Requirements:**
+1. Remove the `start_speech_stream()` call from `_on_ai_request_started` in `ChatUI.gd`.
+2. Implement `is_first_chunk` detection inside `_on_ai_response_chunk` in `ChatUI.gd` and trigger `start_speech_stream()` there.
+3. Make `_speak_startup_greeting()` in `AIService.gd` return early immediately to prevent any startup audio.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Submit a prompt, verify that TTS streams audio properly and is not ignored. Verify no startup greeting plays.
+
+---
+
+### NAV-56: Consolidated Single-Window UI Overlay (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The chat overlay to consist of a single unified window with a translucent dark background, rounded corners, and no shadow, combining both input and response threads into one layout
+- **So that:** The visual interface is simplified, takes up less screen real estate, and has a clean, premium, modern appearance.
+
+**Context:**
+Currently, `ChatUI.tscn` consists of two separate UI panel nodes (`input_panel` and `response_panel`) that are dynamically repositioned next to the fairy, which creates visual complexity. Overhauling this layout into a single, combined panel simplifies container logic and improves desktop aesthetics.
+
+**Description:**
+1. Merge the input field, mic/mute controls, and the response RichTextLabel into a single unified window panel.
+2. Remove box shadows and drop-shadow styling filters. Apply a slightly transparent dark background with curved/rounded corners.
+3. Consolidate the dynamic positioning logic in `ChatUI.gd` to target only the single panel container.
+
+**Requirements:**
+1. Modify `ChatUI.tscn` to restructure the hierarchy under a single `PanelContainer` (e.g. `MainPanel`).
+2. Implement a `VBoxContainer` inside the container:
+   * Upper part: `RichTextLabel` representing the conversation history.
+   * Lower part: `LineEdit`/`TextEdit` for text input.
+3. Apply a custom theme stylebox to `MainPanel`:
+   * Set background color to translucent dark grey (e.g., `Color(0.08, 0.08, 0.1, 0.8)`).
+   * Configure `Corner Radius` to `12px` or `16px`.
+   * Disable any shadow parameters.
+4. Update `reposition_ui` in `ChatUI.gd` to position only this single container relative to the fairy's screen coordinate.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Open the chat window. Confirm there is only one visible box container wrapping both the text input and conversation history. Confirm the style is shadow-less, translucent dark, and has rounded corners.
+- **GUT Test**: Verify that `is_position_inside_ui` properly delegates to the single container bounds, keeping unit tests passing.
+
+---
+
+### NAV-57: Direct-Activation STT with Live Editor Ingestion (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to automatically start listening to my voice when I activate the chat overlay, streaming transcribed text live into the text input area so I can review, edit, and press Enter to submit
+- **So that:** I can interact entirely hands-free without clicking a dedicated microphone button.
+
+**Context:**
+Currently, voice recording must be toggled manually via a microphone button, and the transcribed text is submitted immediately to the LLM. Standardizing on implicit listening and live editor ingestion allows the user to correct mispronunciations before sending the prompt.
+
+**Description:**
+1. Automatically trigger `STTService` recording when the chat overlay is opened via hotkey or mouse drag.
+2. Stream the ongoing transcript dynamically into the `LineEdit` input field instead of sending it immediately.
+3. Allow the user to press `Enter` to finalize and send, or edit the text beforehand.
+
+**Requirements:**
+1. Modify `open_chat()` in `ChatUI.gd` to automatically trigger the STT toggle flow (simulating button press/record start) by default.
+2. Update the transcription handling in `ChatUI.gd` to populate `input_edit.text` with the transcribed text in real-time as it is received from `STTService` instead of directly invoking `_on_prompt_submitted()`.
+3. Keep the input edit field editable during STT updates so the user can type changes.
+4. Bind the `text_submitted` signal on `LineEdit` to trigger the final LLM request when the user presses `Enter` (or stops speaking and presses `Enter`).
+
+**Acceptance Criteria:**
+- **Manual Verification**: Press the global hotkey. Navi should start recording immediately (indicated by status/cursor changes). Speak a sentence, verify that the text appears typed out in the input field, edit a word using the keyboard, and press Enter to submit the prompt.
+- **GUT Test**: Assert that opening the chat node initiates the STT recording state in headless simulations.
+
+---
+
+### NAV-58: Settings UI Overlay Simplification (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The Settings UI to match the clean, shadow-less, translucent dark style of the new chat window, and to manage TTS enablement via settings toggles rather than local panel buttons
+- **So that:** The visual consistency of the application is maintained and redundant buttons (like Mute) are removed.
+
+**Context:**
+The current Settings panel (`SettingsUI.tscn`) uses standard window styles and shadows. The `ChatUI` also has a dedicated `Mute` button. Disabling TTS can be cleanly handled globally through the Settings UI, making the chat box simpler.
+
+**Description:**
+1. Redesign `SettingsUI.tscn` to use the translucent dark background with rounded corners and no shadows.
+2. Remove the mute button (`_mute_button`) from the chat interface entirely.
+3. Keep right-click on the fairy as the trigger to open the simplified settings menu.
+
+**Requirements:**
+1. In `SettingsUI.tscn`, apply the same stylebox configuration used in `NAV-56` (translucent dark background, corner radius, no shadows).
+2. Delete the `_mute_button` node and all corresponding signal bindings/callbacks from `ChatUI.gd` and `ChatUI.tscn`.
+3. Rely on `SettingsManager.get_setting("enable_tts", true)` to globally route/bypass TTS synthesis in `TTSService.gd`.
+4. Ensure right-click detection on the fairy (`FairyVisuals.gd`) continues to call `WindowController.open_settings()` to toggle settings visibility.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Confirm the mute button is gone from the chat overlay. Right-click the fairy, confirm the Settings UI opens as a translucent panel matching the rounded, shadow-less dark aesthetic. Toggle TTS off in settings, save, and confirm Navi no longer speaks responses.
+- **GUT Test**: Verify `test_settings.gd` passes and confirms toggle persistence.
+
+---
+
+### NAV-66: Decouple Wisdom Scoring from Memory Heuristic (DONE)
+**User Story:**
+- **As a:** Navi developer
+- **I want:** The Wisdom base dimension score to be evaluated using a dedicated retrieval-quality check rather than relying on conversation history size (`memory_entries`)
+- **So that:** Wisdom is a more accurate reflection of the relevance and quality of context available for the specific prompt, regardless of current chat length.
+
+**Description:**
+1. Introduced a retrieval-relevance scoring heuristic calculating keyword overlap between the user's prompt and the conversation history plus cached summary.
+2. Updated `EmotionEngine.gd` to evaluate Wisdom using `retrieval_relevance` instead of `memory_entries`.
+3. Updated unit tests to match and added a test for low-relevance scoring.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that a long conversation history with low retrieval relevance scores low Wisdom. All 155 tests pass.
+
+---
+
+### NAV-67: Remove Send/Record Buttons & Use Enter for Controls (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The Send and Record buttons to be removed from the chat window, routing their functionalities to the Enter key, and to treat voice recording as a pseudo-skill by turning Navi's indicator orb red.
+- **So that:** The chat UI is cleaner, and I have clear visual feedback when voice recording is happening.
+
+**Description:**
+1. Programmatically set the visibility of `SendButton` and `VoiceButton` to `false` to keep them instantiated but hidden.
+2. Configured `Enter` key (empty input box) to toggle voice recording on and off.
+3. Updated voice recording toggling to set Navi's status orb to pulsing red, and clear it when recording finishes.
+
+---
+
+### NAV-55: Interactive Skill Confirmation Overlay (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to ask for my consent before executing sensitive skills (like clicking, writing files, or running scripts)
+- **So that:** I have complete control and transparency over the automated actions happening on my desktop.
+
+**Context:**
+Currently, skills execute automatically as soon as they are resolved. As we build more advanced system integration capabilities, executing arbitrary tasks without user confirmation poses security and usability risks.
+
+**Description:**
+1. Introduced a user preference setting `require_skill_confirmation: bool` (defaulting to `true` for security-sensitive tools) in `SettingsManager`.
+2. Created a scene `res://scenes/SkillConfirmationCard.tscn` (matching the glassmorphic dark theme) containing description text ("Navi wants to point to (100, 200)") and `Approve` / `Deny` buttons.
+3. Added a confirmation flow/pause in `AIService.gd` and `GuidanceController.gd` to await user response before invoking the skill callback/flying.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that enabling `require_skill_confirmation` suspends skill execution, and clicking approve completes it successfully. All 158 tests pass.
+
+
+---
+
+### NAV-BUG-10: Live STT Ingestion with Silence/VAD Detection (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** My spoken voice text to stream into the input field in real-time as I speak, rather than only appearing after I hit send
+- **So that:** I can monitor the ongoing transcription, edit it, and choose when to submit the prompt.
+
+**Description:**
+1. Implemented a Voice Activity Detection (VAD) loop in `ChatUI.gd` monitoring the peak volume of the microphone input bus.
+2. If the user stops speaking (volume below `-35 dB` for `0.8` seconds), the active chunk is saved and transcribed in the background, updating the LineEdit text immediately.
+3. Automatically starts a new recording chunk upon VAD pause to prevent speech loss. Recording/listening starts as soon as the response begins streaming.
+4. Implemented barge-in/interruption: if the user starts speaking (mic volume > `-35 dB`) while Navi is speaking (`TTSService.is_speaking()`), her voice is immediately muted (`TTSService.stop()`).
+5. Cleans local Whisper and Cloud Gemini transcriptions by filtering out empty/noise indicators like `[BLANK_AUDIO]` or `(keyboard clicking)` using regular expressions.
+6. Added safety guards to prevent concurrent transcription overlaps and ensure pre-existing typed text is preserved.
+
+
+
+
+### NAV-67: Hold to Talk (Push-to-Talk) System (DONE)
+**User Story:**
+- **As a:** Navi User
+- **I want:** to hold the activation hotkey (Shift + Up) to speak and release it to send my prompt instantly, and have a toggle in settings to enable/disable it
+- **So that:** Navi does not get interrupted by her own voice or random background noise during automatic level detection.
+
+**Description:**
+1. Switched default listening system to a hold-to-talk system using the global activation hotkey (defaulted to `Shift + Up`).
+2. Pressing and holding the activation hotkey opens the chat UI and starts recording. Releasing the key triggers instant transcription and submission of the prompt.
+3. Added `enable_push_to_talk` setting in `SettingsManager` (enabled by default) and added a toggle switch for it in the settings UI.
+4. Programmatically displayed a subtle subtitle label `"hold Shift + Space to talk"` under Navi on startup that fades out after 5 seconds (updated to `"hold Shift + Space to talk"`, wait! The user says "when we start up Navi, it should say 'hold Space to talk' in subtitle subtle text." Oh, the user says "when we start up Navi, it should say 'hold Space to talk' in subtitle subtle text." Wait, they wanted "hold Space to talk" originally, then "Shift + Up" is the actual hotkey combination. Let's make sure the subtitle matches whichever is the default/configured text or just keep it as the new default activation helper text!). Wait, let's keep it as `"hold Shift + Up to talk"`.
+5. Doubled the default size of the `ChatUI` interaction panel (`MainPanel`) in `ChatUI.tscn` to improve readability and usability.
+6. Added GUT unit tests to cover the Push-to-Talk state changes and hotkey hold/release behaviors.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that the Push-to-Talk toggle can be correctly set/retrieved from SettingsManager.
+- **GUT Test**: Verify that pressing and releasing the hotkey toggles recording states correctly.
+- **Manual Verification**: Subtitle label shows up at startup and fades out after 5s. Toggle button exists in settings and works. Holding hotkey records voice, and releasing sends the prompt instantly.
+
+---
+
+### NAV-68: Polished Push-to-Talk Tap-vs-Hold and Input Focus (COMPLETED)
+**User Story:**
+- **As a:** Navi User
+- **I want:** The push-to-talk hotkey to act as a tap-to-type and hold-to-talk gesture
+- **So that:** I can naturally speak by holding the hotkey or quickly focus the text bar by tapping the hotkey without triggering voice input.
+
+**Description:**
+1. Extended the macOS global hotkey daemon (`hotkey_daemon.swift`) to register event handlers for both `kEventHotKeyPressed` and `kEventHotKeyReleased` Carbon events, transmitting `"hotkey_down"` and `"hotkey_up"` UDP packets to Godot.
+2. Updated `InputManager.gd` to process the new UDP packets, emitting `hotkey_pressed` on key down and introducing a new `hotkey_released` signal on key up (bypassing the debounce timer).
+3. Created `handle_hotkey_down` and `handle_hotkey_up` methods in `ChatUI.gd` to track press times and distinguish between taps (< 0.4s) and holds (>= 0.4s).
+4. Configured short taps to abort recording and focus the text box immediately when Navi is open, rather than triggering voice input or closing the window.
+5. Wired `WindowController.gd` to receive global hotkey down/up signals and invoke the respective handlers inside `ChatUI`.
+6. Updated GUT unit tests to cover both global hotkey signals and local inputs.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that `InputManager` emits both `hotkey_pressed` and `hotkey_released` signals on UDP packets.
+- **GUT Test**: Verify that `ChatUI` distinguishes between hold and tap releases correctly.
+- **Manual Verification**: Tapping hotkey opens Navi, ready for text input. Holding hotkey opens Navi and enters recording mode; releasing submits the query. Tapping hotkey when Navi is already active brings window to foreground and focuses the input box.
+
+
+---
+
+### NAV-69: Deprecate Voice Detection and Enforce Push-to-Talk (COMPLETED)
+**User Story:**
+- **As a:** Navi User
+- **I want:** Voice Activity Detection (VAD) / continuous voice detection to be deprecated, all VAD code logic disabled/commented out with documentation, and the push-to-talk setting toggle removed so push-to-talk is the only mode
+- **So that:** Navi only records voice when I explicitly press and hold the activation hotkey, preventing microphone loops or accidental recording.
+
+**Description:**
+1. Commented out Voice Activity Detection (VAD) loop (`_start_vad_monitoring()`) and automated triggers in `ChatUI.gd`.
+2. Added detailed documentation comments explaining the VAD design to guide future re-implementation.
+3. Commented out the programmatic creation of `PushToTalkRow` and its settings bindings inside `SettingsUI.gd`.
+4. Maintained `enable_push_to_talk` as `true` in `SettingsManager.gd` config defaults for compatibility.
+5. Commented out deprecated continuous-STT/PTT tests in `test_chat_ui.gd` and `test_settings.gd`.
+
+**Acceptance Criteria:**
+- **GUT Test**: Headless unit tests pass without errors.
+- **Manual Verification**: "Push to Talk" toggle is removed from the Settings UI. Chat overlay does not record sound automatically on open. Push-to-talk via Shift + Up works successfully.
+
+---
+
+### NAV-70: Persistent Emotional State and Startup Color (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's emotional state and relationship level to persist between app launches and reflect immediately on startup
+- **So that:** She remains consistent and doesn't reset to her default gray color every time I open the app.
+
+**Description:**
+1. Replaced invalid `Engine.has_singleton(...)` autoload checks with tree-path node lookups `/root/...` across `FairyVisuals.gd`, `WindowController.gd`, `AIService.gd`, and `SettingsUI.gd`.
+2. Verified that the correct HSL target and startup emotion colors are loaded and applied correctly on startup when Live Navi Mode is enabled.
+
+**Acceptance Criteria:**
+- **GUT Test**: Headless unit tests verify SettingsManager and EmotionState integration.
+- **Manual Verification**: Restart the application with Live Navi Mode enabled; confirm that the color is restored correctly and settings display the correct emotional color.
+
+---
+
+### NAV-71: Thinking Status Light and Coordinated Pointing Execution (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** A pulsing purple status light to show whenever Navi is thinking or streaming a response, and for the pointing skill to execute right when she begins speaking rather than beforehand
+- **So that:** I have clear visual feedback on whether she is stuck or thinking, and she doesn't point to a coordinate and freeze silently before speaking.
+
+**Description:**
+1. Modified `AIService.gd` to unconditionally set the status light to pulsing purple (`Color(0.6, 0.2, 1.0, 1.0)`) at the start of all LLM streaming requests.
+2. Implemented Stage 0 `point_to` skill deferral context inside `_deferred_skill`.
+3. Updated `PointToSkill.gd` to set status light to pulsing green (`Color(0.2, 0.8, 0.2, 1.0)`) during execution.
+4. Configured `AIService.gd`'s `_cleanup_request()` to only clear the status light if it is purple, preserving green (pointing) or red (voice recording) lights.
+5. Cleared status light in `WindowController.gd`'s `_reset_to_follow_mode`.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that the deferred pointing skill stores the target coordinate and executes at the correct moment in the request lifecycle.
+- **Manual Verification**: Run "point to center" and confirm status light turns purple during generation, and flies to the target exactly when speaking.
+
+---
+
+### NAV-72: Local Model Warm-up and Startup Greeting (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to show a loading state while warming up the local model, block input, and greet me with a translucent notification chat box when ready
+- **So that:** I don't speak to her before the model is loaded in VRAM, and she doesn't freeze the screen or grab keyboard focus during startup.
+
+**Description:**
+1. Added `is_warming_up` state to `AIService.gd` gating the preload phase.
+2. Implemented `is_loading` custom draw routine in `FairyVisuals.gd` rendering a colored spinning spiral following the mouse.
+3. Implemented temporary subtitle overlay messages in `FairyVisuals.gd` via `show_subtitle()`.
+4. Ignored hotkey and showed warming up warning subtitle in `WindowController.gd` during warmup.
+5. Implemented non-blocking model prompt greeting query on preload success.
+6. Implemented `open_chat_greeting` in `ChatUI.gd` that hides input bar, skips grab focus, and auto-dismisses after 5 seconds.
+7. Implemented transition from greeting mode to full interactive mode on user left-click or hotkey press.
+8. Implemented `show_startup_greeting` in `WindowController.gd` to expand window to fullscreen without stealing active focus.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify that `is_loading` and `is_warming_up` states clear correctly on completed preload, and greeting click/hotkeys transition to interactive mode.
+- **Manual Verification**: Observe spinning spiral following mouse on boot. Try pressing the hotkey; verify the subtitle warning displays. Confirm greeting bubble appears and click/hotkey opens chat.
+
+---
+
+### NAV-73: Fix Startup Greeting NPC Follow Mode & Hotkey Lock (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to say and display her startup greeting while continuing to follow the mouse tip, blocking any interactive hotkeys or clicks during this phase, and only becoming ready for activation after the greeting finishes.
+- **So that:** There are no race conditions or overlapping voice playback when I boot the application and try to interact with her immediately.
+
+**Description:**
+1. Added `is_greeting_active` property to `AIService.gd`.
+2. Updated `_speak_startup_greeting()` in `AIService.gd` with robust pre- and post-LLM discard checks and managed the `is_greeting_active` flag.
+3. Updated `WindowController.gd`'s `_on_hotkey_pressed()` to ignore hotkeys and show a warning if `is_greeting_active` is true.
+4. Updated `WindowController.gd`'s `show_startup_greeting()` to enable window mouse passthrough (`get_window().mouse_passthrough = true`) and keep the transparent window fullscreen while active.
+5. Implemented `_process(delta: float)` in `WindowController.gd` to smoothly lerp the fairy's local position to follow the mouse and reposition the chat UI.
+6. Updated `_reset_to_follow_mode()` in `WindowController.gd` to disable window mouse passthrough, set `is_greeting_active` to false, and reset the fairy's local position back to `(100, 100)` inside the `200x200` window.
+7. Fixed type mismatch and added headless-aware display server checks to GUT unit tests in `test_ai_service.gd` and `test_window.gd`.
+
+**Acceptance Criteria:**
+- **GUT Test**: Verify `is_greeting_active` management and check that window mouse passthrough enables and disables correctly during transition to/from greeting mode.
+- **Manual Verification**: Boot the app, confirm she follows the mouse during the greeting, that clicks pass through to background apps, and that the hotkey is ignored until the greeting fades out.
+
+---
+
+### NAV-74: Unified Startup Greeting & Preload with Loader Sync (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** The local model VRAM preloading and the startup greeting generation to happen in a single, unified LLM call, with the loading spiral animation remaining active until the greeting bubble actually opens.
+- **So that:** There are no redundant API requests or delay/dead zones between VRAM loading and greeting generation, and the startup is extremely fast and visually synchronized.
+
+**Description:**
+1. Initialized `is_warming_up` to `true` by default in `AIService.gd` to prevent startup race conditions before `preload_model()` initiates.
+2. Unified the startup flow: removed the redundant `/api/generate` preloader (`_async_preload` and `_complete_preload`). The model is now warmed up directly by sending the startup greeting LLM request immediately on startup.
+3. Updated `preload_model()` in `AIService.gd` to call `_speak_startup_greeting()` directly, keeping `is_warming_up` and the loader visual active while the query executes.
+4. Added `_set_fairy_loading()` helper in `AIService.gd` and called it to disable the loading spinner only once the startup greeting is generated and displayed (or if discarded early).
+5. Added `skip_tools` parameter to `_request_llm()` to bypass `tools` configuration and speed up the greeting generation.
+6. Kept the existing condition in `WindowController.gd`'s `_process()` that blocks displaying the guidance subtitle until `is_warming_up` is false, `is_greeting_active` is false, and the active panel is `NONE`.
+7. Adapted the unit tests in `test_ai_service.gd` to verify `_set_fairy_loading` behavior since the old `_complete_preload` method was removed.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run the app with local model warm-up enabled. Confirm the loading spiral displays on startup, stays active while the greeting is being requested/generated, and only disappears when the greeting bubble opens.
 
 
 

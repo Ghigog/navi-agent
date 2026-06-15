@@ -18,11 +18,11 @@ var _api_key_label: Label
 var _api_key_edit: LineEdit
 var _endpoint_edit: LineEdit
 var _model_edit: LineEdit
-var _thinking_model_edit: LineEdit
 var _save_button: Button
 var _close_button: Button
 var _enable_screenshots_check: CheckBox
 var _enable_thinking_check: CheckBox
+var _require_skill_confirmation_check: CheckBox
 var _enable_stt_check: CheckBox
 var _enable_tts_check: CheckBox
 var _font_size_spinbox: SpinBox
@@ -50,11 +50,13 @@ var _hotkey_button: Button
 var _tts_speed_spin: SpinBox
 var _tts_pitch_spin: SpinBox
 var _live_navi_toggle: CheckButton
+var _predictive_trigger_toggle: CheckButton
+var _push_to_talk_toggle: CheckButton
 
 var _is_recording_hotkey := false
-var _recorded_keycode: int = 49
-var _recorded_modifiers: int = 6656
-var _recorded_text: String = "Ctrl + Shift + Opt + Space"
+var _recorded_keycode: int = 126
+var _recorded_modifiers: int = 512
+var _recorded_text: String = "Shift + Up"
 
 const GODOT_TO_MACOS_KEYCODES := {
 	KEY_A: 0, KEY_B: 11, KEY_C: 8, KEY_D: 2, KEY_E: 14, KEY_F: 3, KEY_G: 5, KEY_H: 4,
@@ -63,7 +65,7 @@ const GODOT_TO_MACOS_KEYCODES := {
 	KEY_Y: 16, KEY_Z: 6,
 	KEY_0: 29, KEY_1: 18, KEY_2: 19, KEY_3: 20, KEY_4: 21, KEY_5: 23, KEY_6: 22, KEY_7: 26,
 	KEY_8: 28, KEY_9: 25,
-	KEY_SPACE: 49, KEY_ENTER: 36, KEY_KP_ENTER: 36, KEY_TAB: 48, KEY_ESCAPE: 53,
+	KEY_SPACE: 49, KEY_ENTER: 36, KEY_KP_ENTER: 36, KEY_TAB: 48, KEY_ESCAPE: 53, KEY_UP: 126,
 	KEY_QUOTELEFT: 50, KEY_EQUAL: 24, KEY_MINUS: 27,
 	KEY_BRACKETLEFT: 33, KEY_BRACKETRIGHT: 30, KEY_BACKSLASH: 42,
 	KEY_SEMICOLON: 41, KEY_APOSTROPHE: 39, KEY_COMMA: 43, KEY_PERIOD: 47, KEY_SLASH: 44,
@@ -94,7 +96,6 @@ func _ready() -> void:
 		_provider_option     = vbox.get_node_or_null("ProviderOption")
 		_endpoint_edit       = vbox.get_node_or_null("EndpointEdit")
 		_model_edit          = vbox.get_node_or_null("ModelEdit")
-		_thinking_model_edit = vbox.get_node_or_null("ThinkingModelEdit")
 		_api_key_label       = vbox.get_node_or_null("ApiKeyLabel")
 		_api_key_edit        = vbox.get_node_or_null("ApiKeyEdit")
 	if vbox_outer:
@@ -108,6 +109,7 @@ func _ready() -> void:
 		if toggle_row:
 			_enable_screenshots_check = toggle_row.get_node_or_null("EnableScreenshotsCheck")
 			_enable_thinking_check    = toggle_row.get_node_or_null("EnableThinkingCheck")
+			_require_skill_confirmation_check = toggle_row.get_node_or_null("RequireSkillConfirmationCheck")
 		var voice_toggle_row: Node = vbox.get_node_or_null("VoiceToggleRow")
 		if voice_toggle_row:
 			_enable_stt_check = voice_toggle_row.get_node_or_null("EnableSTTCheck")
@@ -170,6 +172,47 @@ func _ready() -> void:
 		if _live_navi_toggle:
 			_live_navi_toggle.toggled.connect(_on_live_navi_toggled)
 
+		# Predictive Trigger toggle (NAV-72) — built programmatically
+		var predictive_trigger_row := vbox.get_node_or_null("PredictiveTriggerRow")
+		if not predictive_trigger_row:
+			predictive_trigger_row = HBoxContainer.new()
+			predictive_trigger_row.name = "PredictiveTriggerRow"
+			var pt_label := Label.new()
+			pt_label.text = "🔮 Predictive Auto-Submit"
+			pt_label.tooltip_text = "When enabled, Navi will automatically predict when you have finished a complete thought (or typed punctuation) and submit your text without pressing Enter."
+			pt_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_predictive_trigger_toggle = CheckButton.new()
+			_predictive_trigger_toggle.name = "PredictiveTriggerToggle"
+			predictive_trigger_row.add_child(pt_label)
+			predictive_trigger_row.add_child(_predictive_trigger_toggle)
+			# Insert right below LiveNaviRow (so index 1)
+			vbox.add_child(predictive_trigger_row)
+			vbox.move_child(predictive_trigger_row, 1)
+		else:
+			_predictive_trigger_toggle = predictive_trigger_row.get_node_or_null("PredictiveTriggerToggle")
+
+		# Push to Talk toggle — DEPRECATED and commented out
+		# var ptt_row := vbox.get_node_or_null("PushToTalkRow")
+		# if not ptt_row:
+		# 	ptt_row = HBoxContainer.new()
+		# 	ptt_row.name = "PushToTalkRow"
+		# 	var ptt_label := Label.new()
+		# 	ptt_label.text = "🎙️ Push To Talk (Hold Shift+Space)"
+		# 	ptt_label.tooltip_text = "When enabled, hold Shift + Space to speak and release to send instantly. When disabled, uses VAD (audio levels)."
+		# 	ptt_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# 	_push_to_talk_toggle = CheckButton.new()
+		# 	_push_to_talk_toggle.name = "PushToTalkToggle"
+		# 	ptt_row.add_child(ptt_label)
+		# 	ptt_row.add_child(_push_to_talk_toggle)
+		# 	var voice_toggle_idx = vbox.get_child_count()
+		# 	var vtr = vbox.get_node_or_null("VoiceToggleRow")
+		# 	if vtr:
+		# 		voice_toggle_idx = vtr.get_index() + 1
+		# 	vbox.add_child(ptt_row)
+		# 	vbox.move_child(ptt_row, voice_toggle_idx)
+		# else:
+		# 	_push_to_talk_toggle = ptt_row.get_node_or_null("PushToTalkToggle")
+
 		if _voice_option:
 			_voice_option.item_selected.connect(_on_voice_selected)
 		if _hotkey_button:
@@ -205,9 +248,7 @@ func _ready() -> void:
 		_provider_option.item_selected.connect(_on_provider_selected)
 
 	# Reference SettingsManager autoload singleton
-	if Engine.has_singleton("SettingsManager"):
-		_settings_manager = Engine.get_singleton("SettingsManager")
-	elif has_node("/root/SettingsManager"):
+	if has_node("/root/SettingsManager"):
 		_settings_manager = get_node("/root/SettingsManager")
 
 
@@ -262,6 +303,8 @@ func _populate_fields() -> void:
 		_enable_screenshots_check.button_pressed = _settings_manager.get_setting("enable_screenshots", true)
 	if _enable_thinking_check:
 		_enable_thinking_check.button_pressed = _settings_manager.get_setting("enable_thinking", true)
+	if _require_skill_confirmation_check:
+		_require_skill_confirmation_check.button_pressed = _settings_manager.get_setting("require_skill_confirmation", true)
 	if _enable_stt_check:
 		_enable_stt_check.button_pressed = _settings_manager.get_setting("enable_stt", true)
 	if _enable_tts_check:
@@ -291,9 +334,9 @@ func _populate_fields() -> void:
 	if _openai_api_key_edit:
 		_openai_api_key_edit.text = _settings_manager.get_setting("openai_api_key", "")
 	if _hotkey_button:
-		_recorded_keycode = _settings_manager.get_setting("hotkey_keycode", 49)
-		_recorded_modifiers = _settings_manager.get_setting("hotkey_modifiers", 6656)
-		_recorded_text = _settings_manager.get_setting("hotkey_text", "Ctrl + Shift + Opt + Space")
+		_recorded_keycode = _settings_manager.get_setting("hotkey_keycode", 126)
+		_recorded_modifiers = _settings_manager.get_setting("hotkey_modifiers", 512)
+		_recorded_text = _settings_manager.get_setting("hotkey_text", "Shift + Up")
 		_hotkey_button.text = _recorded_text
 	if _tts_speed_spin:
 		_tts_speed_spin.value = _settings_manager.get_setting("tts_rate", 1.0)
@@ -305,6 +348,12 @@ func _populate_fields() -> void:
 	if _live_navi_toggle:
 		_live_navi_toggle.set_pressed_no_signal(live_mode)
 	_apply_live_mode_ui(live_mode)
+
+	if _predictive_trigger_toggle:
+		_predictive_trigger_toggle.set_pressed_no_signal(_settings_manager.get_setting("enable_predictive_trigger", false))
+
+	# if _push_to_talk_toggle:
+	# 	_push_to_talk_toggle.button_pressed = _settings_manager.get_setting("enable_push_to_talk", true)
 
 
 func _populate_voice_options() -> void:
@@ -627,6 +676,9 @@ func _on_save_pressed() -> void:
 	var live_on: bool = _live_navi_toggle != null and _live_navi_toggle.button_pressed
 	batch["live_navi_mode"] = live_on
 
+	if _predictive_trigger_toggle:
+		batch["enable_predictive_trigger"] = _predictive_trigger_toggle.button_pressed
+
 	# Only persist personality/color from the UI fields when NOT in live mode
 	# (preserves the user's saved values so they restore cleanly when toggling off)
 	if not live_on:
@@ -647,14 +699,22 @@ func _on_save_pressed() -> void:
 	if _endpoint_edit:
 		batch["cloud_url" if is_cloud else "local_url"] = _endpoint_edit.text
 	if _model_edit:
-		batch["cloud_model" if is_cloud else "local_model"] = _model_edit.text
-	if _thinking_model_edit:
-		batch["cloud_thinking_model" if is_cloud else "local_thinking_model"] = _thinking_model_edit.text
+		var model_name = _model_edit.text
+		if is_cloud:
+			batch["cloud_model"] = model_name
+			batch["cloud_thinking_model"] = model_name
+		else:
+			batch["local_model"] = model_name
+			batch["local_thinking_model"] = model_name
 		
 	if _enable_screenshots_check:
 		batch["enable_screenshots"] = _enable_screenshots_check.button_pressed
 	if _enable_thinking_check:
 		batch["enable_thinking"] = _enable_thinking_check.button_pressed
+	# if _push_to_talk_toggle:
+	# 	batch["enable_push_to_talk"] = _push_to_talk_toggle.button_pressed
+	if _require_skill_confirmation_check:
+		batch["require_skill_confirmation"] = _require_skill_confirmation_check.button_pressed
 	if _enable_stt_check:
 		batch["enable_stt"] = _enable_stt_check.button_pressed
 	if _enable_tts_check:
@@ -801,9 +861,7 @@ func _update_provider_fields(provider: String) -> void:
 			else "http://localhost:11434"
 		)
 	if _model_edit:
-		_model_edit.placeholder_text = "Enter fast model name"
-	if _thinking_model_edit:
-		_thinking_model_edit.placeholder_text = "Enter thinking model name"
+		_model_edit.placeholder_text = "Enter model name"
 
 	if _settings_manager:
 		if _endpoint_edit:
@@ -813,10 +871,6 @@ func _update_provider_fields(provider: String) -> void:
 		if _model_edit:
 			_model_edit.text = _settings_manager.get_setting(
 				"cloud_model" if is_cloud else "local_model", ""
-			)
-		if _thinking_model_edit:
-			_thinking_model_edit.text = _settings_manager.get_setting(
-				"cloud_thinking_model" if is_cloud else "local_thinking_model", ""
 			)
 
 
@@ -830,9 +884,9 @@ func _apply_live_mode_ui(enabled: bool) -> void:
 	if _color_picker:
 		_color_picker.disabled = enabled
 		_color_picker.modulate.a = 0.45 if enabled else 1.0
-		if enabled and Engine.has_singleton("EmotionState"):
+		if enabled and has_node("/root/EmotionState"):
 			# Show the live emotion colour
-			var es := Engine.get_singleton("EmotionState")
+			var es := get_node("/root/EmotionState")
 			var live_hex: String = _settings_manager.get_setting("fairy_color", "66b2ff")
 			if es:
 				var c: float = clampf((float(es.get("courage")) + 10.0) / 20.0, 0.0, 1.0)
@@ -872,3 +926,16 @@ func _on_live_navi_toggled(enabled: bool) -> void:
 			var fairy := get_tree().root.find_child("FairyVisuals", true, false)
 			if fairy and fairy.has_method("restore_user_color"):
 				fairy.restore_user_color()
+
+
+## Updates the settings panel container background & border colors.
+func update_theme_colors(base_color: Color) -> void:
+	if not _panel:
+		return
+	var stylebox: StyleBoxFlat = _panel.get_theme_stylebox("panel")
+	if stylebox:
+		var new_stylebox := stylebox.duplicate() as StyleBoxFlat
+		new_stylebox.bg_color = Color(base_color.r, base_color.g, base_color.b, 0.85)
+		new_stylebox.border_color = base_color.darkened(0.4)
+		new_stylebox.border_color.a = 1.0 # Opaque border
+		_panel.add_theme_stylebox_override("panel", new_stylebox)

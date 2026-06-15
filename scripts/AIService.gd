@@ -15,6 +15,11 @@ signal thinking_update(update_text: String)
 signal response_chunk(chunk_text: String)
 ## Emitted at the start of any new LLM stream request.
 signal response_cleared
+## Emitted when a tool call is received from the LLM.
+signal tool_call_received(tool_name: String, args: Dictionary)
+## Emitted when a sensitive skill requires confirmation.
+signal skill_confirmation_requested(skill_name: String, description: String)
+
 
 # Internal helper references
 var _settings_mgr: Node
@@ -23,16 +28,20 @@ var _config_cache := {
 	"system_prompt" : "",
 	"personality": "",
 	"llm_provider": "local",
-	"fast_model": "",
 	"heavy_model": ""
 }
 var _is_response_streaming := false
 var _model_override: String = ""
+var _last_request_had_tool_call := false
+var _request_in_progress := false
 
 # Active conversation history in the current session
 var _conversation_history: Array[Dictionary] = []
 # Cache of the previous conversation summary
 var _cached_summary: String = ""
+# Short-term memory scratchpad notes (persisted during the active chat session)
+var _short_term_memory: String = ""
+var _continuation_token: int = 0
 
 # The plug-and-play skills registry mapping skill tags to Callable execution handlers.
 var _skills_registry: Dictionary = {}
@@ -40,8 +49,13 @@ var _skills_registry: Dictionary = {}
 var _emotion_engine: Node = null
 # Last response text — used by pre-evaluation for hedging detection on subsequent turns.
 var _last_response_text: String = ""
-# Pre-compiled regex for Gemini SSE chunk text extraction (avoid per-chunk allocation)
-var _gemini_text_regex := RegEx.new()
+# Last detected user sentiment (kind, mean, neutral)
+var _last_user_sentiment: String = "neutral"
+# Active request context
+var _active_context: Dictionary = {}
+var _deferred_skill: Dictionary = {}
+var is_warming_up: bool = true
+var is_greeting_active: bool = false
 
 ## Deterministic prompt classification library.
 ## Each rule maps a set of trigger patterns to a skill and a UI status message.
@@ -153,8 +167,8 @@ const _VISUAL_REFUSAL_PATTERNS: Array = [
 func _ready() -> void:
 	# Initialize the plug-and-play skills registry
 	_initialize_skills_registry()
-	# Pre-compile Gemini chunk regex once at startup
-	_gemini_text_regex.compile("\"text\"\\s*:\\s*\"([^\"]*)\"")
+	# Connect the native tool calling handler
+	tool_call_received.connect(_on_tool_call_received)
 
 	# Initialise the emotion scoring engine
 	_emotion_engine = load("res://scripts/EmotionEngine.gd").new()
@@ -166,33 +180,138 @@ func _ready() -> void:
 		_settings_mgr.settings_updated.connect(_on_settings_updated)
 	if _settings_mgr:
 		_on_settings_updated()
+	
+	preload_model()
 
 
-## Registers all available skills. To add a new skill to Navi, simply write
-## a callback method and add its mapping to this dictionary!
+## Registers all available skills dynamically by scanning res://scripts/skills/
 func _initialize_skills_registry() -> void:
-	_skills_registry = {
-		"take_screenshot": _execute_take_screenshot,
-		"take_crop_screenshot": _execute_take_crop_screenshot,
-		"heavy_thinking": _execute_heavy_thinking,
-		"summarize_session": _execute_summarize_session,
-		"point_to": _execute_point_to
-	}
+	_skills_registry = {}
+	
+	var is_mocked := false
+	var script := get_script() as Script
+	if script and script != load("res://scripts/AIService.gd"):
+		is_mocked = true
+
+	var path := "res://scripts/skills/"
+	var dir := DirAccess.open(path)
+	if dir:
+		dir.list_dir_begin()
+		var file_name := dir.get_next()
+		while file_name != "":
+			if not dir.current_is_dir() and file_name.ends_with(".gd") and file_name != "Skill.gd":
+				var full_path := path + file_name
+				var loaded_script = load(full_path)
+				if loaded_script:
+					var skill_instance = loaded_script.new()
+					if skill_instance.has_method("get_name") and skill_instance.has_method("execute"):
+						var skill_name := skill_instance.get_name() as String
+						if skill_name != "":
+							_skills_registry[skill_name] = skill_instance
+			file_name = dir.get_next()
+		dir.list_dir_end()
+	else:
+		print("AIService WARNING: Failed to open skills directory: ", path)
+
+	# If we are in a test mock subclass, check if any skill method was explicitly overridden in the mock script.
+	# If so, overwrite that specific skill's registry entry with the legacy Callable of the overridden method.
+	if is_mocked and script:
+		var legacy_methods := {
+			"take_screenshot": "_execute_take_screenshot",
+			"take_crop_screenshot": "_execute_take_crop_screenshot",
+			"heavy_thinking": "_execute_heavy_thinking",
+			"summarize_session": "_execute_summarize_session",
+			"point_to": "_execute_point_to"
+		}
+		for skill_name in legacy_methods:
+			var method_name: String = legacy_methods[skill_name]
+			if script.source_code.contains("func " + method_name):
+				_skills_registry[skill_name] = Callable(self, method_name)
+
+
+var _confirmation_approved := false
+var _confirmation_pending := false
+
+func _should_confirm_skill(skill_name: String) -> bool:
+	if not _settings_mgr:
+		return false
+	if not _settings_mgr.get_setting("require_skill_confirmation", true):
+		return false
+	# point_to (and clicking, writing files, running scripts if they exist)
+	return skill_name == "point_to"
+
+func _get_skill_confirmation_description(skill_name: String, args: Dictionary) -> String:
+	if skill_name == "point_to":
+		var x = args.get("x")
+		var y = args.get("y")
+		if x != null and y != null:
+			return "Navi wants to point to (%s, %s)" % [str(x), str(y)]
+		elif _active_context.has("skill_args") and _active_context["skill_args"] != "":
+			return "Navi wants to point to (%s)" % [str(_active_context["skill_args"])]
+	return "Navi wants to execute skill: " + skill_name
+
+func confirm_skill(skill_name: String, description: String) -> bool:
+	_confirmation_approved = false
+	_confirmation_pending = true
+	skill_confirmation_requested.emit(skill_name, description)
+	while _confirmation_pending:
+		await get_tree().process_frame
+	return _confirmation_approved
+
+func respond_to_confirmation(approved: bool) -> void:
+	_confirmation_approved = approved
+	_confirmation_pending = false
+
+
+func _on_tool_call_received(tool_name: String, args: Dictionary) -> void:
+	print("AIService: [TOOL CALL] Native tool call received: ", tool_name, " args: ", args)
+	if _skills_registry.has(tool_name):
+		_active_context["args"] = args
+		# Also map to legacy skill_args if it's point_to and has x/y, to maintain compatibility with anything expecting skill_args.
+		if tool_name == "point_to" and args.has("x") and args.has("y"):
+			_active_context["skill_args"] = "%s, %s" % [str(args["x"]), str(args["y"])]
+		
+		if _should_confirm_skill(tool_name):
+			var description = _get_skill_confirmation_description(tool_name, args)
+			var approved = await confirm_skill(tool_name, description)
+			if not approved:
+				print("AIService: [TOOL CALL] Skill execution denied by user: ", tool_name)
+				var window_controller = _get_window_controller()
+				if window_controller:
+					var follow_ctrl = window_controller.get_node_or_null("FollowController")
+					if follow_ctrl:
+						follow_ctrl.call("abort_navigation", true)
+				return
+		
+		# Execute the skill
+		var skill_obj = _skills_registry[tool_name]
+		var outcome := ""
+		if skill_obj is Callable:
+			outcome = await skill_obj.call(_active_context) as String
+		elif skill_obj.has_method("execute"):
+			outcome = await skill_obj.execute(_active_context) as String
+		print("AIService: [TOOL CALL] Executed skill: ", tool_name, ". Outcome: ", outcome)
+
 
 
 func _on_settings_updated() -> void:
 	if not _settings_mgr:
 		return
 	var provider: String = _settings_mgr.get_setting("llm_provider", "local")
-	var fast_model: String = _settings_mgr.get_setting("local_model" if provider == "local" else "cloud_model", "")
-	var heavy_model: String = _settings_mgr.get_setting("local_thinking_model" if provider == "local" else "cloud_thinking_model", "")
+	var enable_thinking: bool = _settings_mgr.get_setting("enable_thinking", true)
+	
+	var model: String = ""
+	if enable_thinking:
+		model = _settings_mgr.get_setting("cloud_thinking_model" if provider == "cloud" else "local_thinking_model", "")
+	
+	if model == "":
+		model = _settings_mgr.get_setting("local_model" if provider == "local" else "cloud_model", "")
 
 	update_config({
 		"system_prompt": _settings_mgr.get_setting("system_prompt", ""),
 		"personality": _settings_mgr.get_setting("personality", ""),
 		"llm_provider": provider,
-		"fast_model": fast_model,
-		"heavy_model": heavy_model
+		"heavy_model": model
 	})
 
 
@@ -203,44 +322,49 @@ func update_config(new_config: Dictionary) -> void:
 
 
 
-## Formulates and dispatches a request using three-stage routing:
+## Formulates and dispatches a request using single-tier routing:
 ## 1. Deterministic: classifies the prompt via PROMPT_SKILL_RULES — zero LLM cost.
-## 2. Tier 1 (LLM fallback): fast model with minimal prompt + [ESCALATE] safety net.
-## 3. Tier 2: heavy model with full skills-aware prompt (only if escalated).
-func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = Vector2.ZERO, window_size: Vector2 = Vector2.ZERO) -> void:
+## 2. Direct Path: routes the prompt directly to the consolidated model.
+func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = Vector2.ZERO, window_size: Vector2 = Vector2.ZERO, is_continuation: bool = false) -> void:
 	if not _settings_mgr:
 		request_failed.emit("SettingsManager Autoload is missing.")
 		return
 
 	var system_prompt_user: String = _config_cache.get("system_prompt", "")
-
 	var personality: String = _config_cache.get("personality", "")
 	var provider: String = _config_cache.get("llm_provider", "local")
-	var fast_model: String = _config_cache.get("fast_model", "")
 	var heavy_model: String = _config_cache.get("heavy_model", "")
 	var enable_thinking: bool = _settings_mgr.get_setting("enable_thinking", true)
 	var enable_screenshots: bool = _settings_mgr.get_setting("enable_screenshots", true)
 
 	print("AIService: ── REQUEST START ──────────────────────────────────")
 	print("AIService:   Provider   : ", provider)
-	print("AIService:   Fast model : ", fast_model)
-	print("AIService:   Heavy model: ", heavy_model, " (thinking enabled: ", enable_thinking, ")")
+	print("AIService:   AI model   : ", heavy_model, " (thinking enabled: ", enable_thinking, ")")
 	print("AIService:   Prompt     : \"", prompt.left(80), ("…" if prompt.length() > 80 else ""), "\"")
+	if is_continuation:
+		print("AIService:   Mode       : [CONTINUE] Self-prompt continuation")
 	print("AIService: ─────────────────────────────────────────────────────")
 
-	if fast_model == "" or (enable_thinking and heavy_model == ""):
-		print("AIService ERROR: Configuration validation failed. One or more configured models is missing.")
-		request_failed.emit("My model configuration is not set yet! Please right-click me to open settings and select your models. 😊")
+	if heavy_model == "":
+		print("AIService ERROR: Configuration validation failed. Configured model is missing.")
+		request_failed.emit("My model configuration is not set yet! Please right-click me to open settings and select your model. 😊")
 		return
 
 	request_started.emit()
+	_last_request_had_tool_call = false
+	_request_in_progress = true
+	is_greeting_active = false
 
-	# Pre-evaluate emotion from incoming prompt context BEFORE building identity (NAV-65).
-	# This means the scored emotion is injected into the system prompt and Navi responds
-	# IN that emotional state — rather than scoring after the fact.
-	# Note: response_text uses the last response for hedging detection since the
-	# current response doesn't exist yet.
-	_pre_evaluate_emotion(prompt)
+	if not is_continuation:
+		_continuation_token += 1
+
+	# Pre-evaluate emotion from incoming prompt context BEFORE building identity (NAV-65)
+	var baseline_courage := EmotionState.courage
+	var baseline_wisdom := EmotionState.wisdom
+	var baseline_power := EmotionState.power
+	
+	if not is_continuation:
+		await _pre_evaluate_emotion(prompt)
 
 	var live_navi_mode: bool = _settings_mgr.get_setting("live_navi_mode", false)
 	var identity := _build_identity(personality, live_navi_mode)
@@ -254,11 +378,12 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 		"fairy_pos": fairy_pos,
 		"window_size": window_size
 	}
+	_active_context = context
 
 	# ── STAGE 0: Deterministic Prompt Classification ──────────────────────────
-	# Checks the prompt against PROMPT_SKILL_RULES before any LLM call.
-	# A pattern match forces the mapped skill directly — no model needed to decide.
-	var classification := _classify_prompt(prompt)
+	var classification := {}
+	if not is_continuation:
+		classification = _classify_prompt(prompt)
 	if not classification.is_empty():
 		var forced_skill: String = classification["skill"]
 		print("AIService: [ROUTER] 🎯 Classified as '", classification["label"],
@@ -267,199 +392,49 @@ func send_prompt(prompt: String, screen_img: Image = null, fairy_pos: Vector2 = 
 
 		# Check settings gates before committing
 		if (forced_skill == "take_screenshot" or forced_skill == "take_crop_screenshot") and not enable_screenshots:
-			print("AIService: [ROUTER] Skill '", forced_skill, "' SKIPPED — screenshots are disabled. Falling back to fast model.")
+			print("AIService: [ROUTER] Skill '", forced_skill, "' SKIPPED — screenshots are disabled. Falling back to direct path.")
 		elif forced_skill == "heavy_thinking" and not enable_thinking:
-			print("AIService: [ROUTER] Skill '", forced_skill, "' SKIPPED — deep thinking is disabled. Falling back to fast model.")
+			print("AIService: [ROUTER] Skill '", forced_skill, "' SKIPPED — deep thinking is disabled. Falling back to direct path.")
 		else:
-			thinking_update.emit(classification["status"])
-			print("AIService: [STAGE 3] → Invoking '", forced_skill, "' directly...")
-			var outcome: String = await _skills_registry[forced_skill].call(context) as String
-			print("AIService: [STAGE 3] ← '", forced_skill, "' finished. Outcome: ", outcome)
+			thinking_update.emit(_get_personality_status_message(forced_skill, personality))
+			var outcome := ""
+			if forced_skill == "point_to":
+				print("AIService: Deferring 'point_to' skill execution until response is ready to be spoken.")
+				_deferred_skill = {
+					"name": forced_skill,
+					"context": context
+				}
+				outcome = "Success: deferred point_to"
+			else:
+				print("AIService: [STAGE 3] → Invoking '", forced_skill, "' directly...")
+				var skill_obj = _skills_registry[forced_skill]
+				if skill_obj is Callable:
+					outcome = await skill_obj.call(context) as String
+				elif skill_obj.has_method("execute"):
+					outcome = await skill_obj.execute(context) as String
+				print("AIService: [STAGE 3] ← '", forced_skill, "' finished. Outcome: ", outcome)
 
-			# We only use heavy thinking loops if the forced skill is heavy_thinking
 			var has_heavy_thinking: bool = forced_skill == "heavy_thinking"
-			# Intermediate evaluation to update emotion state with skill execution outcome before reply
 			_evaluate_emotion(prompt, "", true, outcome.begins_with("Success"), true)
 			identity = _build_identity(personality, live_navi_mode)
 			
-			await _deliver_final_response(prompt, context, has_heavy_thinking, identity, system_prompt_user, fast_model, heavy_model)
+			await _deliver_final_response(prompt, context, has_heavy_thinking, identity, system_prompt_user, "", heavy_model)
+			# Restore baseline before post-evaluation to prevent double-applying sentiment modifiers
+			EmotionState.courage = baseline_courage
+			EmotionState.wisdom = baseline_wisdom
+			EmotionState.power = baseline_power
 			_evaluate_emotion(prompt, _last_response_text, true, outcome.begins_with("Success"))
 			_cleanup_request()
 			return
 
-	# ── TIER 1: Fast Model — Minimal Prompt ──────────────────────────────────
-	# Reached only when no pattern matched. The fast model gets just identity +
-	# user instructions + a single [ESCALATE] escape for edge-case self-detection.
-	var fast_system_prompt := identity
-	if system_prompt_user != "":
-		fast_system_prompt += "\n" + system_prompt_user
-	fast_system_prompt += "\n\nKeep answers short and conversational. You have access to tools like taking screenshots to see the user's screen and heavy thinking for code/math/reasoning. If you need to see the screen or use deep reasoning to answer, you must respond with only: [ESCALATE]"
-
-	print("AIService: [TIER 1] No pattern match — starting fast model pass.")
-	print("AIService: [TIER 1] System prompt length: ", fast_system_prompt.length(), " chars (minimal — no skill definitions).")
-
-	var fast_reply := await _request_llm_stream(prompt, fast_system_prompt, false, "", "", 0.7, _conversation_history)
-
-	if fast_reply == "":
-		print("AIService ERROR: [TIER 1] Fast model returned an empty reply.")
-		request_failed.emit("Model failed to respond.")
-		return
-
-	print("AIService: [TIER 1] Fast model stream complete. Raw reply length: ", fast_reply.length(), " chars.")
-
-	var needs_escalation := fast_reply.strip_edges() == "[ESCALATE]" or (fast_reply.contains("[ESCALATE]") and fast_reply.length() < 150)
-
-	# ── VISUAL REFUSAL SELF-CORRECTION ────────────────────────────────────────
-	# Detect when the fast model wrongly said "I can't see / I'm a language model"
-	# instead of escalating. Suppress the reply, emit a personality retraction,
-	# then force the screenshot skill so the model gets to actually try.
-	if not needs_escalation:
-		var reply_lower := fast_reply.to_lower()
-		var is_refusal := false
-		for pattern in _VISUAL_REFUSAL_PATTERNS:
-			if reply_lower.contains(pattern):
-				is_refusal = true
-				break
-		if is_refusal:
-			var retraction := _get_retraction_message(personality)
-			print("AIService: [SELF-CORRECT] Visual refusal detected in fast reply — forcing screenshot skill. Retraction: '", retraction, "'")
-			thinking_update.emit(retraction)
-			var outcome: String = await _skills_registry["take_screenshot"].call(context) as String
-			print("AIService: [SELF-CORRECT] ← Screenshot taken. Outcome: ", outcome)
-			_evaluate_emotion(prompt, "", true, outcome.begins_with("Success"), true)
-			identity = _build_identity(personality, live_navi_mode)
-			await _deliver_final_response(prompt, context, true, identity, system_prompt_user, fast_model, heavy_model)
-			_evaluate_emotion(prompt, _last_response_text, true, outcome.begins_with("Success"))
-			_cleanup_request()
-			return
-
-	if not needs_escalation:
-		print("AIService: [TIER 1] ✅ No escalation needed. Direct conversational reply delivered.")
-		_append_to_history(prompt, "", "", fast_reply)
-		_last_response_text = fast_reply
-		response_received.emit(fast_reply)
-		_evaluate_emotion(prompt, fast_reply, false, false)
-		_cleanup_request()
-		return
-
-	print("AIService: [TIER 1] ⬆️  Fast model signalled [ESCALATE]. Handing off to heavy model...")
-	thinking_update.emit("Let me think about that more carefully...")
-
-	# ── TIER 2: Heavy Model — Full Skills Prompt ──────────────────────────────
-	# Reached only when the fast model self-escalated. The heavy model gets the
-	# complete skill definitions and can select + invoke the right tool.
-	var heavy_system_prompt := identity
-	if system_prompt_user != "":
-		heavy_system_prompt += "\n" + system_prompt_user
-	heavy_system_prompt += """
-
-### INSTRUCTIONS:
-Speak conversationally, snappy, and naturally.
-If you need to use a tool to answer the user's question, output the tool tag at the very end of your response.
-
-AVAILABLE TOOLS:
-- [SKILL: take_screenshot]: Use if the user asks about what is on their screen, visual elements, errors, emojis, or what is above/below/near you.
-- [SKILL: take_crop_screenshot]: Use if the user points to a specific detail right next to you.
-- [SKILL: heavy_thinking]: Use if the query requires programming, coding, math, logic, or deep reasoning.
-- [SKILL: point_to: X, Y]: Use if you need to point to a specific screen coordinate (X, Y) to explain something or guide the user.
-
-CONVERSATIONAL STEP-BY-STEP FLOW:
-- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE] or a point tag [SKILL: point_to: X, Y].
-- Each segment must describe the specific element or part. Connect them naturally using conversational transitions (e.g., "...then...", "...also...") and ellipses to indicate more is coming.
-- Example for pointing to multiple objects:
-  "I found two icons!
-  [SKILL: point_to: 250, 400] Here is the first one, which looks like a settings gear. Then...
-  [SKILL: point_to: 750, 600] Here is the second one, which represents audio options."
-- Example for a multi-step text explanation:
-  "First, you need to import the class.
-  [PAUSE]
-  Next, instantiate it with options.
-  [PAUSE]
-  Finally, call the run method."
-
-PLANNING RULES:
-- ONLY output a tool tag if you absolutely need it.
-- If you can answer immediately, do NOT output any tool tags.
-- Example: "Let me check your screen! [SKILL: take_screenshot]"
-"""
-
-	print("AIService: [TIER 2] Starting heavy model pass. Model: ", heavy_model)
-	print("AIService: [TIER 2] System prompt length: ", heavy_system_prompt.length(), " chars (full skill definitions included).")
-
-	var heavy_reply := await _request_llm_stream(prompt, heavy_system_prompt, true, "", "", 0.7, _conversation_history)
-
-	if heavy_reply == "":
-		print("AIService ERROR: [TIER 2] Heavy model returned an empty reply.")
-		request_failed.emit("Model failed to respond.")
-		return
-
-	print("AIService: [TIER 2] Heavy model stream complete. Raw reply length: ", heavy_reply.length(), " chars. Checking for skill tags...")
-
-	# ── STAGE 2: Skill Validation & Settings Filtering ────────────────────────
-	var skill_tag := _extract_skill_tag(heavy_reply)
-	if skill_tag == "":
-		print("AIService: [TIER 2] No skill tags found. Heavy model answered directly — done.")
-		_append_to_history(prompt, "", "", heavy_reply)
-		_last_response_text = heavy_reply
-		response_received.emit(heavy_reply)
-		_evaluate_emotion(prompt, heavy_reply, false, false)
-		_cleanup_request()
-		return
-
-	var skill_name := skill_tag
-	var skill_args := ""
-	if ":" in skill_tag:
-		var parts := skill_tag.split(":", true, 1)
-		skill_name = parts[0].strip_edges()
-		skill_args = parts[1].strip_edges()
-
-	context["skill_args"] = skill_args
-
-	print("AIService: [STAGE 2] Skill tag detected: '", skill_tag, "' (name: '", skill_name, "', args: '", skill_args, "'). Validating against registry and settings...")
-	var verified_skills: Array[String] = []
-
-	if skill_name in _skills_registry:
-		if (skill_name == "take_screenshot" or skill_name == "take_crop_screenshot") and not enable_screenshots:
-			print("AIService: [STAGE 2] Skill '" + skill_name + "' SKIPPED — screenshots are disabled in settings.")
-		elif skill_name == "heavy_thinking" and not enable_thinking:
-			print("AIService: [STAGE 2] Skill '" + skill_name + "' SKIPPED — deep thinking is disabled in settings.")
-		else:
-			verified_skills.append(skill_name)
-			print("AIService: [STAGE 2] Skill '" + skill_name + "' ✅ verified and queued for execution.")
-	else:
-		print("AIService: [STAGE 2] Skill '" + skill_name + "' ❌ not found in registry — ignoring (hallucinated tag).")
-
-	var skill_was_available := skill_name in _skills_registry
-
-	if verified_skills.size() == 0:
-		print("AIService: [STAGE 2] All detected skills were filtered or disabled. Finalising.")
-		_last_response_text = heavy_reply
-		response_received.emit(heavy_reply)
-		_evaluate_emotion(prompt, heavy_reply, skill_was_available, false)
-		_cleanup_request()
-		return
-
-	# ── STAGE 3: Skill Execution ──────────────────────────────────────────────
-	print("AIService: [STAGE 3] Executing ", verified_skills.size(), " skill(s) sequentially...")
-	var has_heavy_thinking := false
-	var skill_did_succeed := true
-	for skill in verified_skills:
-		if skill == "heavy_thinking":
-			has_heavy_thinking = true
-		print("AIService: [STAGE 3] → Invoking '", skill, "'...")
-		var outcome: String = await _skills_registry[skill].call(context) as String
-		print("AIService: [STAGE 3] ← '", skill, "' finished. Outcome: ", outcome)
-		if not outcome.begins_with("Success"):
-			skill_did_succeed = false
-
-
-	# ── STAGE 4: Final Response Delivery ──────────────────────────────────────
-	# Intermediate evaluation to update emotion state with skill execution outcome before reply
-	_evaluate_emotion(prompt, "", skill_was_available, skill_did_succeed, true)
-	identity = _build_identity(personality, live_navi_mode)
-
-	await _deliver_final_response(prompt, context, has_heavy_thinking, identity, system_prompt_user, fast_model, heavy_model)
-	_evaluate_emotion(prompt, _last_response_text, skill_was_available, skill_did_succeed)
+	# ── DIRECT PATH: Single-Tier Direct Request ──────────────────────────────
+	print("AIService: [DIRECT PATH] Starting direct model pass.")
+	await _deliver_final_response(prompt, context, false, identity, system_prompt_user, "", heavy_model)
+	# Restore baseline before post-evaluation to prevent double-applying sentiment modifiers
+	EmotionState.courage = baseline_courage
+	EmotionState.wisdom = baseline_wisdom
+	EmotionState.power = baseline_power
+	_evaluate_emotion(prompt, _last_response_text, false, false)
 	_cleanup_request()
 
 
@@ -487,8 +462,8 @@ func _classify_prompt(prompt: String) -> Dictionary:
 # ---------------------------------------------------------------------------
 
 ## Streams the final reply to the user after all skills have been executed.
-## Uses the heavy thinking model (with <think> blocks) when has_heavy_thinking is true,
-## otherwise streams from the fast model with any captured image context.
+## Uses the thinking configuration when has_heavy_thinking is true,
+## otherwise streams from the consolidated model with thinking bypassed and any captured image context.
 func _deliver_final_response(
 	prompt: String,
 	context: Dictionary,
@@ -518,14 +493,15 @@ func _deliver_final_response(
 		vision_guideline = "\n\n### SCREEN ANALYSIS SANITY CHECK:\n"
 		vision_guideline += "You are performing a visual analysis of the user's screen capture. If you cannot see the screen clearly, if you have no eyes/vision capabilities, or if the screen contents are ambiguous, you MUST be honest and ask the user for clarification or state that you cannot see the screen. Never guess, assume, or hallucinate applications, code, or documents."
 
+	# Update status light to Purple to indicate thinking/generation is in progress
+	var window_controller := _get_window_controller()
+	var fairy: Node = null
+	if window_controller and "_fairy" in window_controller:
+		fairy = window_controller._fairy
+	if fairy and fairy.has_method("set_status_light"):
+		fairy.set_status_light(Color(0.6, 0.2, 1.0, 1.0), true) # Pulsing Purple
+
 	if has_heavy_thinking:
-		# Update status light to Purple for heavy model execution
-		var window_controller := _get_window_controller()
-		var fairy: Node = null
-		if window_controller and "_fairy" in window_controller:
-			fairy = window_controller._fairy
-		if fairy and fairy.has_method("set_status_light"):
-			fairy.set_status_light(Color(0.6, 0.2, 1.0, 1.0), true) # Pulsing Purple
 
 		var thinking_system_prompt := identity
 		if system_prompt_user != "":
@@ -544,29 +520,27 @@ Write your final conversational response directly after the </think> block.
 When answering visual questions about the screen contents, focus primarily on the main, foreground application window (such as the IDE, web browser, or coding application currently open in the center) rather than the desktop background, task bars, or general operating system background.
 
 CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
-- If the user asks you to "point to", "navigate to", "locate", "where is/are", or find objects or areas on the screen, you MUST use the `[SKILL: point_to: X, Y]` tags. Do NOT just describe them in text.
-- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE] or a pointing tag `[SKILL: point_to: X, Y]`.
+- If the user asks you to "point to", "navigate to", "locate", "where is/are", or find objects or areas on the screen, you MUST call the `point_to` tool with normalized coordinates (from 0 to 1000). Do NOT output bracket tags like `[SKILL: point_to: X, Y]`.
+- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE].
 - Each segment must describe the specific element or part. Connect them naturally using conversational transitions (e.g., "...then...", "...also...") and ellipses to indicate more is coming.
-- Calculate the coordinates (X, Y) in pixels based on the screen size provided in the SPATIAL AWARENESS section.
-  - If the screen size is (2880, 1606):
-    - Top-left corner is near (10, 70).
-    - Top-right corner is near (2870, 70).
-    - Bottom-left corner is near (10, 1590).
-    - Bottom-right corner is near (2870, 1590).
-- Example response for pointing to multiple objects:
-  "I found two icons!
-  [SKILL: point_to: 250, 400] Here is the first one, which looks like a settings gear. Then...
-  [SKILL: point_to: 750, 600] Here is the second one, which represents audio options."
-- Example response for pointing to screen corners:
-  "Sure, let's verify the screen boundaries.
-  [SKILL: point_to: 10, 70] Here is the top-left corner of the screen. Then...
-  [SKILL: point_to: 2870, 1590] Here is the bottom-right corner of the screen."
+- Calculate the coordinates (X, Y) normalized from 0 to 1000.
+  - Top-left corner is near (0, 0).
+  - Top-right corner is near (1000, 0).
+  - Bottom-left corner is near (0, 1000).
+  - Bottom-right corner is near (1000, 1000).
 - Example response for a multi-step text explanation:
   "First, you need to import the class.
   [PAUSE]
   Next, instantiate it with options.
   [PAUSE]
   Finally, call the run method."
+
+### MULTI-STEP CONVERSATION & SCRATCHPAD CONSTRAINTS:
+1. ALWAYS start your response (immediately after the </think> block) with a `<scratchpad>...</scratchpad>` block. Map out the full point/plan you want to make in bullet points.
+2. Keep each individual response stage/turn extremely short, conversational, and punchy (strictly maximum 1 to 2 brief sentences per stage/turn). Avoid long monologues, structured introductions, body paragraphs, or outlines.
+3. At the end of each stage, output `[CONTINUE]` to pause and let the user intervene. You will be prompted in the background to provide the next step based on your scratchpad.
+4. If you have fully made your point, omit `[CONTINUE]`.
+5. Conclude complex topics by checking if the user understood (e.g. "Does that make sense?").
 
 """
 		print("AIService: [STAGE 4] Streaming final response from heavy thinking model: ", heavy_model)
@@ -581,13 +555,15 @@ CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
 			_conversation_history
 		)
 		_is_response_streaming = false
-		if final_heavy_reply == "":
+		if final_heavy_reply == "" and not _last_request_had_tool_call:
 			print("AIService ERROR: [STAGE 4] Heavy thinking model returned empty reply.")
 			request_failed.emit("Heavy thinking model failed.")
 		else:
 			print("AIService: [STAGE 4] ✅ Heavy thinking complete. Reply length: ", final_heavy_reply.length(), " chars.")
+			_process_reply_meta(final_heavy_reply, context)
 			_append_to_history(prompt, context.get("base64_image", ""), context.get("base64_crop", ""), final_heavy_reply)
 			_last_response_text = final_heavy_reply
+			await _execute_deferred_skill()
 			response_received.emit(final_heavy_reply)
 	else:
 		var analysis_system_prompt := identity
@@ -602,23 +578,14 @@ CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
 When answering visual questions about the screen contents, focus primarily on the main, foreground application window (such as the IDE, web browser, or coding application currently open in the center) rather than the desktop background, task bars, or general operating system background.
 
 CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
-- If the user asks you to "point to", "navigate to", "locate", "where is/are", or find objects or areas on the screen, you MUST use the `[SKILL: point_to: X, Y]` tags. Do NOT just describe them in text.
-- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE] or a pointing tag `[SKILL: point_to: X, Y]`.
+- If the user asks you to "point to", "navigate to", "locate", "where is/are", or find objects or areas on the screen, you MUST call the `point_to` tool with normalized coordinates (from 0 to 1000). Do NOT output bracket tags like `[SKILL: point_to: X, Y]`.
+- If you need to point to multiple elements on the screen or explain a complex concept step-by-step, split your explanation into multiple segments separated by the tag [PAUSE].
 - Each segment must describe the specific element or part. Connect them naturally using conversational transitions (e.g., "...then...", "...also...") and ellipses to indicate more is coming.
-- Calculate the coordinates (X, Y) in pixels based on the screen size provided in the SPATIAL AWARENESS section.
-  - If the screen size is (2880, 1606):
-    - Top-left corner is near (10, 70).
-    - Top-right corner is near (2870, 70).
-    - Bottom-left corner is near (10, 1590).
-    - Bottom-right corner is near (2870, 1590).
-- Example response for pointing to multiple objects:
-  "I found two icons!
-  [SKILL: point_to: 250, 400] Here is the first one, which looks like a settings gear. Then...
-  [SKILL: point_to: 750, 600] Here is the second one, which represents audio options."
-- Example response for pointing to screen corners:
-  "Sure, let's verify the screen boundaries.
-  [SKILL: point_to: 10, 70] Here is the top-left corner of the screen. Then...
-  [SKILL: point_to: 2870, 1590] Here is the bottom-right corner of the screen."
+- Calculate the coordinates (X, Y) normalized from 0 to 1000.
+  - Top-left corner is near (0, 0).
+  - Top-right corner is near (1000, 0).
+  - Bottom-left corner is near (0, 1000).
+  - Bottom-right corner is near (1000, 1000).
 - Example response for a multi-step text explanation:
   "First, you need to import the class.
   [PAUSE]
@@ -626,7 +593,17 @@ CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
   [PAUSE]
   Finally, call the run method."
 """
-		var model_to_use: String = heavy_model if has_image else fast_model
+		analysis_system_prompt += """
+
+### MULTI-STEP CONVERSATION & SCRATCHPAD CONSTRAINTS:
+1. ALWAYS start your response with a `<scratchpad>...</scratchpad>` block. Map out the full point/plan you want to make in bullet points.
+2. Keep each individual response stage/turn extremely short, conversational, and punchy (strictly maximum 1 to 2 brief sentences per stage/turn). Avoid long monologues, structured introductions, body paragraphs, or outlines.
+3. At the end of each stage, output `[CONTINUE]` to pause and let the user intervene. You will be prompted in the background to provide the next step based on your scratchpad.
+4. If you have fully made your point, omit `[CONTINUE]`.
+5. Conclude complex topics by checking if the user understood (e.g. "Does that make sense?").
+
+"""
+		var model_to_use: String = heavy_model
 		
 		print("AIService: [STAGE 4] Streaming final visual analysis from model: ", model_to_use)
 		_is_response_streaming = false
@@ -642,14 +619,47 @@ CONVERSATIONAL STEP-BY-STEP FLOW & SPATIAL POINTING:
 		)
 		_model_override = ""
 		_is_response_streaming = false
-		if final_fast_reply == "":
+		if final_fast_reply == "" and not _last_request_had_tool_call:
 			print("AIService ERROR: [STAGE 4] Analysis model returned empty reply.")
 			request_failed.emit("Analysis model failed.")
 		else:
 			print("AIService: [STAGE 4] ✅ Visual analysis complete. Reply length: ", final_fast_reply.length(), " chars.")
+			_process_reply_meta(final_fast_reply, context)
 			_append_to_history(prompt, context.get("base64_image", ""), context.get("base64_crop", ""), final_fast_reply)
 			_last_response_text = final_fast_reply
+			await _execute_deferred_skill()
 			response_received.emit(final_fast_reply)
+
+
+## Calculates a retrieval-relevance quality score based on word overlap with history/summary.
+func _calculate_retrieval_relevance(prompt: String) -> float:
+	if _conversation_history.is_empty() and _cached_summary.is_empty():
+		return 0.0
+	
+	var words := []
+	var raw_words := prompt.to_lower().split(" ", false)
+	for w in raw_words:
+		var clean_w := ""
+		for i in range(w.length()):
+			var c := w[i]
+			if (c >= "a" and c <= "z") or (c >= "0" and c <= "9"):
+				clean_w += c
+		if clean_w.length() > 3:
+			words.append(clean_w)
+			
+	if words.is_empty():
+		return 0.0
+		
+	var corpus := _cached_summary.to_lower()
+	for msg in _conversation_history:
+		corpus += " " + msg.get("text", "").to_lower()
+		
+	var matches := 0
+	for word in words:
+		if corpus.contains(word):
+			matches += 1
+			
+	return float(matches) / float(words.size())
 
 
 ## Clears the fairy status light and prints the request end banner.
@@ -667,7 +677,7 @@ func _evaluate_emotion(prompt: String, response: String, skill_was_available: bo
 	# window doesn't wrongly hammer Wisdom — Navi has persisted EmotionState and
 	# is not truly memoryless just because the chat window is fresh.
 	var raw_mem: int = _conversation_history.size()
-	var mem: int = max(1, raw_mem) if (Engine.has_singleton("EmotionState") and Engine.get_singleton("EmotionState").love_score != 0) else raw_mem
+	var mem: int = max(1, raw_mem) if (has_node("/root/EmotionState") and get_node("/root/EmotionState").love_score != 0) else raw_mem
 	# Heuristic: intent is clear when the prompt is short enough to be specific
 	var intent_clear: bool = word_count <= 80 and prompt.strip_edges() != ""
 
@@ -676,17 +686,21 @@ func _evaluate_emotion(prompt: String, response: String, skill_was_available: bo
 	var wisdom_relevant: bool = _conversation_history.size() > 0 or _cached_summary != ""
 	var power_relevant: bool = skill_was_available
 
+	var retrieval_relevance: float = _calculate_retrieval_relevance(prompt)
+
 	_emotion_engine.evaluate({
 		"intent_clear":     intent_clear,
 		"skills_available": skill_was_available,
 		"skill_succeeded":  skill_did_succeed,
 		"memory_entries":   mem,
+		"retrieval_relevance": retrieval_relevance,
 		"prompt_length":    word_count,
 		"response_text":    response,
 		"courage_relevant": courage_relevant,
 		"wisdom_relevant":  wisdom_relevant,
 		"power_relevant":   power_relevant,
 		"is_pre_eval":      is_pre_eval,
+		"user_sentiment":    _last_user_sentiment,
 	})
 
 
@@ -700,19 +714,62 @@ func _pre_evaluate_emotion(prompt: String) -> void:
 	if not _settings_mgr.get_setting("live_navi_mode", false):
 		return
 	print("AIService:   Emotion    : Pre-evaluating from prompt context before LLM call...")
+	_last_user_sentiment = await _classify_user_sentiment(prompt)
+	print("AIService:   Emotion    : Detected user sentiment: ", _last_user_sentiment)
 	_evaluate_emotion(prompt, _last_response_text, false, false, true)
 
 
+func _classify_user_sentiment(prompt: String) -> String:
+	# Define a strict system prompt for sentiment classification
+	var classifier_system_prompt := (
+		"You are a precise sentiment classifier. Analyze the user's message and classify its tone/intent. "
+		+ "Classify it as:\n"
+		+ "- 'kind' (friendly, appreciative, polite, praising, or saying nice things to Navi)\n"
+		+ "- 'mean' (rude, hostile, insulting, angry, complaining, or dismissive)\n"
+		+ "- 'neutral' (informational, objective question, coding request, or general dialogue)\n\n"
+		+ "Respond with EXACTLY one word: 'kind', 'mean', or 'neutral'. Do not write anything else, no explanations, no punctuation."
+	)
+	
+	# Determine the fastest non-thinking model to use based on the provider
+	var provider: String = _settings_mgr.get_setting("llm_provider", "local")
+	var model_to_use := ""
+	if provider == "cloud":
+		model_to_use = _settings_mgr.get_setting("cloud_model", "gemini-2.5-flash")
+	else:
+		model_to_use = _settings_mgr.get_setting("local_model", "")
+		if model_to_use == "":
+			model_to_use = _config_cache.get("heavy_model", "")
+			
+	_model_override = model_to_use
+	var result := await _request_llm(prompt, classifier_system_prompt, false, "", "", 0.1, [], true)
+	_model_override = ""
+	
+	var sentiment := result.strip_edges().to_lower()
+	if sentiment.contains("kind"):
+		return "kind"
+	elif sentiment.contains("mean"):
+		return "mean"
+	else:
+		return "neutral"
+
+
 func _build_identity(personality: String, live_navi_mode: bool) -> String:
-	var identity := "You are Navi, the desktop assistant."
-	var live_personality := ""
-	if live_navi_mode:
-		live_personality = EmotionPromptBuilder.get_live_personality()
-		identity = "You are Navi, a " + live_personality + " desktop assistant."
-	elif personality != "":
-		identity = "You are Navi, a " + personality + " desktop assistant."
-		
-	identity += "\n\nCRITICAL: Be extremely honest and realistic. If you do not know something, are unsure, do not see the screen clearly, or if you lack sufficient information, DO NOT make up facts, apps, or passwords. Instead, ask the user for clarification or state your limitations. Trust current screen captures over any previous conversation history."
+	var identity := ""
+	if FileAccess.file_exists("res://mission_statement.md"):
+		var file := FileAccess.open("res://mission_statement.md", FileAccess.READ)
+		if file:
+			identity = file.get_as_text()
+			file.close()
+
+	if identity == "":
+		identity = "You are Navi, the desktop assistant."
+		if live_navi_mode:
+			var live_personality = EmotionPromptBuilder.get_live_personality()
+			identity = "You are Navi, a " + live_personality + " desktop assistant."
+		elif personality != "":
+			identity = "You are Navi, a " + personality + " desktop assistant."
+			
+		identity += "\n\nCRITICAL: Be extremely honest and realistic. If you do not know something, are unsure, do not see the screen clearly, or if you lack sufficient information, DO NOT make up facts, apps, or passwords. Instead, ask the user for clarification or state your limitations. Trust current screen captures over any previous conversation history."
 
 	if _cached_summary != "":
 		identity += "\n\nPREVIOUS SESSION MEMORY — READ THIS FIRST:\nYou have a summary of what happened last time with this user. If the user asks what you discussed last time, what they asked previously, or references the previous session, use this summary to answer directly and confidently:\n" + _cached_summary + "\nDo NOT assume any of these applications or problems are still active in the current session unless you see them in the current screen capture."
@@ -725,11 +782,24 @@ func _build_identity(personality: String, live_navi_mode: bool) -> String:
 			var tree := Engine.get_main_loop() as SceneTree
 			if tree and tree.root.has_node("EmotionState"):
 				es_emotion = str(tree.root.get_node("EmotionState").get("emotion"))
+			var live_personality = EmotionPromptBuilder.get_live_personality()
 			print("AIService:   Emotion    : [LIVE] Injected block (", emotion_block.length(), " chars). Personality: '", live_personality, "'  Feeling: ", es_emotion)
 		else:
 			print("AIService:   Emotion    : [LIVE] WARNING — build() returned empty. Block not injected.")
 	else:
 		print("AIService:   Emotion    : Live Navi Mode OFF — skipping emotion injection.")
+		
+	identity += "\n\n### SHORT-TERM MEMORY & CONVERSATIONAL SCRATCHPAD:"
+	identity += "\nYou have a private <scratchpad>...</scratchpad> section to plan your responses, take notes, and keep track of steps (mapping the 'full point') across multiple turns during this active conversation. Any notes you output inside `<scratchpad>...</scratchpad>` will be saved and injected here on subsequent turns, but will be completely hidden from the user."
+	identity += "\n- Use the scratchpad to store complex context, plan what to say next, or list questions you need to ask."
+	identity += "\n- If you have more to say but want to break it up to give the user a chance to speak or intervene, output only the first part of your response and append the tag `[CONTINUE]` at the very end. The system will automatically prompt you again in the background to provide the next step."
+	identity += "\n- Keep each individual stage/turn extremely short, conversational, and punchy (maximum 1 to 2 brief sentences). Break down complex concepts into multiple very brief turns separated by `[CONTINUE]`, so the user has frequent opportunities to intervene or respond."
+	identity += "\n- When you have sufficiently made the point without requiring clarification, do NOT output `[CONTINUE]`. This will naturally stop the continuation loop."
+	identity += "\n- If you just explained something particularly complex or difficult, conclude by asking the user to clarify if they understood (e.g. 'Does that make sense?')."
+	identity += "\n- Do not output everything in a single turn if a natural multi-turn conversation is more realistic."
+
+	if _short_term_memory != "":
+		identity += "\n\nCURRENT SCRATCHPAD NOTES:\n" + _short_term_memory
 		
 	return identity
 
@@ -741,7 +811,26 @@ func _cleanup_request() -> void:
 	if window_controller and "_fairy" in window_controller:
 		fairy = window_controller._fairy
 	if fairy and fairy.has_method("clear_status_light"):
-		fairy.clear_status_light()
+		var status_node = fairy.get_node_or_null("StatusLight")
+		if status_node and status_node.visible and status_node.self_modulate.is_equal_approx(Color(0.6, 0.2, 1.0, 1.0)):
+			fairy.clear_status_light()
+	_request_in_progress = false
+
+
+func _execute_deferred_skill() -> void:
+	if not _deferred_skill.is_empty():
+		var skill_name: String = _deferred_skill["name"]
+		var skill_ctx: Dictionary = _deferred_skill["context"]
+		_deferred_skill = {}
+		print("AIService: [DEFERRED SKILL] Executing deferred skill '", skill_name, "' now that response is ready.")
+		var skill_obj = _skills_registry.get(skill_name)
+		if skill_obj:
+			var outcome := ""
+			if skill_obj is Callable:
+				outcome = await skill_obj.call(skill_ctx) as String
+			elif skill_obj.has_method("execute"):
+				outcome = await skill_obj.execute(skill_ctx) as String
+			print("AIService: [DEFERRED SKILL] Finished executing. Outcome: ", outcome)
 
 
 # ---------------------------------------------------------------------------
@@ -749,107 +838,165 @@ func _cleanup_request() -> void:
 # ---------------------------------------------------------------------------
 
 func _execute_take_screenshot(context: Dictionary) -> String:
-	var window_controller := _get_window_controller()
-	var fairy: Node = null
-	if window_controller and "_fairy" in window_controller:
-		fairy = window_controller._fairy
-	if fairy and fairy.has_method("set_status_light"):
-		fairy.set_status_light(Color(1.0, 0.75, 0.0, 1.0), true) # Pulsing Amber
-
-	if window_controller:
-		var img: Image = await window_controller.capture_clean_screenshot()
-		if img:
-			# Keep Navi visible in the capture to maintain pointing context!
-			# Maintain aspect ratio to prevent squishing text/layout, and limit max dimension to 768px.
-			var max_dim := 768
-			var w := img.get_width()
-			var h := img.get_height()
-			if w > 0 and h > 0:
-				if w > h:
-					h = int(float(h) * max_dim / w)
-					w = max_dim
-				else:
-					w = int(float(w) * max_dim / h)
-					h = max_dim
-				img.resize(w, h, Image.INTERPOLATE_BILINEAR)
-			context["base64_image"] = Marshalls.raw_to_base64(img.save_jpg_to_buffer())
-			return "Success: captured screen image."
-	return "Failure: window controller or capture failed."
+	if _skills_registry.has("take_screenshot"):
+		var skill_obj = _skills_registry["take_screenshot"]
+		if skill_obj is Callable:
+			return await skill_obj.call(context) as String
+		elif skill_obj.has_method("execute"):
+			return await skill_obj.execute(context) as String
+	return "Failure: take_screenshot skill not registered."
 
 
 func _execute_take_crop_screenshot(context: Dictionary) -> String:
-	var window_controller := _get_window_controller()
-	var fairy: Node = null
-	if window_controller and "_fairy" in window_controller:
-		fairy = window_controller._fairy
-	if fairy and fairy.has_method("set_status_light"):
-		fairy.set_status_light(Color(1.0, 0.75, 0.0, 1.0), true) # Pulsing Amber
-
-	if window_controller and window_controller.has_method("capture_crop_screenshot"):
-		var img: Image = await window_controller.capture_crop_screenshot()
-		if img:
-			img.resize(512, 512, Image.INTERPOLATE_BILINEAR)
-			context["base64_crop"] = Marshalls.raw_to_base64(img.save_jpg_to_buffer())
-			return "Success: captured crop image centered around Navi."
-	return "Failure: window controller or crop failed."
+	if _skills_registry.has("take_crop_screenshot"):
+		var skill_obj = _skills_registry["take_crop_screenshot"]
+		if skill_obj is Callable:
+			return await skill_obj.call(context) as String
+		elif skill_obj.has_method("execute"):
+			return await skill_obj.execute(context) as String
+	return "Failure: take_crop_screenshot skill not registered."
 
 
 func _execute_heavy_thinking(context: Dictionary) -> String:
-	var window_controller := _get_window_controller()
-	var fairy: Node = null
-	if window_controller and "_fairy" in window_controller:
-		fairy = window_controller._fairy
-	if fairy and fairy.has_method("set_status_light"):
-		fairy.set_status_light(Color(0.6, 0.2, 1.0, 1.0), true) # Pulsing Purple
-
-	return "Success: heavy thinking executed."
+	if _skills_registry.has("heavy_thinking"):
+		var skill_obj = _skills_registry["heavy_thinking"]
+		if skill_obj is Callable:
+			return await skill_obj.call(context) as String
+		elif skill_obj.has_method("execute"):
+			return await skill_obj.execute(context) as String
+	return "Failure: heavy_thinking skill not registered."
 
 
 func _execute_point_to(context: Dictionary) -> String:
-	var args: String = context.get("skill_args", "").strip_edges()
-	if args == "":
-		return "Failure: no coordinates provided for point_to skill."
+	if _skills_registry.has("point_to"):
+		var skill_obj = _skills_registry["point_to"]
+		if skill_obj is Callable:
+			return await skill_obj.call(context) as String
+		elif skill_obj.has_method("execute"):
+			return await skill_obj.execute(context) as String
+	return "Failure: point_to skill not registered."
 
-	var window_controller = _get_window_controller()
-	if not window_controller:
-		return "Failure: WindowController not found."
 
-	var follow_ctrl = window_controller.get_node_or_null("FollowController")
-	if not follow_ctrl:
-		return "Failure: FollowController not found."
-
-	var coordinate_pairs := args.split(";")
-	var points: Array[Vector2] = []
-	for pair in coordinate_pairs:
-		var trimmed := pair.strip_edges()
-		if trimmed == "":
-			continue
-		var coords := trimmed.split(",")
-		if coords.size() >= 2:
-			var x := float(coords[0].strip_edges())
-			var y := float(coords[1].strip_edges())
-			points.append(NaviUtils.map_normalized_coordinate_to_screen(Vector2(x, y)))
-
-	if points.is_empty():
-		return "Failure: could not parse coordinates from '" + args + "'."
-
-	if points.size() == 1:
-		print("AIService: [MOVEMENT] Flying to screen coordinate: ", points[0])
-		follow_ctrl.call("fly_to_screen_coordinate", points[0])
-		return "Success: flying to screen coordinate " + str(points[0])
-	else:
-		print("AIService: [MOVEMENT] Navigating sequence of points: ", points)
-		follow_ctrl.call("navigate_sequence", points)
-		return "Success: navigating sequence of points: " + str(points)
+func _execute_summarize_session(context: Dictionary) -> String:
+	if _skills_registry.has("summarize_session"):
+		var skill_obj = _skills_registry["summarize_session"]
+		if not context.has("ai_service"):
+			context["ai_service"] = self
+		if skill_obj is Callable:
+			return await skill_obj.call(context) as String
+		elif skill_obj.has_method("execute"):
+			return await skill_obj.execute(context) as String
+	return "Failure: summarize_session skill not registered."
 
 
 # ---------------------------------------------------------------------------
 # Asynchronous Isolated HTTP Client Requests (Non-Streaming Fallback)
 # ---------------------------------------------------------------------------
 
-func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool = false, base64_image: String = "", base64_crop: String = "", temperature: float = 0.7, history: Array[Dictionary] = []) -> String:
+func _extract_json_objects(buffer: String) -> Array:
+	var objects := []
+	var start_idx := 0
+	while true:
+		var open_brace = buffer.find("{", start_idx)
+		if open_brace == -1:
+			break
+		
+		# Find the matching closing brace
+		var brace_count := 0
+		var in_string := false
+		var escape_next := false
+		var close_brace := -1
+		
+		for j in range(open_brace, buffer.length()):
+			var c = buffer[j]
+			if escape_next:
+				escape_next = false
+				continue
+			if c == "\\":
+				escape_next = true
+				continue
+			if c == "\"":
+				in_string = not in_string
+				continue
+			if not in_string:
+				if c == "{":
+					brace_count += 1
+				elif c == "}":
+					brace_count -= 1
+					if brace_count == 0:
+						close_brace = j
+						break
+		
+		if close_brace != -1:
+			var json_str = buffer.substr(open_brace, close_brace - open_brace + 1)
+			var json = JSON.new()
+			if json.parse(json_str) == OK:
+				objects.append(json.get_data())
+			start_idx = close_brace + 1
+		else:
+			# The brace is not closed yet, wait for more data
+			break
+			
+	# Remove parsed objects from buffer
+	if start_idx > 0:
+		buffer = buffer.substr(start_idx)
+	return [objects, buffer]
+
+
+func _get_ollama_tools() -> Array:
+	var tools := []
+	for skill_name in _skills_registry:
+		var skill_obj = _skills_registry[skill_name]
+		if skill_obj.has_method("get_schema"):
+			var schema: Dictionary = skill_obj.get_schema()
+			if not schema.is_empty():
+				tools.append({
+					"type": "function",
+					"function": schema
+				})
+	return tools
+
+
+func _to_gemini_schema(schema: Dictionary) -> Dictionary:
+	var copy := schema.duplicate(true)
+	_uppercase_types(copy)
+	return copy
+
+
+func _uppercase_types(dict: Dictionary) -> void:
+	if dict.has("type") and dict["type"] is String:
+		dict["type"] = dict["type"].to_upper()
+	if dict.has("properties") and dict["properties"] is Dictionary:
+		var props: Dictionary = dict["properties"]
+		for key in props:
+			if props[key] is Dictionary:
+				_uppercase_types(props[key])
+
+
+func _get_gemini_tools() -> Array:
+	var declarations := []
+	for skill_name in _skills_registry:
+		var skill_obj = _skills_registry[skill_name]
+		if skill_obj.has_method("get_schema"):
+			var schema: Dictionary = skill_obj.get_schema()
+			if not schema.is_empty():
+				declarations.append(_to_gemini_schema(schema))
+	if declarations.is_empty():
+		return []
+	return [{
+		"functionDeclarations": declarations
+	}]
+
+
+func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool = false, base64_image: String = "", base64_crop: String = "", temperature: float = 0.7, history: Array[Dictionary] = [], skip_tools: bool = false) -> String:
 	if not _settings_mgr:
 		return ""
+
+	var final_system_prompt := system_prompt
+	var final_temperature := temperature
+	if not is_thinking_model:
+		final_temperature = 0.1
+		final_system_prompt += "\n\nIMPORTANT: Respond directly to the user. Do NOT write any thoughts or reasoning inside <think>...</think> tags. Just output the final response."
 
 	var provider: String = _settings_mgr.get_setting("llm_provider", "local")
 
@@ -863,16 +1010,15 @@ func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool
 
 	if provider == "local":
 		var url: String = _settings_mgr.get_setting("local_url", "http://localhost:11434")
-		var model_key := "heavy_model" if is_thinking_model else "fast_model"
-		var model: String = _model_override if _model_override != "" else _config_cache.get(model_key, "gemma4:e4b")
+		var model: String = _model_override if _model_override != "" else _config_cache.get("heavy_model", "gemma4:e4b")
 
 		endpoint = url + "/v1/chat/completions"
 
 		var messages := []
-		if system_prompt != "":
+		if final_system_prompt != "":
 			messages.append({
 				"role": "system",
-				"content": system_prompt
+				"content": final_system_prompt
 			})
 
 		for msg in history:
@@ -925,18 +1071,20 @@ func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool
 			"content": user_content
 		})
 
+		var ollama_tools := [] if skip_tools else _get_ollama_tools()
 		payload = {
 			"model": model,
 			"messages": messages,
-			"temperature": temperature
+			"temperature": final_temperature
 		}
+		if not ollama_tools.is_empty():
+			payload["tools"] = ollama_tools
 	else:
 		var url: String = _settings_mgr.get_setting("cloud_url", "")
 		var api_key: String = _settings_mgr.get_setting("cloud_api_key", "")
 		if api_key == "":
 			api_key = OS.get_environment("GEMINI_API_KEY")
-		var model_key := "heavy_model" if is_thinking_model else "fast_model"
-		var model: String = _model_override if _model_override != "" else _config_cache.get(model_key, "gemini-2.5-flash")
+		var model: String = _model_override if _model_override != "" else _config_cache.get("heavy_model", "gemini-2.5-flash")
 
 		endpoint = url
 		if endpoint.contains("/models/"):
@@ -961,8 +1109,8 @@ func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool
 
 			var parts := []
 			if msg_role == "user":
-				if is_first_user_msg and system_prompt != "":
-					parts.append({"text": "SYSTEM INSTRUCTIONS:\n" + system_prompt + "\n\nUSER PROMPT:\n" + msg_text})
+				if is_first_user_msg and final_system_prompt != "":
+					parts.append({"text": "SYSTEM INSTRUCTIONS:\n" + final_system_prompt + "\n\nUSER PROMPT:\n" + msg_text})
 					is_first_user_msg = false
 				else:
 					parts.append({"text": msg_text})
@@ -982,9 +1130,9 @@ func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool
 				})
 
 		var cloud_parts: Array = []
-		if is_first_user_msg and system_prompt != "":
+		if is_first_user_msg and final_system_prompt != "":
 			cloud_parts.append({
-				"text": "SYSTEM INSTRUCTIONS:\n" + system_prompt + "\n\nUSER PROMPT:\n" + prompt
+				"text": "SYSTEM INSTRUCTIONS:\n" + final_system_prompt + "\n\nUSER PROMPT:\n" + prompt
 			})
 		else:
 			cloud_parts.append({
@@ -1012,9 +1160,18 @@ func _request_llm(prompt: String, system_prompt: String, is_thinking_model: bool
 			"parts": cloud_parts
 		})
 
+		var gemini_tools := [] if skip_tools else _get_gemini_tools()
 		payload = {
 			"contents": contents
 		}
+		if not gemini_tools.is_empty():
+			payload["tools"] = gemini_tools
+		if not is_thinking_model:
+			payload["generationConfig"] = {
+				"thinkingConfig": {
+					"thinkingBudget": 0
+				}
+			}
 
 	var json_string := JSON.stringify(payload)
 	var err := http.request(endpoint, headers, HTTPClient.METHOD_POST, json_string)
@@ -1070,10 +1227,15 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 	if not _settings_mgr:
 		return ""
 
+	var final_system_prompt := system_prompt
+	var final_temperature := temperature
+	if not is_thinking_model:
+		final_temperature = 0.1
+		final_system_prompt += "\n\nIMPORTANT: Respond directly to the user. Do NOT write any thoughts or reasoning inside <think>...</think> tags. However, you MUST still ALWAYS start your response with a `<scratchpad>...</scratchpad>` block and use `[CONTINUE]` tags to split your response into stages as instructed in the MULTI-STEP CONVERSATION & SCRATCHPAD CONSTRAINTS."
+
 	var provider: String = _settings_mgr.get_setting("llm_provider", "local")
 	var url_setting: String = _settings_mgr.get_setting("cloud_url" if provider == "cloud" else "local_url", "")
-	var model_key := "heavy_model" if is_thinking_model else "fast_model"
-	var model: String = _model_override if _model_override != "" else _config_cache.get(model_key, "gemma4:e4b")
+	var model: String = _model_override if _model_override != "" else _config_cache.get("heavy_model", "gemma4:e4b")
 
 	var parsed_url := _parse_url(url_setting)
 	var host: String = parsed_url["host"]
@@ -1110,8 +1272,8 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 
 	if provider == "local":
 		var messages := []
-		if system_prompt != "":
-			messages.append({"role": "system", "content": system_prompt})
+		if final_system_prompt != "":
+			messages.append({"role": "system", "content": final_system_prompt})
 
 		for msg in history:
 			var msg_role: String = msg.get("role", "user")
@@ -1144,12 +1306,16 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 			user_content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64_crop}})
 		messages.append({"role": "user", "content": user_content})
 
+		var ollama_tools := _get_ollama_tools()
 		payload = {
 			"model": model,
 			"messages": messages,
-			"temperature": temperature,
-			"stream": true
+			"temperature": final_temperature,
+			"stream": true,
+			"think": is_thinking_model
 		}
+		if not ollama_tools.is_empty():
+			payload["tools"] = ollama_tools
 	else:
 		var api_key: String = _settings_mgr.get_setting("cloud_api_key", "")
 		if api_key == "":
@@ -1180,8 +1346,8 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 
 			var parts := []
 			if msg_role == "user":
-				if is_first_user_msg and system_prompt != "":
-					parts.append({"text": "SYSTEM INSTRUCTIONS:\n" + system_prompt + "\n\nUSER PROMPT:\n" + msg_text})
+				if is_first_user_msg and final_system_prompt != "":
+					parts.append({"text": "SYSTEM INSTRUCTIONS:\n" + final_system_prompt + "\n\nUSER PROMPT:\n" + msg_text})
 					is_first_user_msg = false
 				else:
 					parts.append({"text": msg_text})
@@ -1201,8 +1367,8 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 				})
 
 		var cloud_parts: Array = []
-		if is_first_user_msg and system_prompt != "":
-			cloud_parts.append({"text": "SYSTEM INSTRUCTIONS:\n" + system_prompt + "\n\nUSER PROMPT:\n" + prompt})
+		if is_first_user_msg and final_system_prompt != "":
+			cloud_parts.append({"text": "SYSTEM INSTRUCTIONS:\n" + final_system_prompt + "\n\nUSER PROMPT:\n" + prompt})
 		else:
 			cloud_parts.append({"text": prompt})
 
@@ -1216,9 +1382,18 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 			"parts": cloud_parts
 		})
 
+		var gemini_tools := _get_gemini_tools()
 		payload = {
 			"contents": contents
 		}
+		if not gemini_tools.is_empty():
+			payload["tools"] = gemini_tools
+		if not is_thinking_model:
+			payload["generationConfig"] = {
+				"thinkingConfig": {
+					"thinkingBudget": 0
+				}
+			}
 
 	var json_payload := JSON.stringify(payload)
 	print("AIService: Dispatching LLM request. Host: ", host, " Path: ", path)
@@ -1243,6 +1418,7 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 
 	var full_text := ""
 	var current_line_buffer := ""
+	var gemini_buffer := ""
 	var is_buffering_tag := false
 	var tag_buffer := ""
 	var is_thinking := false
@@ -1250,6 +1426,10 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 	var tag_boundary_buffer := "" # Accumulates split indicators like '<', '[', etc. across chunks
 	var personality: String = _config_cache.get("personality", "")
 	var is_stream_finished := false
+
+	var current_tool_name := ""
+	var current_tool_args_accumulated := ""
+	var current_tool_args_dict := {}
 
 	while client.get_status() == HTTPClient.STATUS_BODY:
 		if is_stream_finished:
@@ -1275,57 +1455,101 @@ func _request_llm_stream(prompt: String, system_prompt: String, is_thinking_mode
 						var json_data: Variant = JSON.parse_string(data_str)
 						if json_data is Dictionary and json_data.has("choices") and json_data["choices"].size() > 0:
 							var choice: Dictionary = json_data["choices"][0]
-							if choice.has("delta") and choice["delta"].has("content"):
-								var word: String = choice["delta"]["content"]
-								full_text += word
+							if choice.has("delta"):
+								if choice["delta"].has("content"):
+									var word: String = choice["delta"]["content"]
+									full_text += word
 
-								# Only print chunk logs if they contain actual content
-								if word != "":
-									print("AIService: [Ollama Chunk] \"", word, "\"")
+									# Only print chunk logs if they contain actual content
+									if word != "":
+										print("AIService: [Ollama Chunk] \"", word, "\"")
 
-								var filtered_word := _filter_stream_chunk(word, is_buffering_tag, tag_buffer, is_thinking, think_buffer, personality, tag_boundary_buffer)
-								is_buffering_tag = filtered_word["is_buffering"]
-								tag_buffer = filtered_word["tag_buffer"]
-								is_thinking = filtered_word["is_thinking"]
-								think_buffer = filtered_word["think_buffer"]
-								tag_boundary_buffer = filtered_word["boundary_buffer"]
-								# Emit real-time thought lines as they complete inside the <think> block
-								for think_line: String in filtered_word.get("think_lines", []):
-									thinking_update.emit(think_line)
+									var filtered_word := _filter_stream_chunk(word, is_buffering_tag, tag_buffer, is_thinking, think_buffer, personality, tag_boundary_buffer)
+									is_buffering_tag = filtered_word["is_buffering"]
+									tag_buffer = filtered_word["tag_buffer"]
+									is_thinking = filtered_word["is_thinking"]
+									think_buffer = filtered_word["think_buffer"]
+									tag_boundary_buffer = filtered_word["boundary_buffer"]
+									# Emit real-time thought lines as they complete inside the <think> block
+									for think_line: String in filtered_word.get("think_lines", []):
+										thinking_update.emit(think_line)
 
-								if filtered_word["text"] != "":
-									_is_response_streaming = true
-									response_chunk.emit(filtered_word["text"])
+									if filtered_word["text"] != "":
+										_is_response_streaming = true
+										response_chunk.emit(filtered_word["text"])
+								
+								if choice["delta"].has("tool_calls"):
+									var tool_calls = choice["delta"]["tool_calls"]
+									if tool_calls is Array and tool_calls.size() > 0:
+										var tc = tool_calls[0]
+										if tc.has("function"):
+											var func_data = tc["function"]
+											if func_data.has("name") and func_data["name"] != "":
+												current_tool_name = func_data["name"]
+											if func_data.has("arguments"):
+												current_tool_args_accumulated += func_data["arguments"]
 				if is_stream_finished:
 					break
 			else:
-				# Gemini stream parsing (regex compiled once outside loop)
-				var matches := _gemini_text_regex.search_all(text)
-				for m in matches:
-					var word: String = m.get_string(1).replace("\\n", "\n").replace("\\\"", "\"")
-					full_text += word
+				# Gemini stream parsing
+				gemini_buffer += text
+				var extraction = _extract_json_objects(gemini_buffer)
+				var json_objs: Array = extraction[0]
+				gemini_buffer = extraction[1]
 
-					if word != "":
-						print("AIService: [Gemini Chunk] \"", word, "\"")
+				for obj in json_objs:
+					if obj is Dictionary and obj.has("candidates") and obj["candidates"].size() > 0:
+						var candidate = obj["candidates"][0]
+						if candidate.has("content") and candidate["content"].has("parts"):
+							for part in candidate["content"]["parts"]:
+								if part.has("text") and part["text"] != "":
+									var word: String = part["text"]
+									full_text += word
 
-					var filtered_word := _filter_stream_chunk(word, is_buffering_tag, tag_buffer, is_thinking, think_buffer, personality, tag_boundary_buffer)
-					is_buffering_tag = filtered_word["is_buffering"]
-					tag_buffer = filtered_word["tag_buffer"]
-					is_thinking = filtered_word["is_thinking"]
-					think_buffer = filtered_word["think_buffer"]
-					tag_boundary_buffer = filtered_word["boundary_buffer"]
-					# Emit real-time thought lines as they complete inside the <think> block
-					for think_line: String in filtered_word.get("think_lines", []):
-						thinking_update.emit(think_line)
+									if word != "":
+										print("AIService: [Gemini Chunk] \"", word, "\"")
 
-					if filtered_word["text"] != "":
-						_is_response_streaming = true
-						response_chunk.emit(filtered_word["text"])
+									var filtered_word := _filter_stream_chunk(word, is_buffering_tag, tag_buffer, is_thinking, think_buffer, personality, tag_boundary_buffer)
+									is_buffering_tag = filtered_word["is_buffering"]
+									tag_buffer = filtered_word["tag_buffer"]
+									is_thinking = filtered_word["is_thinking"]
+									think_buffer = filtered_word["think_buffer"]
+									tag_boundary_buffer = filtered_word["boundary_buffer"]
+									# Emit real-time thought lines as they complete inside the <think> block
+									for think_line: String in filtered_word.get("think_lines", []):
+										thinking_update.emit(think_line)
+
+									if filtered_word["text"] != "":
+										_is_response_streaming = true
+										response_chunk.emit(filtered_word["text"])
+								
+								if part.has("functionCall"):
+									var func_call = part["functionCall"]
+									if func_call.has("name") and func_call["name"] != "":
+										current_tool_name = func_call["name"]
+										if func_call.has("args") and func_call["args"] is Dictionary:
+											current_tool_args_dict = func_call["args"]
 
 		await get_tree().process_frame
 
 	client.close()
 	print("AIService: HTTP connection closed. Full text length: ", full_text.length())
+
+	if current_tool_name != "":
+		_last_request_had_tool_call = true
+		var parsed_args := {}
+		if not current_tool_args_dict.is_empty():
+			parsed_args = current_tool_args_dict
+		elif current_tool_args_accumulated != "":
+			var parse_res = JSON.parse_string(current_tool_args_accumulated)
+			if parse_res is Dictionary:
+				parsed_args = parse_res
+			else:
+				print("AIService ERROR: Failed to parse tool arguments: ", current_tool_args_accumulated)
+		
+		print("AIService: Emitting tool_call_received for tool: ", current_tool_name, " with args: ", parsed_args)
+		tool_call_received.emit(current_tool_name, parsed_args)
+
 	return full_text
 
 
@@ -1453,47 +1677,51 @@ func _get_retraction_message(personality: String) -> String:
 			return "Wait, actually — I can check your screen! Let me try that..."
 
 
-## Maps common reasoning patterns to first-person Navi-voice status messages
-## based on the configured personality. Zero extra LLM calls.
-func _apply_personality_voice(line: String, personality: String) -> String:
+## Cleans up raw model reasoning patterns/thoughts to be displayed in the UI.
+## Stays completely dynamic and respects whatever personality the model generates its thoughts in.
+func _apply_personality_voice(line: String, _personality: String) -> String:
+	var clean := line.strip_edges()
+	if clean.begins_with("-"):
+		clean = clean.substr(1).strip_edges()
+	elif clean.begins_with("*"):
+		clean = clean.substr(1).strip_edges()
+	
+	if clean == "":
+		return ""
+		
+	# Capitalize the first letter for clean presentation
+	if clean.length() > 0:
+		clean = clean.left(1).to_upper() + clean.substr(1)
+		
+	return clean
 
-	if line.length() < 4:
-		return line
-	var lower := line.to_lower()
+
+func _get_personality_status_message(skill_name: String, personality: String) -> String:
 	var p := personality.to_lower()
-
-	# Each row: [match_pattern, friendly, annoying, snarky, professional]
-	# Rules evaluated top-to-bottom — more specific patterns first.
-	var patterns: Array = [
-		["user is asking",   "Got your question!",           "Oh great, you're asking me something.",    "So you have a question. Cool.",         "Request received."],
-		["user wants",       "On it!",                       "You WANT something. Shocker.",              "Another request, naturally.",           "Acknowledged."],
-		["need to identify", "Let me figure this out...",    "Fine, I'll identify it.",                  "I suppose I have to identify this.",    "Identifying..."],
-		["need to describe", "Let me describe this...",      "Ugh, description time.",                   "Fine, I'll describe it.",               "Describing..."],
-		["must focus",       "Zeroing in...",                "I GUESS I have to focus here.",             "Oh, focusing. Great.",                  "Directing analysis..."],
-		["focus on",         "Focusing in...",               "Fine, focusing on it.",                    "Alright, focusing.",                    "Focusing..."],
-		["strongly suggest", "I think I know!",              "It's probably what you'd expect.",          "Pretty obvious actually.",              "High-confidence identification."],
-		["looks like",       "I think I see it!",            "Probably something boring.",                "Yep, it's a thing.",                    "Pattern matched."],
-		["title bar",        "Reading the title bar...",     "Staring at the title bar. Fascinating.",   "Oh, a title bar. Very exciting.",       "Parsing title bar..."],
-		["will state",       "Almost ready!",                "Okay FINE, here we go...",                 "Alright, let's get this over with.",    "Finalizing..."],
-		["will describe",    "Ready to answer!",             "OKAY here it comes...",                    "Getting there.",                        "Compiling output..."],
-		["screenshot",       "Reading your screen...",       "Staring at your screen. As instructed.",   "Oh wow, a screenshot.",                 "Processing capture..."],
-		["visible",          "I can see something...",       "Oh, things exist on screen. Amazing.",      "Yep, I see stuff.",                     "Analyzing visible content..."],
-		["content",          "Checking this out...",         "There's content here. Fascinating.",        "More content to wade through.",         "Content analysis..."],
-		["pointing",         "Locating on screen...",        "Calculating screen positions.",             "Pointing at things.",                   "Directing pointers..."],
-		["coordinates",      "Computing coordinates...",     "Calculating pixel offsets. Thrilling.",     "Finding the exact coordinates.",        "Computing coordinates..."],
-		["point to",         "Locating on screen...",        "Calculating screen positions.",             "Pointing at things.",                   "Directing pointers..."],
-	]
-
-	for row in patterns:
-		if lower.contains(row[0]):
+	match skill_name:
+		"take_screenshot":
 			match p:
-				"friendly":     return row[1]
-				"annoying":     return row[2]
-				"snarky":       return row[3]
-				"professional": return row[4]
-				_:              return row[1]
-
-	return ""
+				"friendly":     return "Let me check what's on your screen..."
+				"annoying":     return "Let me look at your screen, I guess."
+				"snarky":       return "Let's see what mess is on your screen..."
+				"professional": return "Initiating screen capture analysis..."
+				_:              return "Let me check what's on your screen..."
+		"take_crop_screenshot":
+			match p:
+				"friendly":     return "Let me zoom in on that for you..."
+				"annoying":     return "Fine, let's zoom in on that."
+				"snarky":       return "Zooming in. Try to make it interesting."
+				"professional": return "Executing cropped region capture..."
+				_:              return "Let me zoom in on that for you..."
+		"heavy_thinking":
+			match p:
+				"friendly":     return "Let me think carefully about this..."
+				"annoying":     return "Ugh, heavy thinking time. Hold on."
+				"snarky":       return "Thinking. Don't hold your breath."
+				"professional": return "Processing complex analytical query..."
+				_:              return "Let me think carefully about this..."
+		_:
+			return "Thinking..."
 
 
 # Helper mapped to parsing clean settings endpoints
@@ -1568,7 +1796,10 @@ func _append_to_history(user_prompt: String, img: String, crop: String, ai_reply
 ## Public method to clear the current chat history.
 func clear_history() -> void:
 	_conversation_history.clear()
-	print("AIService: Conversation history cleared.")
+	_short_term_memory = ""
+	_continuation_token += 1
+	is_greeting_active = false
+	print("AIService: Conversation history and scratchpad cleared.")
 
 
 ## Getter for the cached session summary.
@@ -1584,40 +1815,191 @@ func end_chat_session() -> void:
 		return
 
 	var context := {
-		"history": _conversation_history.duplicate(true)
+		"history": _conversation_history.duplicate(true),
+		"ai_service": self
 	}
 	clear_history()
 
 	if _skills_registry.has("summarize_session"):
 		print("AIService: Triggering background summarization skill...")
-		_skills_registry["summarize_session"].call_deferred(context)
+		var skill_obj = _skills_registry["summarize_session"]
+		if skill_obj is Callable:
+			skill_obj.call_deferred(context)
+		elif skill_obj.has_method("execute"):
+			skill_obj.call_deferred("execute", context)
 	else:
 		print("AIService WARNING: summarize_session skill is not registered.")
 
 
-func _execute_summarize_session(context: Dictionary) -> String:
-	var history: Array = context.get("history", [])
-	if history.is_empty():
-		return "Failure: empty history."
+## Triggers a startup greeting LLM request. For local models, this request serves
+## as the VRAM warmup call itself, eliminating redundant pre-load endpoints.
+func preload_model() -> void:
+	var tree = Engine.get_main_loop() as SceneTree
+	if not tree or (tree.root and tree.root.has_node("GutRunner")):
+		is_warming_up = false
+		return
 
-	var history_text := ""
-	for msg in history:
-		var role: String = "User" if msg.get("role", "user") == "user" else "Navi"
-		var text: String = msg.get("text", "")
-		history_text += "%s: %s\n" % [role, text]
+	var provider: String = _settings_mgr.get_setting("llm_provider", "local") if _settings_mgr else "local"
+	if provider != "local":
+		is_warming_up = false
+		_set_fairy_loading(false)
+		_speak_startup_greeting()
+		return
 
-	var prompt := "Review the following conversation history. Summarize the initial problem and the solution in a concise format (e.g., 'Problem: [summary]\nSolution: [summary]'). Keep it brief.\n\nConversation:\n" + history_text
+	var url_setting: String = _settings_mgr.get_setting("local_url", "") if _settings_mgr else ""
+	var model: String = _config_cache.get("heavy_model", "")
+	if model == "":
+		model = _settings_mgr.get_setting("local_model", "") if _settings_mgr else ""
 
-	# Prompt the fast model to do the summary
-	var system_prompt := "You are a summarizing utility. Keep your response extremely concise."
+	if url_setting == "" or model == "":
+		is_warming_up = false
+		_set_fairy_loading(false)
+		return
 
-	print("AIService: [SUMMARIZE SESSION] Requesting session summary...")
-	var summary := await _request_llm(prompt, system_prompt, false, "", "", 0.2)
+	print("AIService: Preloading local model '", model, "' into VRAM via greeting request...")
+	is_warming_up = true
+	_set_fairy_loading(true)
+	_speak_startup_greeting()
 
-	if summary != "":
-		_cached_summary = summary.strip_edges()
-		print("AIService: [SUMMARIZE SESSION] Saved summary to temporary cache:\n", _cached_summary)
-		return "Success: session summarized."
+
+func _set_fairy_loading(loading: bool) -> void:
+	var window_controller := _get_window_controller()
+	if window_controller and "_fairy" in window_controller and window_controller._fairy:
+		var fairy = window_controller._fairy
+		if "is_loading" in fairy:
+			fairy.is_loading = loading
+
+
+func _speak_startup_greeting() -> void:
+	if not _settings_mgr:
+		is_warming_up = false
+		_set_fairy_loading(false)
+		return
+	is_greeting_active = true
+	
+	# Early discard checks before making the request
+	if not _conversation_history.is_empty():
+		print("AIService: Discarding startup greeting before LLM request because conversation history is not empty.")
+		is_greeting_active = false
+		is_warming_up = false
+		_set_fairy_loading(false)
+		return
+	if _request_in_progress:
+		print("AIService: Discarding startup greeting before LLM request because a request is already in progress.")
+		is_greeting_active = false
+		is_warming_up = false
+		_set_fairy_loading(false)
+		return
+	var window_controller := _get_window_controller()
+	if window_controller and "_active_panel" in window_controller:
+		if window_controller._active_panel != 0: # NONE = 0
+			print("AIService: Discarding startup greeting before LLM request because an interaction panel is active.")
+			is_greeting_active = false
+			is_warming_up = false
+			_set_fairy_loading(false)
+			return
+
+	var live_navi_mode: bool = _settings_mgr.get_setting("live_navi_mode", false)
+	var personality: String = _settings_mgr.get_setting("personality", "cheerful and glowing")
+	
+	var identity := _build_identity(personality, live_navi_mode)
+	var prompt := "Please greet the user in one short sentence. Keep it under 15 words. Greet the user according to your personality."
+	
+	print("AIService: Requesting startup greeting prompt...")
+	var reply := await _request_llm(prompt, identity, false, "", "", 0.7, [], true)
+	
+	is_warming_up = false
+	
+	# Late discard checks after LLM request resolves
+	if not _conversation_history.is_empty():
+		print("AIService: Discarding startup greeting because conversation history is not empty.")
+		is_greeting_active = false
+		_set_fairy_loading(false)
+		return
+	if _request_in_progress:
+		print("AIService: Discarding startup greeting because a request is already in progress.")
+		is_greeting_active = false
+		_set_fairy_loading(false)
+		return
+	window_controller = _get_window_controller()
+	if window_controller and "_active_panel" in window_controller:
+		if window_controller._active_panel != 0: # NONE = 0
+			print("AIService: Discarding startup greeting because an interaction panel is active.")
+			is_greeting_active = false
+			_set_fairy_loading(false)
+			return
+
+	var cleaned_reply := _clean_response_for_history(reply).strip_edges()
+	if cleaned_reply == "":
+		cleaned_reply = "I'm ready!"
+		
+	print("AIService: Startup greeting generated: \"", cleaned_reply, "\"")
+	
+	_set_fairy_loading(false)
+	
+	if has_node("/root/TTSService"):
+		get_node("/root/TTSService").speak(cleaned_reply)
+		
+	if window_controller and window_controller.has_method("show_startup_greeting"):
+		window_controller.call("show_startup_greeting", cleaned_reply)
 	else:
-		print("AIService ERROR: [SUMMARIZE SESSION] Summary request returned empty response.")
-		return "Failure: summary generation failed."
+		is_greeting_active = false
+
+
+func _process_reply_meta(reply: String, context: Dictionary) -> void:
+	# 1. Extract and save scratchpad notes
+	var scratch_regex := RegEx.new()
+	scratch_regex.compile("(?s)<scratchpad>(.*?)</scratchpad>")
+	var scratch_match := scratch_regex.search(reply)
+	if scratch_match:
+		_short_term_memory = scratch_match.get_string(1).strip_edges()
+		print("AIService: [SCRATCHPAD] Updated short-term memory:\n", _short_term_memory)
+	
+	# 2. Check for continuation tag
+	var has_continue := reply.contains("[CONTINUE]")
+	if has_continue:
+		print("AIService: [CONTINUE] Continuation tag detected in raw reply. Scheduling next stage...")
+		_schedule_continuation(context)
+
+
+func _schedule_continuation(context: Dictionary) -> void:
+	_continuation_token += 1
+	var token := _continuation_token
+	
+	# Wait for TTS to finish speaking if active, and wait for streaming to complete
+	var tts = get_node_or_null("/root/TTSService")
+	if tts and tts.has_method("is_speaking"):
+		# Wait a frame to ensure speech tasks have queued/started
+		await get_tree().process_frame
+		while tts.get("_stream_active") or tts.is_speaking():
+			await get_tree().create_timer(0.2).timeout
+			if _continuation_token != token:
+				print("AIService: [CONTINUE] Continuation cancelled (new user prompt sent during speaking/streaming).")
+				return
+	
+	# Pause to let the user read and intervene
+	print("AIService: [CONTINUE] Pausing 2.0s for user intervention...")
+	await get_tree().create_timer(2.0).timeout
+	if _continuation_token != token:
+		print("AIService: [CONTINUE] Continuation cancelled (new user prompt sent during pause).")
+		return
+		
+	# Check if user has typed anything, focused the chat, started voice recording, or is transcribing
+	var window_ctrl = _get_window_controller()
+	if window_ctrl and "_chat_ui" in window_ctrl:
+		var chat_ui = window_ctrl._chat_ui
+		if chat_ui:
+			if chat_ui.get("input_edit") and chat_ui.input_edit.get("text") != null:
+				if chat_ui.input_edit.text.strip_edges() != "":
+					print("AIService: [CONTINUE] Continuation cancelled (user is typing: '", chat_ui.input_edit.text, "').")
+					return
+			if chat_ui.get("_voice_button") and chat_ui._voice_button and chat_ui._voice_button.button_pressed:
+				print("AIService: [CONTINUE] Continuation cancelled (user is recording voice).")
+				return
+			if chat_ui.get("_is_transcribing") or chat_ui.get("_space_held"):
+				print("AIService: [CONTINUE] Continuation cancelled (user is transcribing or holding hotkey).")
+				return
+				
+	print("AIService: [CONTINUE] Triggering self-prompt pass.")
+	# Call send_prompt as a continuation pass (hidden trigger "(Continue)")
+	send_prompt("(Continue)", null, context.get("fairy_pos", Vector2.ZERO), context.get("window_size", Vector2.ZERO), true)

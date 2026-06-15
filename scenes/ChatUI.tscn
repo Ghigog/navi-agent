@@ -7,7 +7,7 @@ content_margin_left = 12.0
 content_margin_top = 12.0
 content_margin_right = 12.0
 content_margin_bottom = 12.0
-bg_color = Color(0.08, 0.1, 0.14, 0.85)
+bg_color = Color(0.08, 0.08, 0.1, 0.8)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -17,8 +17,6 @@ corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
-shadow_color = Color(0, 0, 0, 0.4)
-shadow_size = 12
 
 [node name="ChatUI" type="Control" unique_id=58049970]
 layout_mode = 3
@@ -30,37 +28,18 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("1_chat")
 
-[node name="InputPanel" type="PanelContainer" parent="." unique_id=1724606937]
-custom_minimum_size = Vector2(320, 48)
+[node name="MainPanel" type="PanelContainer" parent="." unique_id=1303289224]
+custom_minimum_size = Vector2(640, 280)
 layout_mode = 0
-offset_right = 320.0
-offset_bottom = 48.0
+offset_right = 640.0
+offset_bottom = 280.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_glass")
 
-[node name="InputBar" type="HBoxContainer" parent="InputPanel" unique_id=1570597268]
+[node name="VBox" type="VBoxContainer" parent="MainPanel"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="InputEdit" type="LineEdit" parent="InputPanel/InputBar" unique_id=1605351115]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 13
-placeholder_text = "Ask Navi..."
-caret_blink = true
-
-[node name="SendButton" type="Button" parent="InputPanel/InputBar" unique_id=798209667]
-layout_mode = 2
-theme_override_font_sizes/font_size = 13
-text = "Send"
-
-[node name="ResponsePanel" type="PanelContainer" parent="." unique_id=1303289224]
-custom_minimum_size = Vector2(320, 80)
-layout_mode = 0
-offset_right = 320.0
-offset_bottom = 80.0
-theme_override_styles/panel = SubResource("StyleBoxFlat_glass")
-
-[node name="ResponseLabel" type="RichTextLabel" parent="ResponsePanel" unique_id=272305923]
+[node name="ResponseLabel" type="RichTextLabel" parent="MainPanel/VBox" unique_id=272305923]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -70,7 +49,23 @@ bbcode_enabled = true
 text = "Hello! How can I help you?"
 selection_enabled = true
 
-[node name="PreviewTexture" type="TextureRect" parent="ResponsePanel" unique_id=1599454859]
+[node name="InputBar" type="HBoxContainer" parent="MainPanel/VBox" unique_id=1570597268]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="InputEdit" type="LineEdit" parent="MainPanel/VBox/InputBar" unique_id=1605351115]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 13
+placeholder_text = "Ask Navi..."
+caret_blink = true
+
+[node name="SendButton" type="Button" parent="MainPanel/VBox/InputBar" unique_id=798209667]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Send"
+
+[node name="PreviewTexture" type="TextureRect" parent="MainPanel" unique_id=1599454859]
 visible = false
 custom_minimum_size = Vector2(120, 90)
 layout_mode = 2
@@ -78,9 +73,9 @@ size_flags_vertical = 0
 expand_mode = 3
 stretch_mode = 5
 
-[node name="Pointer" type="Polygon2D" parent="ResponsePanel" unique_id=1710162900]
+[node name="Pointer" type="Polygon2D" parent="MainPanel" unique_id=1710162900]
 visible = false
-color = Color(0.08, 0.1, 0.14, 0.85)
+color = Color(0.08, 0.08, 0.1, 0.8)
 antialiased = true
 
 [node name="ResizeHandle" type="Control" parent="." unique_id=298471100]

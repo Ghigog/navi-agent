@@ -18,6 +18,7 @@ var _font_size_cache: Dictionary = {}
 
 # Input guard to prevent spurious clicks from immediately collapsing the window during transitions
 var _ignore_click_until_ready: bool = false
+var _has_shown_initial_guidance: bool = false
 
 
 func _ready() -> void:
@@ -36,6 +37,7 @@ func _ready() -> void:
 	# Establish global background hotkey trigger connections
 	if has_node("/root/InputManager"):
 		get_node("/root/InputManager").hotkey_pressed.connect(_on_hotkey_pressed)
+		get_node("/root/InputManager").hotkey_released.connect(_on_hotkey_released)
 
 	# Wire fairy visual signals (right click trigger) -> Settings UI overlay open trigger
 	if _fairy and _fairy.has_signal("fairy_clicked"):
@@ -55,12 +57,18 @@ func _ready() -> void:
 	# Pass settings changes through to live modulate the fairy's color
 	if _settings_ui and _settings_ui.has_signal("color_changed") and _fairy:
 		_settings_ui.color_changed.connect(_fairy.set_fairy_color)
+	# Connect to fairy color change signal to update panels
+	if _fairy and _fairy.has_signal("fairy_color_changed"):
+		_fairy.fairy_color_changed.connect(_on_fairy_color_changed)
 	# Connect to the Manager
 	if has_node("/root/SettingsManager"):
 		var manager = get_node("/root/SettingsManager")
 		manager.settings_updated.connect(_on_settings_manager_updated)
 		# Apply initial settings once immediately
 		_apply_global_settings(manager)
+	
+	# Apply white text outline / dark background styling to all UI elements
+	_apply_text_visibility(get_tree().get_root())
 
 func _on_settings_manager_updated() -> void:
 	_apply_global_settings(get_node("/root/SettingsManager"))
@@ -70,9 +78,9 @@ func _apply_global_settings(manager: Node) -> void:
 	var color_hex = manager.get_setting("fairy_color", "404040")
 	if _fairy:
 		var live_mode: bool = manager.get_setting("live_navi_mode", false)
-		if live_mode and Engine.has_singleton("EmotionState"):
+		if live_mode and has_node("/root/EmotionState"):
 			# Live Navi Mode — apply emotion colour from saved state (NAV-65)
-			var es: Node = Engine.get_singleton("EmotionState")
+			var es: Node = get_node("/root/EmotionState")
 			_fairy.apply_emotion_color(es.courage, es.wisdom, es.power, es.love_score)
 			print("WindowController: 🎨 Live Navi Mode — emotion colour applied from saved state.")
 		else:
@@ -94,6 +102,9 @@ func _apply_global_settings(manager: Node) -> void:
 	# 3. Apply global font size offset across all UI nodes
 	var font_offset: int = int(manager.get_setting("font_size_offset", 0))
 	_apply_font_size_offset(get_tree().get_root(), font_offset)
+
+	# Ensure text visibility overrides are reapplied on settings update
+	_apply_text_visibility(get_tree().get_root())
 
 	print("WindowController: All settings applied successfully.")
 
@@ -162,14 +173,36 @@ func _input(event: InputEvent) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_hotkey_pressed() -> void:
-	# If chat is already open, close it (toggle behaviour)
-	if _active_panel == _ActivePanel.CHAT:
-		_reset_to_follow_mode()
-		return
+	if has_node("/root/AIService"):
+		var ai = get_node("/root/AIService")
+		var warming_up = "is_warming_up" in ai and ai.is_warming_up
+		var greeting = "is_greeting_active" in ai and ai.is_greeting_active
+		if warming_up or greeting:
+			if _fairy and _fairy.has_method("show_subtitle"):
+				var msg = "model is warming up, please wait!" if warming_up else "greeting in progress, please wait!"
+				_fairy.show_subtitle(msg, 2.5)
+			return
 
-	# If settings is open, just bring focus back — don't fight it
 	if _active_panel == _ActivePanel.SETTINGS:
 		DisplayServer.window_move_to_foreground()
+		return
+
+	var ptt_enabled := false
+	if has_node("/root/SettingsManager"):
+		var sm = get_node("/root/SettingsManager")
+		ptt_enabled = sm.get_setting("enable_push_to_talk", true) and sm.get_setting("enable_stt", true)
+
+	if _active_panel == _ActivePanel.CHAT:
+		if _chat_ui and "_is_greeting_mode" in _chat_ui and _chat_ui._is_greeting_mode:
+			if _chat_ui.has_method("_transition_from_greeting_to_interactive"):
+				_chat_ui.call("_transition_from_greeting_to_interactive")
+			return
+
+		if not ptt_enabled:
+			_reset_to_follow_mode()
+		else:
+			if _chat_ui and _chat_ui.has_method("handle_hotkey_down"):
+				_chat_ui.handle_hotkey_down(true)
 		return
 
 	# Freeze window follow updates and flag chat overlay state
@@ -178,6 +211,10 @@ func _on_hotkey_pressed() -> void:
 		_follow_ctrl.abort_navigation(false)
 	_active_panel = _ActivePanel.CHAT
 	_ignore_click_until_ready = true
+
+	# Notify ChatUI that hotkey went down immediately (before yields) to avoid key-up race conditions
+	if ptt_enabled and _chat_ui and _chat_ui.has_method("handle_hotkey_down"):
+		_chat_ui.handle_hotkey_down(false)
 
 	if has_node("/root/AIService"):
 		var ai_service = get_node("/root/AIService")
@@ -220,6 +257,68 @@ func _on_hotkey_pressed() -> void:
 	# Wait one more frame for layout and input states to settle
 	await get_tree().process_frame
 	_ignore_click_until_ready = false
+
+
+func show_startup_greeting(text: String) -> void:
+	if _active_panel != _ActivePanel.NONE:
+		return
+		
+	# Disable follow mode
+	_set_following(false)
+	if _follow_ctrl and _follow_ctrl.has_method("abort_navigation"):
+		_follow_ctrl.abort_navigation(false)
+		
+	_active_panel = _ActivePanel.CHAT
+	_ignore_click_until_ready = true
+	
+	# Enable mouse passthrough on fullscreen transparent window
+	get_window().mouse_passthrough = true
+	
+	var window := get_window()
+	var fairy_screen_pos := window.position + Vector2i(_fairy.position)
+	
+	# Expand the transparent Godot window to cover the screen's usable region
+	var screen_rect := DisplayServer.screen_get_usable_rect(
+		DisplayServer.window_get_current_screen()
+	)
+	window.position = screen_rect.position
+	window.size = screen_rect.size
+	
+	# Place the fairy body back onto its correct screen coordinate relative to the enlarged window offset
+	_fairy.position = Vector2(fairy_screen_pos - screen_rect.position)
+	
+	# Yield for two frames to ensure the OS window manager applies resizing
+	await get_tree().process_frame
+	await get_tree().process_frame
+	
+	if _chat_ui:
+		if _chat_ui.has_method("reposition_ui"):
+			_chat_ui.call("reposition_ui", _fairy.position)
+		var screen := DisplayServer.window_get_current_screen()
+		var screen_pos := DisplayServer.screen_get_position(screen)
+		var screen_size := DisplayServer.screen_get_size(screen)
+		if screen_size.x <= 0 or screen_size.y <= 0:
+			screen_pos = Vector2i.ZERO
+			screen_size = Vector2i(1920, 1080)
+		var absolute_fairy_pos := Vector2(window.position) + _fairy.position
+		if _chat_ui.has_method("open_chat_greeting"):
+			_chat_ui.call("open_chat_greeting", text, absolute_fairy_pos, Vector2(screen_size))
+			
+	# DO NOT call DisplayServer.window_move_to_foreground() so we don't steal focus!
+	print("WindowController: Startup greeting opened next to fairy.")
+	await get_tree().process_frame
+	_ignore_click_until_ready = false
+
+
+func _on_hotkey_released() -> void:
+	var ptt_enabled := false
+	if has_node("/root/SettingsManager"):
+		var sm = get_node("/root/SettingsManager")
+		ptt_enabled = sm.get_setting("enable_push_to_talk", true) and sm.get_setting("enable_stt", true)
+
+	if ptt_enabled and _active_panel == _ActivePanel.CHAT:
+		if _chat_ui and _chat_ui.has_method("handle_hotkey_up"):
+			_chat_ui.handle_hotkey_up()
 
 
 
@@ -358,8 +457,15 @@ func capture_crop_screenshot() -> Image:
 # ---------------------------------------------------------------------------
 
 func _reset_to_follow_mode() -> void:
+	get_window().mouse_passthrough = false
+	if has_node("/root/AIService"):
+		get_node("/root/AIService").is_greeting_active = false
+
 	if _follow_ctrl and _follow_ctrl.has_method("abort_navigation"):
 		_follow_ctrl.abort_navigation()
+
+	if _fairy and _fairy.has_method("clear_status_light"):
+		_fairy.clear_status_light()
 
 	if _active_panel == _ActivePanel.NONE:
 		return
@@ -403,3 +509,96 @@ func _set_following(enabled: bool) -> void:
 		_follow_ctrl.is_following = enabled
 	if _fairy:
 		_fairy.click_enabled = not enabled
+
+
+func _process(delta: float) -> void:
+	if _active_panel == _ActivePanel.CHAT and _chat_ui and "_is_greeting_mode" in _chat_ui and _chat_ui._is_greeting_mode:
+		var global_mouse_pos := DisplayServer.mouse_get_position()
+		var local_mouse_pos := Vector2(global_mouse_pos - get_window().position)
+		var follow_offset := Vector2(20, 20)
+		if _follow_ctrl and "follow_offset" in _follow_ctrl:
+			follow_offset = Vector2(_follow_ctrl.follow_offset)
+		
+		var target_pos := local_mouse_pos + follow_offset
+		var lerp_speed := 6.0
+		if _follow_ctrl and "lerp_speed" in _follow_ctrl:
+			lerp_speed = _follow_ctrl.lerp_speed
+			
+		_fairy.position = _fairy.position.lerp(target_pos, lerp_speed * delta)
+		_chat_ui.reposition_ui(_fairy.position)
+
+	if not _has_shown_initial_guidance:
+		var ai = get_node_or_null("/root/AIService")
+		var warming_up := false
+		var greeting := false
+		if ai:
+			warming_up = ai.is_warming_up
+			greeting = ai.is_greeting_active
+		if not warming_up and not greeting and _active_panel == _ActivePanel.NONE:
+			_has_shown_initial_guidance = true
+			if _fairy and _fairy.has_method("show_initial_guidance_subtitle"):
+				_fairy.show_initial_guidance_subtitle()
+
+
+## Propagates the active fairy color to the Chat and Settings panels.
+func _on_fairy_color_changed(color: Color) -> void:
+	if _chat_ui and _chat_ui.has_method("update_theme_colors"):
+		_chat_ui.update_theme_colors(color)
+	if _settings_ui and _settings_ui.has_method("update_theme_colors"):
+		_settings_ui.update_theme_colors(color)
+
+
+## Recursively traverses the tree to make text default white with a black outline
+## and gives input boxes a dark background stylebox override.
+func _apply_text_visibility(root: Node) -> void:
+	if root is Label:
+		root.add_theme_color_override("font_color", Color.WHITE)
+		root.add_theme_color_override("font_outline_color", Color.BLACK)
+		root.add_theme_constant_override("outline_size", 5)
+	elif root is RichTextLabel:
+		root.add_theme_color_override("default_color", Color.WHITE)
+		root.add_theme_color_override("font_outline_color", Color.BLACK)
+		root.add_theme_constant_override("outline_size", 5)
+	elif root is Button:
+		root.add_theme_color_override("font_color", Color.WHITE)
+		root.add_theme_color_override("font_pressed_color", Color.WHITE)
+		root.add_theme_color_override("font_hover_color", Color.WHITE)
+		root.add_theme_color_override("font_focus_color", Color.WHITE)
+		root.add_theme_color_override("font_outline_color", Color.BLACK)
+		root.add_theme_constant_override("outline_size", 4)
+	elif root is LineEdit or root is TextEdit:
+		root.add_theme_color_override("font_color", Color.WHITE)
+		root.add_theme_color_override("font_outline_color", Color.BLACK)
+		root.add_theme_constant_override("outline_size", 4)
+		
+		# Set dark background styleboxes for inputs
+		for style_name in ["normal", "read_only", "focus"]:
+			var style = root.get_theme_stylebox(style_name)
+			var new_style: StyleBoxFlat
+			if style is StyleBoxFlat:
+				new_style = style.duplicate() as StyleBoxFlat
+			else:
+				new_style = StyleBoxFlat.new()
+				new_style.corner_radius_top_left = 6
+				new_style.corner_radius_top_right = 6
+				new_style.corner_radius_bottom_right = 6
+				new_style.corner_radius_bottom_left = 6
+				new_style.content_margin_left = 8.0
+				new_style.content_margin_top = 6.0
+				new_style.content_margin_right = 8.0
+				new_style.content_margin_bottom = 6.0
+			new_style.bg_color = Color(0.06, 0.08, 0.12, 0.95) # Dark slate background
+			new_style.border_color = Color.BLACK
+			new_style.border_width_left = 1
+			new_style.border_width_top = 1
+			new_style.border_width_right = 1
+			new_style.border_width_bottom = 1
+			root.add_theme_stylebox_override(style_name, new_style)
+	elif root is PopupMenu:
+		root.add_theme_color_override("font_color", Color.WHITE)
+		root.add_theme_color_override("font_hover_color", Color.WHITE)
+		root.add_theme_color_override("font_outline_color", Color.BLACK)
+		root.add_theme_constant_override("outline_size", 4)
+
+	for child in root.get_children():
+		_apply_text_visibility(child)

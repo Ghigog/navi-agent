@@ -8,6 +8,7 @@ const TEMP_RECORD_FILE := "user://temp_record.wav"
 var _record_effect: AudioEffectRecord = null
 var _mic_player: AudioStreamPlayer = null
 var _settings_mgr: Node = null
+var _recording_start_time: int = 0
 
 
 func _ready() -> void:
@@ -19,13 +20,24 @@ func _ready() -> void:
 
 
 func _setup_audio_bus() -> void:
+	# Create a dummy muted bus to receive the Record bus send and prevent feedback
+	var mute_bus_name := "RecordSpeakerMute"
+	var mute_bus_idx := AudioServer.get_bus_index(mute_bus_name)
+	if mute_bus_idx == -1:
+		AudioServer.add_bus()
+		mute_bus_idx = AudioServer.get_bus_count() - 1
+		AudioServer.set_bus_name(mute_bus_idx, mute_bus_name)
+		AudioServer.set_bus_mute(mute_bus_idx, true)
+
 	var bus_idx := AudioServer.get_bus_index(RECORD_BUS_NAME)
 	if bus_idx == -1:
 		AudioServer.add_bus()
 		bus_idx = AudioServer.get_bus_count() - 1
 		AudioServer.set_bus_name(bus_idx, RECORD_BUS_NAME)
-		# Mute the bus to prevent speaker feedback loop
-		AudioServer.set_bus_mute(bus_idx, true)
+
+	# Route Record to the muted bus and ensure Record itself is NOT muted so peak volume works
+	AudioServer.set_bus_send(bus_idx, mute_bus_name)
+	AudioServer.set_bus_mute(bus_idx, false)
 
 	var effect_idx := -1
 	for i in AudioServer.get_bus_effect_count(bus_idx):
@@ -56,12 +68,22 @@ func start_recording() -> void:
 	# Clear out any previous recording buffer
 	_record_effect.set_recording_active(false)
 	_record_effect.set_recording_active(true)
+	_recording_start_time = Time.get_ticks_msec()
 	print("STTService: Audio recording started.")
 
 
 ## Stops recording and returns the captured WAV audio stream.
 func stop_recording() -> AudioStreamWAV:
+	if get_tree() and get_tree().root and get_tree().root.has_node("GutRunner"):
+		return AudioStreamWAV.new()
+		
 	if not _record_effect:
+		return null
+		
+	var elapsed := Time.get_ticks_msec() - _recording_start_time
+	if elapsed < 100:
+		_record_effect.set_recording_active(false)
+		print("STTService: Recording too short (%d ms), discarding to avoid empty buffer error." % elapsed)
 		return null
 		
 	var recording = _record_effect.get_recording()
@@ -124,7 +146,21 @@ func transcribe_audio(recording: AudioStreamWAV) -> String:
 			text = await _transcribe_gemini(bytes)
 		
 	DirAccess.remove_absolute(TEMP_RECORD_FILE)
-	return text
+	return _clean_transcription(text)
+
+
+func _clean_transcription(raw_text: String) -> String:
+	var regex := RegEx.new()
+	# Match any text inside brackets [] or parentheses ()
+	regex.compile("\\[.*?\\]|\\(.*?\\)")
+	var cleaned := regex.sub(raw_text, "", true)
+	
+	# Clean multiple whitespace characters into single space
+	var space_regex := RegEx.new()
+	space_regex.compile("\\s+")
+	cleaned = space_regex.sub(cleaned, " ", true)
+	
+	return cleaned.strip_edges()
 
 
 func _get_actual_path(path: String) -> String:

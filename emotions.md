@@ -87,13 +87,19 @@ Three boolean context keys are evaluated:
 
 If a relevance flag is `false` (the default), the respective dimension retains its current value in `EmotionState`, its score delta is `0.0`, and it contributes `0` to the Prompt Score.
 
-### 4.2 Scoring Criteria
-
 | Dimension | Scored High When… | Scored Low When… |
 |---|---|---|
 | **Courage** | The user's intent is unambiguous; Navi knows the user's context well | The request is vague, contradictory, or unfamiliar |
-| **Wisdom** | Navi has all data, context, and memory required to produce an accurate response | Key context is missing, the topic is outside Navi's knowledge, or memory is sparse |
+| **Wisdom** | Navi has relevant context in history/summary (evaluated via `retrieval_relevance` keyword overlap) | Key context is missing or has zero overlap with past conversation, or memory is sparse |
 | **Power** | Navi has the skills or tools to fulfill the request and can execute them | Navi lacks the required skill, tool access, or creative capability |
+
+### 4.2.1 Wisdom Retrieval Relevance Scoring
+Wisdom evaluates the quality of available context by matching the current prompt's words against the conversation history and cached summary to compute a `retrieval_relevance` value (from `0.0` to `1.0`):
+- `retrieval_relevance >= 0.8` → `wisdom += 6.0`
+- `retrieval_relevance >= 0.3` → `wisdom += 3.0`
+- `retrieval_relevance == 0.0` → `wisdom -= 5.0`
+- If a hedging phrase (e.g. "I don't know") is detected in the response, Wisdom is penalized by `-3.0`.
+- The final score is clamped to `[-10.0, 10.0]`.
 
 ### 4.3 Prompt Score & Love Meter Contribution
 
@@ -104,6 +110,26 @@ Prompt Score = Courage Delta + Wisdom Delta + Power Delta
 ```
 
 This Prompt Score is added directly to the **Love Meter** each turn. If a dimension is not relevant, its delta is `0.0` and it has no impact on the Love Meter.
+
+### 4.4 User Sentiment Analysis
+
+To prevent users from cheating the system, every message sent by the user is analyzed by a fast, non-thinking LLM classification call during the pre-evaluation phase. The user prompt is classified into one of three sentiments:
+- **`kind`**: Friendly, appreciative, polite, praising, or saying nice things.
+- **`mean`**: Rude, hostile, insulting, angry, complaining, or dismissive.
+- **`neutral`**: Standard dialogue, informational queries, code editing, or objective questions.
+
+This sentiment updates both the **Base Dimensions** (Courage, Wisdom, Power) and directly adjusts the **Love Meter**:
+
+| Sentiment | Dimension Updates | Love Meter Adjustment | Description |
+|---|---|---|---|
+| **kind** | Courage `+3.0`, Wisdom `+2.0` | `+15` points | User's kindness rewards Navi, building confidence and relationship depth. |
+| **mean** | Courage `-5.0`, Power `-4.0` | `-40` points | User's hostility hurts Navi, dampening her confidence, making her feel weak, and severing rapport. |
+| **neutral** | None | `+0` points | Standard task processing or neutral dialog. |
+
+The final Love Meter update formula is:
+```
+Prompt Score = Courage Delta + Wisdom Delta + Power Delta + Sentiment Love Adjustment
+```
 
 **Example:**
 > *"Point to the clocks on the desktop."*

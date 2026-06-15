@@ -27,7 +27,7 @@ Navi utilizes a modular architecture to handle the desktop assistant workflow:
 - **`FairyVisuals`**: Manages the glowing particle effects, flapping wings, and the **Triforce Emotion visual system** — dynamically tints the fairy body using a RGB colour formula derived from Courage (green), Wisdom (blue), and Power (red) scores, with overall brightness controlled by the Love Meter. Also spawns transient floating emoji notifications when the emotion state changes.
 - **`InputManager`**: Registers global macOS hotkeys to trigger actions when Navi is in the background.
 - **`ScreenCaptureService`**: Captures high-fidelity desktop screen images via native OS APIs or Godot's DisplayServer, keeping Navi visible to preserve pointing context.
-- **`AIService`**: Orchestrates the direct real-time response streaming pipeline. When a prompt is received, it dispatches directly to the fast model first (bypassing pre-call planning delays for conversational speed under 3s). It intercepts and filters skill tags (`[SKILL: ...]`) to trigger screen captures or handoffs to the heavy reasoning model dynamically, displaying a status indicator light (amber/purple) to represent thinking states. After every response it calls **`EmotionEngine`** to score the interaction and injects the current emotion state into every outgoing system prompt via **`EmotionPromptBuilder`**.
+- **`AIService`**: Orchestrates the direct real-time response streaming pipeline. When a prompt is received, it dispatches directly to the consolidated AI model (bypassing model-swapping VRAM freezes and startup delays). It supports native LLM tool/function calling (sending schemas to Gemini and Ollama) and maps incoming tool calls to modular skills. It also provides fallback/backward-compatible parsing of legacy tag structures (`[SKILL: ...]`), and dynamically enables thinking mode (activating a purple status indicator light). After every response it calls **`EmotionEngine`** to score the interaction and injects the current emotion state into every outgoing system prompt via **`EmotionPromptBuilder`**. It also manages the **Conversational Short-Term Memory (Scratchpad)** and **Multi-Step Continuation Loop (`[CONTINUE]`)** to allow Navi to formulate responses sequentially in stages while letting the user intervene.
 - **`SettingsManager`**: Manages the configuration file (`user://settings.json`) saving settings like prompt text, API endpoints, keys, visual colors, toggles for enabling screenshots or deep thinking, and a global font size offset that scales all UI text up or down.
 - **`EmotionState`** *(Autoload)*: Persistent data model for the Triforce Emotion System. Stores Courage, Wisdom, and Power dimension scores (−10 to +10), the derived Tier 2 composite emotion, the cumulative Love Meter score (−1000 to +1000), and the relationship level. Persisted to `user://emotion_state.json`.
 - **`EmotionEngine`**: Rule-based scoring engine. After each LLM response it evaluates the interaction context using relevance flags, updates dimension scores, derives the composite emotion, updates the Love Meter, and emits `emotion_updated` to drive the visual system.
@@ -65,7 +65,14 @@ navi/
 │   ├── EmotionState.gd          # Emotion system data model (Autoload)
 │   ├── EmotionEngine.gd         # Rule-based emotion scoring engine
 │   ├── EmotionPromptBuilder.gd  # LLM system prompt injection builder
-│   └── EmojiNotification.gd     # Floating emoji animation controller
+│   ├── EmojiNotification.gd     # Floating emoji animation controller
+│   └── skills/                  # Decoupled agent skills/tools
+│       ├── Skill.gd             # Base class for modular skills
+│       ├── TakeScreenshotSkill.gd
+│       ├── TakeCropScreenshotSkill.gd
+│       ├── HeavyThinkingSkill.gd
+│       ├── PointToSkill.gd
+│       └── SummarizeSessionSkill.gd
 ├── test/                        # GUT Unit tests
 │   ├── test_agent_skills.gd
 │   ├── test_ai_service.gd

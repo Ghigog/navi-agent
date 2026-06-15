@@ -29,6 +29,7 @@ func test_all_positive_produces_serenity() -> void:
 		"skills_available": true,
 		"skill_succeeded":  true,
 		"memory_entries":   6,
+		"retrieval_relevance": 0.8,
 		"prompt_length":    5,
 		"response_text":    "Here you go!",
 	})
@@ -79,6 +80,7 @@ func test_high_power_wisdom_low_courage_produces_fear() -> void:
 		"skills_available": true,
 		"skill_succeeded":  true,
 		"memory_entries":   6,
+		"retrieval_relevance": 0.8,
 		"prompt_length":    5,
 		"response_text":    "Done.",
 	})
@@ -122,6 +124,7 @@ func test_wisdom_deduction_for_hedging_phrases() -> void:
 	engine.evaluate({
 		"wisdom_relevant": true,
 		"memory_entries": 3,
+		"retrieval_relevance": 0.3,
 		"response_text": "i don't know the answer",
 	})
 	assert_eq(EmotionState.wisdom, 0.0, "Hedging response should deduct wisdom score (+3 - 3 = 0).")
@@ -144,11 +147,12 @@ func test_exact_love_meter_delta() -> void:
 		"power_relevant": true,
 		"intent_clear": true,
 		"memory_entries": 3,
+		"retrieval_relevance": 0.3,
 		"skills_available": true,
 		"skill_succeeded": true,
 	})
 	# Courage = +8 (clear intent +5, memory entries >= 3 -> +3)
-	# Wisdom = +3 (memory entries >= 2 -> +3)
+	# Wisdom = +3 (retrieval_relevance >= 0.3 -> +3)
 	# Power = +7 (skills available and succeeded -> +7)
 	# Delta = 8 + 3 + 7 = 18
 	assert_eq(EmotionState.love_score, 118, "Love meter should increase by the exact prompt score sum.")
@@ -162,6 +166,7 @@ func test_emotion_updated_signal_parameters() -> void:
 		"power_relevant": true,
 		"intent_clear": true,
 		"memory_entries": 3,
+		"retrieval_relevance": 0.3,
 		"skills_available": true,
 		"skill_succeeded": true,
 		"is_pre_eval": false,
@@ -195,6 +200,7 @@ func test_boredom_derived() -> void:
 		"power_relevant": true,
 		"intent_clear": true,
 		"memory_entries": 5,
+		"retrieval_relevance": 0.8,
 		"skills_available": false,
 	})
 	assert_eq(EmotionState.emotion, "boredom", "HHL should map to boredom.")
@@ -208,6 +214,7 @@ func test_sadness_derived() -> void:
 		"power_relevant": true,
 		"intent_clear": false,
 		"memory_entries": 5,
+		"retrieval_relevance": 0.8,
 		"skills_available": false,
 	})
 	assert_eq(EmotionState.emotion, "sadness", "LHL should map to sadness.")
@@ -314,6 +321,7 @@ const _POSITIVE_CTX := {
 	"skills_available": true,
 	"skill_succeeded":  true,
 	"memory_entries":   6,
+	"retrieval_relevance": 0.8,
 	"prompt_length":    5,
 	"response_text":    "Done.",
 }
@@ -373,3 +381,16 @@ func test_emotion_updated_signal_emitted() -> void:
 	})
 	assert_signal_emitted(engine, "emotion_updated",
 		"emotion_updated signal should be emitted after evaluate().")
+
+
+func test_long_conversation_with_low_retrieval_relevance_scores_low_wisdom() -> void:
+	# A long history (memory_entries = 100) but low relevance (retrieval_relevance = 0.0)
+	engine.evaluate({
+		"wisdom_relevant": true,
+		"memory_entries": 100,
+		"retrieval_relevance": 0.0,
+		"response_text": "Random response",
+	})
+	assert_eq(EmotionState.wisdom, -5.0,
+		"Wisdom should be negative (-5.0) when retrieval relevance is 0.0, regardless of large history size.")
+

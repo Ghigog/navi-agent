@@ -27,3 +27,22 @@ func test_window_flags() -> void:
 	assert_true(window.borderless, "Window borderless flag should be set to true.")
 	assert_true(window.always_on_top, "Window always_on_top flag should be set to true.")
 	assert_eq(window.size, Vector2i(200, 200), "Window size should be initialized to 200x200 pixels.")
+
+
+func test_greeting_mode_passthrough_and_follow() -> void:
+	var window := main_scene.get_window()
+	
+	# Initial state
+	assert_eq(main_scene._active_panel, 0, "Initial active panel should be NONE (0).")
+	
+	# Show greeting
+	main_scene.show_startup_greeting("Test greeting text")
+	assert_eq(main_scene._active_panel, 1, "Active panel should be CHAT (1) during greeting.")
+	if DisplayServer.get_name() != "headless":
+		assert_true(window.mouse_passthrough, "Greeting mode should enable mouse passthrough.")
+	
+	# Reset
+	main_scene._reset_to_follow_mode()
+	assert_eq(main_scene._active_panel, 0, "Active panel should revert to NONE (0).")
+	if DisplayServer.get_name() != "headless":
+		assert_false(window.mouse_passthrough, "Passthrough should be disabled on follow mode reset.")
