@@ -121,10 +121,12 @@ func _speak_local_piper(text: String) -> void:
 
 	var thread := Thread.new()
 	var output: Array[String] = []
+	print("TTSService: Spawning Piper thread for text: \"", text.left(30), "...\" using bin: ", bin_path)
 	var thread_err: Error = thread.start(_execute_piper_task.bind(bin_path, args, output))
 	if thread_err != OK:
-		printerr("TTSService: Failed to start background Piper thread.")
+		printerr("TTSService: Failed to start background Piper thread. Error: ", thread_err)
 		var exit_code: int = OS.execute(bin_path, args, output, true)
+		print("TTSService: Direct fallback execute exit code: ", exit_code, " Output: ", output)
 		if exit_code == 0:
 			_play_generated_wav(temp_wav, current_id, seq_id)
 		else:
@@ -135,30 +137,36 @@ func _speak_local_piper(text: String) -> void:
 		await get_tree().process_frame
 
 	var exit_code: int = thread.wait_to_finish()
+	print("TTSService: Piper thread finished. Exit code: ", exit_code, " Output: ", output)
 	if exit_code == 0 and current_id == _speak_active_id:
 		_play_generated_wav(temp_wav, current_id, seq_id)
 	else:
+		if current_id != _speak_active_id:
+			print("TTSService: speak_active_id changed from ", current_id, " to ", _speak_active_id, ", discarding synthesis.")
 		DirAccess.remove_absolute(temp_wav)
 		_on_synthesis_completed(seq_id, null, current_id)
 
 
 func _play_generated_wav(path: String, id: int, seq_id: int) -> void:
 	if id != _speak_active_id:
+		print("TTSService: Discarding generated WAV: speak_active_id changed.")
 		DirAccess.remove_absolute(path)
 		_on_synthesis_completed(seq_id, null, id)
 		return
 	if not FileAccess.file_exists(path):
-		printerr("TTSService: Generated speech WAV not found.")
+		printerr("TTSService: Generated speech WAV not found at: ", path)
 		_on_synthesis_completed(seq_id, null, id)
 		return
 		
 	var stream := AudioStreamWAV.load_from_file(path)
+	print("TTSService: Successfully loaded speech WAV: ", path, " size: ", stream.data.size() if stream else 0)
 	DirAccess.remove_absolute(path)
 	_on_synthesis_completed(seq_id, stream, id)
 
 
 func _on_synthesis_completed(seq_id: int, stream: AudioStream, id: int) -> void:
 	if id != _speak_active_id:
+		print("TTSService: Synthesis completed for discarded ID: ", id)
 		return
 		
 	_synthesis_results[seq_id] = stream
@@ -310,8 +318,12 @@ func stop() -> void:
 func start_speech_stream() -> void:
 	stop()
 	if not _settings_mgr:
+		print("TTSService: start_speech_stream returned early - _settings_mgr is null")
 		return
-	if not _settings_mgr.get_setting("enable_tts", true) or _settings_mgr.get_setting("tts_mute", false):
+	var enabled = _settings_mgr.get_setting("enable_tts", true)
+	var muted = _settings_mgr.get_setting("tts_mute", false)
+	print("TTSService: start_speech_stream called. enable_tts: ", enabled, ", tts_mute: ", muted)
+	if not enabled or muted:
 		return
 		
 	_stream_active = true
@@ -322,6 +334,9 @@ func start_speech_stream() -> void:
 
 func add_speech_chunk(chunk: String) -> void:
 	if not _stream_active or not _settings_mgr:
+		# Only print if settings_mgr exists, to avoid spamming if not initialized
+		if _settings_mgr:
+			print("TTSService: add_speech_chunk ignored - _stream_active is false")
 		return
 		
 	var voice_id: String = _settings_mgr.get_setting("tts_voice", "")
@@ -340,6 +355,8 @@ func add_speech_chunk(chunk: String) -> void:
 
 func end_speech_stream() -> void:
 	if not _stream_active or not _settings_mgr:
+		if _settings_mgr:
+			print("TTSService: end_speech_stream ignored - _stream_active is false")
 		return
 		
 	var voice_id: String = _settings_mgr.get_setting("tts_voice", "")
@@ -354,6 +371,38 @@ func end_speech_stream() -> void:
 
 
 func _process_system_stream_buffer() -> void:
+	# Clean completed scratchpad blocks
+	while true:
+		var scratch_idx = _stream_buffer.find("<scratchpad>")
+		if scratch_idx != -1:
+			var close_idx = _stream_buffer.find("</scratchpad>", scratch_idx)
+			if close_idx != -1:
+				_stream_buffer = _stream_buffer.left(scratch_idx) + _stream_buffer.substr(close_idx + 13)
+			else:
+				# Scratchpad is still streaming, wait for closing tag and do not speak anything yet
+				return
+		else:
+			# If the stream starts with a partial/streaming opening tag, wait and do not speak it
+			if _stream_buffer.contains("<scra") or _stream_buffer.contains("<scratch") or _stream_buffer.contains("<scratchpad"):
+				return
+			break
+
+	# Clean completed think blocks
+	while true:
+		var think_idx = _stream_buffer.find("<think>")
+		if think_idx != -1:
+			var close_idx = _stream_buffer.find("</think>", think_idx)
+			if close_idx != -1:
+				_stream_buffer = _stream_buffer.left(think_idx) + _stream_buffer.substr(close_idx + 8)
+			else:
+				# Think block is still streaming, wait for closing tag and do not speak anything yet
+				return
+		else:
+			# If the stream starts with a partial/streaming opening tag, wait and do not speak it
+			if _stream_buffer.contains("<thi") or _stream_buffer.contains("<think"):
+				return
+			break
+
 	var punctuations := [".", "?", "!", "\n"]
 	var search_index := 0
 	
@@ -538,7 +587,7 @@ func _generate_procedural_chatter_sound() -> AudioStreamWAV:
 
 
 func _execute_piper_task(bin_path: String, args: PackedStringArray, output: Array) -> int:
-	return OS.execute(bin_path, args, output, true)
+	return OS.execute(bin_path, args, output, true, true)
 
 
 

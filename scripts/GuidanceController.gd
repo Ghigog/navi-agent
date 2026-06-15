@@ -105,7 +105,11 @@ func finish_stream(final_reply: String) -> void:
 	current_active_text = ""
 	
 	if not is_active:
-		_start_playback()
+		if not steps.is_empty():
+			_start_playback()
+		else:
+			is_active = false
+			guidance_finished.emit(true)
 
 
 func reset() -> void:
@@ -139,6 +143,11 @@ func _execute_step() -> void:
 	_step_execution_token += 1
 	var token := _step_execution_token
 	
+	if steps.is_empty() or current_step_idx >= steps.size():
+		is_active = false
+		guidance_finished.emit(true)
+		return
+		
 	var step = steps[current_step_idx]
 	var text: String = NaviUtils.strip_skill_and_pause_tags(step["text"])
 	var point: Variant = step["point"]
@@ -150,6 +159,15 @@ func _execute_step() -> void:
 	var follow_ctrl = main_node.get_node_or_null("FollowController") if main_node else null
 	
 	if point != null:
+		var settings_mgr = get_node_or_null("/root/SettingsManager")
+		if settings_mgr and settings_mgr.get_setting("require_skill_confirmation", true):
+			var ai_service = get_node_or_null("/root/AIService")
+			if ai_service and ai_service.has_method("confirm_skill"):
+				var desc = "Navi wants to point to (%d, %d)" % [int(point.x), int(point.y)]
+				var approved = await ai_service.call("confirm_skill", "point_to", desc)
+				if not approved:
+					abort_guidance(true)
+					return
 		print("GuidanceController: [MOVEMENT] Moving to step coordinate: ", point)
 		if fairy and fairy.has_method("set_status_light"):
 			fairy.set_status_light(Color(0.2, 0.8, 0.2, 1.0), true)

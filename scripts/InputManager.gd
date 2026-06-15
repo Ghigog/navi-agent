@@ -4,6 +4,8 @@ extends Node
 
 ## Emitted when the global interaction toggle hotkey is triggered.
 signal hotkey_pressed
+## Emitted when the global interaction toggle hotkey is released.
+signal hotkey_released
 
 ## Controls whether the background swift daemon process should be compiled and launched.
 @export var enable_daemon: bool = true
@@ -14,8 +16,8 @@ const DEBOUNCE_TIME: float = 0.2 # Seconds to wait between valid triggers
 var _udp_peer := PacketPeerUDP.new()
 var _daemon_pid: int = -1
 var _last_trigger_time: float = 0.0
-var _current_keycode := 49
-var _current_modifiers := 6656
+var _current_keycode := 126
+var _current_modifiers := 512
 
 
 
@@ -66,17 +68,20 @@ func _process(_delta: float) -> void:
 	while _udp_peer.get_available_packet_count() > 0:
 		var packet := _udp_peer.get_packet().get_string_from_utf8()
 		
-		if packet == "hotkey":
+		if packet == "hotkey" or packet == "hotkey_down":
 			var current_time = Time.get_ticks_msec() / 1000.0
 			
 			# Check if enough time has passed since the last trigger
 			if current_time - _last_trigger_time > DEBOUNCE_TIME:
 				_last_trigger_time = current_time
-				print("InputManager: ✅ Hotkey packet processed.")
+				print("InputManager: ✅ Hotkey down packet processed.")
 				hotkey_pressed.emit()
 			else:
 				# Optionally log that we dropped a redundant packet
 				pass 
+		elif packet == "hotkey_up":
+			print("InputManager: ✅ Hotkey released packet processed.")
+			hotkey_released.emit()
 		else:
 			print("InputManager: Unknown packet type ignored: '", packet, "'.")
 

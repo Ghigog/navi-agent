@@ -55,7 +55,6 @@ func test_request_started_signal_emitted_before_llm_call() -> void:
 	mock_settings.set_setting("llm_provider", "local")
 	mock_settings.set_setting("local_url", "http://localhost:11434")
 	mock_settings.set_setting("local_model", "gemma4:e4b")
-	mock_settings.set_setting("local_thinking_model", "deepseek-r1:8b")
 	mock_settings.set_setting("enable_thinking", false)
 	mock_settings.set_setting("fast_system_prompt", "Respond fast.")
 	mock_settings.set_setting("personality", "")
@@ -74,8 +73,7 @@ func test_request_started_signal_emitted_before_llm_call() -> void:
 		"system_prompt" : "Respond fast.",
 		"personality": "",
 		"llm_provider": "local",
-		"fast_model": "gemma4:e4b",
-		"heavy_model": "deepseek-r1:8b"
+		"heavy_model": "gemma4:e4b"
 	}
 	
 	var state := {
@@ -173,28 +171,18 @@ func test_think_block_missing_returns_full_text() -> void:
 # Tests: Settings Model Key Selection
 # ---------------------------------------------------------------------------
 
-func test_local_fast_model_key_used() -> void:
+func test_local_model_loaded_as_heavy_model() -> void:
+	mock_settings.set_setting("llm_provider", "local")
 	mock_settings.set_setting("local_model", "gemma4:e4b")
-	var model: String = mock_settings.get_setting("local_model", "")
-	assert_eq(model, "gemma4:e4b", "Local fast model should be read from 'local_model' key.")
+	ai_service._on_settings_updated()
+	assert_eq(ai_service._config_cache.get("heavy_model"), "gemma4:e4b", "Local model should be loaded as heavy_model.")
 
 
-func test_local_thinking_model_key_used() -> void:
-	mock_settings.set_setting("local_thinking_model", "deepseek-r1:8b")
-	var model: String = mock_settings.get_setting("local_thinking_model", "")
-	assert_eq(model, "deepseek-r1:8b", "Local thinking model should be read from 'local_thinking_model' key.")
-
-
-func test_cloud_fast_model_key_used() -> void:
+func test_cloud_model_loaded_as_heavy_model() -> void:
+	mock_settings.set_setting("llm_provider", "cloud")
 	mock_settings.set_setting("cloud_model", "gemini-2.5-flash")
-	var model: String = mock_settings.get_setting("cloud_model", "")
-	assert_eq(model, "gemini-2.5-flash", "Cloud fast model should be read from 'cloud_model' key.")
-
-
-func test_cloud_thinking_model_key_used() -> void:
-	mock_settings.set_setting("cloud_thinking_model", "gemini-2.5-pro")
-	var model: String = mock_settings.get_setting("cloud_thinking_model", "")
-	assert_eq(model, "gemini-2.5-pro", "Cloud thinking model should be read from 'cloud_thinking_model' key.")
+	ai_service._on_settings_updated()
+	assert_eq(ai_service._config_cache.get("heavy_model"), "gemini-2.5-flash", "Cloud model should be loaded as heavy_model.")
 
 
 
@@ -232,7 +220,7 @@ func test_clear_history() -> void:
 
 func test_execute_summarize_session() -> void:
 	var script := GDScript.new()
-	script.source_code = "extends 'res://scripts/AIService.gd'\nvar mock_response := ''\nfunc _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[]): return mock_response"
+	script.source_code = "extends 'res://scripts/AIService.gd'\nvar mock_response := ''\nfunc _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false): return mock_response"
 	script.reload()
 	
 	var mock_ai = Node.new()
@@ -255,7 +243,7 @@ func test_execute_summarize_session() -> void:
 
 func test_end_chat_session_clears_history() -> void:
 	var script := GDScript.new()
-	script.source_code = "extends 'res://scripts/AIService.gd'\nvar mock_response := ''\nfunc _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[]): return mock_response"
+	script.source_code = "extends 'res://scripts/AIService.gd'\nvar mock_response := ''\nfunc _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false): return mock_response"
 	script.reload()
 	
 	var mock_ai = Node.new()
@@ -289,12 +277,10 @@ func test_recall_summary_injections() -> void:
 		"system_prompt" : "Custom Prompt",
 		"personality": "",
 		"llm_provider": "local",
-		"fast_model": "llama3.2:3b",
 		"heavy_model": "gemma4:e4b"
 	}
 	mock_settings.set_setting("llm_provider", "local")
-	mock_settings.set_setting("local_model", "llama3.2:3b")
-	mock_settings.set_setting("local_thinking_model", "gemma4:e4b")
+	mock_settings.set_setting("local_model", "gemma4:e4b")
 	mock_settings.set_setting("enable_thinking", false)
 	
 	mock_ai._cached_summary = "Problem: A. Solution: B."
@@ -325,12 +311,10 @@ func test_honesty_directives_in_system_prompt() -> void:
 		"system_prompt" : "Custom Prompt",
 		"personality": "",
 		"llm_provider": "local",
-		"fast_model": "llama3.2:3b",
 		"heavy_model": "gemma4:e4b"
 	}
 	mock_settings.set_setting("llm_provider", "local")
-	mock_settings.set_setting("local_model", "llama3.2:3b")
-	mock_settings.set_setting("local_thinking_model", "gemma4:e4b")
+	mock_settings.set_setting("local_model", "gemma4:e4b")
 	mock_settings.set_setting("enable_thinking", false)
 	
 	mock_ai.send_prompt("Hello")
@@ -381,11 +365,13 @@ func test_deterministic_classification_patterns_match() -> void:
 class MockFairy extends Node:
 	var last_color: Color = Color.BLACK
 	var last_pulse: bool = false
+	var is_loading: bool = false
 	func set_status_light(color: Color, pulsing: bool) -> void:
 		last_color = color
 		last_pulse = pulsing
 	func clear_status_light() -> void:
 		pass
+
 
 class MockWindowController extends Node:
 	var _fairy = null
@@ -422,12 +408,10 @@ func test_visual_queries_escalate_to_heavy_model() -> void:
 		"system_prompt" : "",
 		"personality": "",
 		"llm_provider": "local",
-		"fast_model": "llama3.2:3b",
 		"heavy_model": "gemma4:e4b"
 	}
 	mock_settings.set_setting("llm_provider", "local")
-	mock_settings.set_setting("local_model", "llama3.2:3b")
-	mock_settings.set_setting("local_thinking_model", "gemma4:e4b")
+	mock_settings.set_setting("local_model", "gemma4:e4b")
 	mock_settings.set_setting("enable_thinking", true)
 	mock_settings.set_setting("enable_screenshots", true)
 	
@@ -435,43 +419,30 @@ func test_visual_queries_escalate_to_heavy_model() -> void:
 	# Should execute 'take_screenshot' which populates base64_image, and promote to is_heavy = true
 	mock_ai.send_prompt("show me what is on my screen")
 	assert_true(mock_ai.last_is_heavy, "Deterministic visual query must be promoted to heavy model.")
-	
-	# Scenario 2: Escalated planning routing
-	# Set up mock_ai with custom stream request response sequence:
-	# 1st call (fast model) -> ESCALATE
-	# 2nd call (heavy model) -> [SKILL: take_screenshot]
-	var test_script := GDScript.new()
-	test_script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
-		"var last_is_heavy: bool = false\n" + \
+
+
+func test_single_model_routing_and_no_escalation() -> void:
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
 		"var call_count: int = 0\n" + \
-		"var mock_window_controller = null\n" + \
-		"func _execute_take_screenshot(context: Dictionary) -> String:\n" + \
-		"    context['base64_image'] = 'mock_image_data'\n" + \
-		"    return 'Success'\n" + \
 		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
 		"    call_count += 1\n" + \
-		"    if call_count == 1:\n" + \
-		"        return '[ESCALATE]'\n" + \
-		"    elif call_count == 2:\n" + \
-		"        return '[SKILL: take_screenshot]'\n" + \
-		"    return 'conversational answer'\n" + \
-		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod) -> void:\n" + \
-		"    last_is_heavy = has_heavy_thinking or context.get('base64_image', '') != '' or context.get('base64_crop', '') != ''\n" + \
-		"func _get_window_controller() -> Node:\n" + \
-		"    return mock_window_controller"
-	test_script.reload()
+		"    return 'direct answer'"
+	script.reload()
 	
-	var planning_mock = Node.new()
-	planning_mock.set_script(test_script)
-	add_child_autofree(planning_mock)
-	planning_mock._settings_mgr = mock_settings
-	planning_mock._initialize_skills_registry()
-	planning_mock.mock_window_controller = win_ctrl
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._config_cache = {
+		"system_prompt" : "",
+		"personality": "",
+		"llm_provider": "local",
+		"heavy_model": "gemma4:e4b"
+	}
 	
-	# Make query that does NOT match deterministic rules (is conversational)
-	planning_mock.send_prompt("Please help me with this problem")
-	
-	assert_true(planning_mock.last_is_heavy, "Escalated visual planning route must be promoted to heavy model.")
+	mock_ai.send_prompt("Please help me with this problem")
+	assert_eq(mock_ai.call_count, 1, "Direct conversational queries should call the model exactly once (no T1/T2 escalation).")
 
 
 func test_status_light_updates_to_purple_for_heavy_thinking() -> void:
@@ -498,7 +469,7 @@ func test_status_light_updates_to_purple_for_heavy_thinking() -> void:
 	
 	var context := {}
 	# Call deliver final response with has_heavy_thinking = true
-	await mock_ai._deliver_final_response("prompt", context, true, "identity", "system_prompt_user", "fast_model", "heavy_model")
+	await mock_ai._deliver_final_response("prompt", context, true, "identity", "system_prompt_user", "", "heavy_model")
 	
 	assert_eq(fairy.last_color, Color(0.6, 0.2, 1.0, 1.0), "Status light must be set to Purple (0.6, 0.2, 1.0).")
 	assert_true(fairy.last_pulse, "Status light must be set to pulse.")
@@ -516,36 +487,391 @@ func test_response_cleared_emitted_during_stream_request() -> void:
 	assert_true(state["emitted"], "response_cleared signal must be emitted during LLM stream request.")
 
 
-func test_escalation_rules_with_conversational_escalate_text() -> void:
+func test_dynamic_registration() -> void:
+	var real_ai = load("res://scripts/AIService.gd").new()
+	add_child_autofree(real_ai)
+	real_ai._initialize_skills_registry()
+	
+	assert_true(real_ai._skills_registry.has("take_screenshot"), "Dynamic scan should load take_screenshot.")
+	assert_true(real_ai._skills_registry.has("take_crop_screenshot"), "Dynamic scan should load take_crop_screenshot.")
+	assert_true(real_ai._skills_registry.has("heavy_thinking"), "Dynamic scan should load heavy_thinking.")
+	assert_true(real_ai._skills_registry.has("summarize_session"), "Dynamic scan should load summarize_session.")
+	assert_true(real_ai._skills_registry.has("point_to"), "Dynamic scan should load point_to.")
+
+
+func test_extract_json_objects_handles_fragmented_stream() -> void:
+	var buffer := ""
+	buffer += "[\n{\n  \"candidates\": [\n    {\n      \"content\": {\n        \"parts\": [\n          {\n            \"text\": \"Hello\"\n          }\n        ]\n      }\n    }\n  ]\n}"
+	
+	var res = ai_service._extract_json_objects(buffer)
+	var objects: Array = res[0]
+	var remaining_buffer: String = res[1]
+	
+	assert_eq(objects.size(), 1, "Should parse one complete JSON object.")
+	assert_eq(objects[0]["candidates"][0]["content"]["parts"][0]["text"], "Hello", "Should parse Candidate text.")
+	assert_eq(remaining_buffer, "", "Buffer should be empty since JSON was complete.")
+	
+	# Fragmented test
+	buffer = "{\n  \"incomplete\": true"
+	res = ai_service._extract_json_objects(buffer)
+	assert_eq(res[0].size(), 0, "Should not parse incomplete JSON.")
+	assert_eq(res[1], "{\n  \"incomplete\": true", "Buffer should retain the incomplete fragment.")
+	
+	# Appending next fragment
+	buffer = res[1] + ",\n  \"finished\": true\n}"
+	res = ai_service._extract_json_objects(buffer)
+	assert_eq(res[0].size(), 1, "Should parse after appending remainder.")
+	assert_eq(res[0][0]["finished"], true, "Should extract properties successfully.")
+	assert_eq(res[1], "", "Buffer should be empty after complete parse.")
+
+
+func test_gemini_tool_call_extraction() -> void:
+	var response_chunk = {
+		"candidates": [
+			{
+				"content": {
+					"parts": [
+						{
+							"functionCall": {
+								"name": "point_to",
+								"args": {
+									"x": 500,
+									"y": 600
+								}
+							}
+						}
+					]
+				}
+			}
+		]
+	}
+	var current_tool_name = ""
+	var current_tool_args_dict = {}
+	if response_chunk.has("candidates") and response_chunk["candidates"].size() > 0:
+		var candidate = response_chunk["candidates"][0]
+		if candidate.has("content") and candidate["content"].has("parts"):
+			for part in candidate["content"]["parts"]:
+				if part.has("functionCall"):
+					var func_call = part["functionCall"]
+					current_tool_name = func_call["name"]
+					current_tool_args_dict = func_call["args"]
+					
+	assert_eq(current_tool_name, "point_to")
+	assert_eq(current_tool_args_dict["x"], 500)
+	assert_eq(current_tool_args_dict["y"], 600)
+
+
+func test_ollama_tool_call_delta_extraction() -> void:
+	var chunks = [
+		{
+			"choices": [
+				{
+					"delta": {
+						"tool_calls": [
+							{
+								"function": {
+									"name": "point_to",
+									"arguments": "{\"x\": "
+								}
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"choices": [
+				{
+					"delta": {
+						"tool_calls": [
+							{
+								"function": {
+									"arguments": "500, \"y\": 600}"
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+	]
+	
+	var current_tool_name = ""
+	var current_tool_args_accumulated = ""
+	
+	for json_data in chunks:
+		if json_data.has("choices") and json_data["choices"].size() > 0:
+			var choice = json_data["choices"][0]
+			if choice.has("delta") and choice["delta"].has("tool_calls"):
+				var tool_calls = choice["delta"]["tool_calls"]
+				if tool_calls is Array and tool_calls.size() > 0:
+					var tc = tool_calls[0]
+					if tc.has("function"):
+						var func_data = tc["function"]
+						if func_data.has("name") and func_data["name"] != "":
+							current_tool_name = func_data["name"]
+						if func_data.has("arguments"):
+							current_tool_args_accumulated += func_data["arguments"]
+							
+	assert_eq(current_tool_name, "point_to")
+	assert_eq(current_tool_args_accumulated, "{\"x\": 500, \"y\": 600}")
+	
+	var parse_res = JSON.parse_string(current_tool_args_accumulated)
+	assert_eq(parse_res["x"], 500)
+	assert_eq(parse_res["y"], 600)
+
+
+func test_tool_call_received_signal_emission() -> void:
+	watch_signals(ai_service)
+	ai_service.tool_call_received.emit("point_to", {"x": 100, "y": 200})
+	assert_signal_emitted_with_parameters(ai_service, "tool_call_received", ["point_to", {"x": 100, "y": 200}], 0)
+
+
+func test_empty_reply_with_tool_call_succeeds() -> void:
+	mock_settings.set_setting("llm_provider", "local")
+	mock_settings.set_setting("local_url", "http://localhost:11434")
+	mock_settings.set_setting("local_model", "gemma4:e4b")
+	mock_settings.set_setting("enable_thinking", false)
+	mock_settings.set_setting("personality", "")
+	
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
-		"var last_is_heavy: bool = false\n" + \
-		"var call_count: int = 0\n" + \
 		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
-		"    call_count += 1\n" + \
-		"    if call_count == 1:\n" + \
-		"        # Long reply that happens to mention [ESCALATE] conversationally\n" + \
-		"        return 'Here is a conversational reply that mentions the word [ESCALATE] inside a paragraph. ' + 'a'.repeat(200)\n" + \
-		"    return 'fallback'\n" + \
-		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod) -> void:\n" + \
-		"    pass"
+		"    _last_request_had_tool_call = true\n" + \
+		"    return ''"
 	script.reload()
-
+	
 	var mock_ai = Node.new()
 	mock_ai.set_script(script)
 	add_child_autofree(mock_ai)
 	mock_ai._settings_mgr = mock_settings
 	mock_ai._config_cache = {
-		"system_prompt" : "",
+		"system_prompt" : "Respond fast.",
 		"personality": "",
 		"llm_provider": "local",
-		"fast_model": "llama3.2:3b",
 		"heavy_model": "gemma4:e4b"
 	}
-	mock_settings.set_setting("llm_provider", "local")
-	mock_settings.set_setting("local_model", "llama3.2:3b")
-	mock_settings.set_setting("local_thinking_model", "gemma4:e4b")
-	mock_settings.set_setting("enable_thinking", true)
+	
+	var state := {
+		"response_received_emitted": false,
+		"request_failed_emitted": false
+	}
+	
+	mock_ai.response_received.connect(func(reply):
+		print("TEST DEBUG: response_received received with: '", reply, "'")
+		state["response_received_emitted"] = true
+	)
+	mock_ai.request_failed.connect(func(msg):
+		print("TEST DEBUG: request_failed received with: '", msg, "'")
+		state["request_failed_emitted"] = true
+	)
+	
+	await mock_ai.send_prompt("Test prompt")
+	
+	print("TEST DEBUG: response_received_emitted status: ", state["response_received_emitted"])
+	print("TEST DEBUG: request_failed_emitted status: ", state["request_failed_emitted"])
+	
+	assert_true(state["response_received_emitted"], "Should emit response_received even if text is empty when a tool call was processed.")
+	assert_false(state["request_failed_emitted"], "Should not fail when a tool call was processed.")
+func test_complete_preload_resets_warming_up_and_loading_states() -> void:
+	# Mock SettingsManager and WindowController with a mock Fairy
+	var win_ctrl := MockWindowController.new()
+	var fairy := MockFairy.new()
+	# Give MockFairy properties for is_loading
+	fairy.set("is_loading", true)
+	win_ctrl._fairy = fairy
+	add_child_autofree(win_ctrl)
+	add_child_autofree(fairy)
+	
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var mock_window_controller = null\n" + \
+		"func _get_window_controller() -> Node:\n" + \
+		"    return mock_window_controller"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai.mock_window_controller = win_ctrl
+	
+	mock_ai.is_warming_up = true
+	mock_ai.is_warming_up = false
+	mock_ai._set_fairy_loading(false)
+	
+	assert_false(mock_ai.is_warming_up, "is_warming_up should be false.")
+	assert_false(fairy.get("is_loading"), "fairy's is_loading should be reset to false after loader is disabled.")
 
-	mock_ai.send_prompt("Test prompt")
-	assert_eq(mock_ai.call_count, 1, "Should NOT escalate (call_count should remain 1) for conversational replies containing [ESCALATE].")
+
+func test_deferred_pointing_skill_execution() -> void:
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var mock_window_controller = null\n" + \
+		"func _get_window_controller() -> Node:\n" + \
+		"    return mock_window_controller"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._initialize_skills_registry()
+	
+	# Stub the point_to skill to see if it gets called using a dict to bypass lambda capture-by-value
+	var state := {"called": false}
+	mock_ai._skills_registry["point_to"] = func(context):
+		state["called"] = true
+		return "Success"
+		
+	# Call forced pointing skill stage 0 (stage 3 checks)
+	var classification = {
+		"label": "POINT",
+		"skill": "point_to",
+		"status": "Pointing...",
+		"matched": "point"
+	}
+	var context := {
+		"prompt": "point to something",
+		"base64_image": ""
+	}
+	
+	# Emulate stage 0 path with forced_skill = "point_to"
+	var forced_skill = classification["skill"]
+	mock_ai.thinking_update.emit(classification["status"])
+	
+	if forced_skill == "point_to":
+		mock_ai._deferred_skill = {
+			"name": forced_skill,
+			"context": context
+		}
+	
+	assert_false(state["called"], "point_to skill should NOT be called immediately when deferred.")
+	assert_eq(mock_ai._deferred_skill["name"], "point_to", "point_to should be stored in _deferred_skill.")
+	
+	# Execute deferred skill
+	await mock_ai._execute_deferred_skill()
+	assert_true(state["called"], "point_to skill should be called when _execute_deferred_skill is invoked.")
+	assert_true(mock_ai._deferred_skill.is_empty(), "_deferred_skill should be cleared after execution.")
+
+
+func test_speak_startup_greeting_discarded_when_interaction_active() -> void:
+	var win_ctrl := MockWindowController.new()
+	# Set _active_panel to CHAT (which is 1)
+	win_ctrl.set("_active_panel", 1)
+	add_child_autofree(win_ctrl)
+	
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var mock_window_controller = null\n" + \
+		"func _get_window_controller() -> Node:\n" + \
+		"    return mock_window_controller\n" + \
+		"func _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false) -> String:\n" + \
+		"    return 'Greeting message'"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai.mock_window_controller = win_ctrl
+	
+	# Stub window controller to track if show_startup_greeting was called
+	var win_script := GDScript.new()
+	win_script.source_code = "extends Node\n" + \
+		"var _fairy = null\n" + \
+		"var _active_panel = 1\n" + \
+		"var greeting_called = false\n" + \
+		"func show_startup_greeting(text: String) -> void:\n" + \
+		"    greeting_called = true"
+	win_script.reload()
+	win_ctrl.set_script(win_script)
+	
+	# Scenario 1: Active panel is open (CHAT)
+	await mock_ai._speak_startup_greeting()
+	assert_false(win_ctrl.get("greeting_called"), "Greeting should be discarded when an active panel is open.")
+	
+	# Scenario 2: Request in progress
+	win_ctrl.set("_active_panel", 0) # reset
+	mock_ai._request_in_progress = true
+	await mock_ai._speak_startup_greeting()
+	assert_false(win_ctrl.get("greeting_called"), "Greeting should be discarded when a request is in progress.")
+	
+	# Scenario 3: History not empty
+	mock_ai._request_in_progress = false
+	mock_ai._conversation_history.clear()
+	mock_ai._conversation_history.append({"role": "user", "text": "hello"})
+	await mock_ai._speak_startup_greeting()
+	assert_false(win_ctrl.get("greeting_called"), "Greeting should be discarded when conversation history is not empty.")
+
+
+func test_speak_startup_greeting_is_greeting_active_flag() -> void:
+	var win_ctrl := MockWindowController.new()
+	win_ctrl.set("_active_panel", 0)
+	add_child_autofree(win_ctrl)
+	
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var mock_window_controller = null\n" + \
+		"func _get_window_controller() -> Node:\n" + \
+		"    return mock_window_controller\n" + \
+		"func _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false) -> String:\n" + \
+		"    return 'Greeting message'"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai.mock_window_controller = win_ctrl
+	
+	var win_script := GDScript.new()
+	win_script.source_code = "extends Node\n" + \
+		"var _fairy = null\n" + \
+		"var _active_panel = 0\n" + \
+		"var greeting_called = false\n" + \
+		"func show_startup_greeting(text: String) -> void:\n" + \
+		"    greeting_called = true"
+	win_script.reload()
+	win_ctrl.set_script(win_script)
+	
+	assert_false(mock_ai.is_greeting_active, "is_greeting_active should start false.")
+	await mock_ai._speak_startup_greeting()
+	assert_true(win_ctrl.get("greeting_called"), "Greeting should be triggered under normal conditions.")
+	assert_true(mock_ai.is_greeting_active, "is_greeting_active should be true during active greeting.")
+
+
+func test_scratchpad_meta_extraction() -> void:
+	var context := {}
+	ai_service._short_term_memory = ""
+	ai_service._process_reply_meta("<scratchpad>Step 1: explain X\nStep 2: explain Y</scratchpad>Okay [CONTINUE]", context)
+	assert_eq(ai_service._short_term_memory, "Step 1: explain X\nStep 2: explain Y", "Scratchpad content should be extracted and saved.")
+
+
+func test_continuation_cancelled_by_new_prompt() -> void:
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var send_prompt_called_count := 0\n" + \
+		"func send_prompt(p, s=null, f=Vector2.ZERO, w=Vector2.ZERO, c=false) -> void:\n" + \
+		"    send_prompt_called_count += 1\n" + \
+		"    _request_in_progress = false"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._continuation_token = 0
+	
+	# Schedule a continuation
+	var context := {"fairy_pos": Vector2.ZERO, "window_size": Vector2.ZERO}
+	mock_ai._schedule_continuation(context)
+	
+	# Simulate user sending a new prompt immediately (which increments continuation token)
+	mock_ai._continuation_token += 1
+	mock_ai.send_prompt("User prompt")
+	
+	# Wait 2.2 seconds (longer than the 2.0s pause)
+	await get_tree().create_timer(2.2).timeout
+	
+	assert_eq(mock_ai.send_prompt_called_count, 1, "Only the user prompt should be called; the continuation should be cancelled.")

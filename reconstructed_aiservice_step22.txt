@@ -1,0 +1,88 @@
+Created At: 2026-06-08T22:55:51Z
+Completed At: 2026-06-08T22:55:51Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/AIService.gd`
+Total Lines: 1844
+Total Bytes: 72056
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: extends Node
+2: ## Service orchestrator that handles local (Ollama) and cloud (Gemini) LLM request payload generation and delivery.
+3: ## Supports dynamic streaming agent conversation, modular plug-and-play skills routing, and real-time reasoning.
+4: 
+5: # Signals emitted during the request lifecycle
+6: ## Emitted when an API request is initiated.
+7: signal request_started
+8: ## Emitted when a text response is successfully received from the LLM.
+9: signal response_received(response_text: String)
+10: ## Emitted if the API request fails due to network, configuration, or payload errors.
+11: signal request_failed(error_message: String)
+12: ## Emitted when the thinking model outputs intermediate reasoning/status updates.
+13: signal thinking_update(update_text: String)
+14: ## Emitted when a streaming chunk of the response is received.
+15: signal response_chunk(chunk_text: String)
+16: ## Emitted at the start of any new LLM stream request.
+17: signal response_cleared
+18: ## Emitted when a tool call is received from the LLM.
+19: signal tool_call_received(tool_name: String, args: Dictionary)
+20: ## Emitted when a sensitive skill requires confirmation.
+21: signal skill_confirmation_requested(skill_name: String, description: String)
+22: 
+23: 
+24: # Internal helper references
+25: var _settings_mgr: Node
+26: # Internal cache to avoid constant Dictionary lookups
+27: var _config_cache := {
+28: 	"system_prompt" : "",
+29: 	"personality": "",
+30: 	"llm_provider": "local",
+31: 	"heavy_model": ""
+32: }
+33: var _is_response_streaming := false
+34: var _model_override: String = "
+<truncated 37327 bytes>
+ill not registered."
+757: 
+758: 
+759: func _execute_heavy_thinking(context: Dictionary) -> String:
+760: 	if _skills_registry.has("heavy_thinking"):
+761: 		var skill_obj = _skills_registry["heavy_thinking"]
+762: 		if skill_obj is Callable:
+763: 			return await skill_obj.call(context) as String
+764: 		elif skill_obj.has_method("execute"):
+765: 			return await skill_obj.execute(context) as String
+766: 	return "Failure: heavy_thinking skill not registered."
+767: 
+768: 
+769: func _execute_point_to(context: Dictionary) -> String:
+770: 	if _skills_registry.has("point_to"):
+771: 		var skill_obj = _skills_registry["point_to"]
+772: 		if skill_obj is Callable:
+773: 			return await skill_obj.call(context) as String
+774: 		elif skill_obj.has_method("execute"):
+775: 			return await skill_obj.execute(context) as String
+776: 	return "Failure: point_to skill not registered."
+777: 
+778: 
+779: func _execute_summarize_session(context: Dictionary) -> String:
+780: 	if _skills_registry.has("summarize_session"):
+781: 		var skill_obj = _skills_registry["summarize_session"]
+782: 		if not context.has("ai_service"):
+783: 			context["ai_service"] = self
+784: 		if skill_obj is Callable:
+785: 			return await skill_obj.call(context) as String
+786: 		elif skill_obj.has_method("execute"):
+787: 			return await skill_obj.execute(context) as String
+788: 	return "Failure: summarize_session skill not registered."
+789: 
+790: 
+791: # ---------------------------------------------------------------------------
+792: # Asynchronous Isolated HTTP Client Requests (Non-Streaming Fallback)
+793: # ---------------------------------------------------------------------------
+794: 
+795: func _extract_json_objects(buffer: String) -> Array:
+796: 	var objects := []
+797: 	var start_idx := 0
+798: 	while true:
+799: 		var open_brace = buffer.find("{", start_idx)
+800: 		if open_brace == -1:
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

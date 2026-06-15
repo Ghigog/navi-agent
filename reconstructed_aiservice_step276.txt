@@ -1,0 +1,94 @@
+Created At: 2026-06-08T23:24:44Z
+Completed At: 2026-06-08T23:24:44Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/test/test_ai_service.gd`
+Total Lines: 878
+Total Bytes: 32774
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: extends GutTest
+2: ## Test suite for AIService routing signals, model selection, skill detection, and settings integration.
+3: ## The new AIService uses per-call spawned HTTPRequest nodes, so we test through signals and helpers
+4: ## rather than injecting a single mock HTTP node.
+5: 
+6: # Minimal stub that exposes get_setting/set_setting without file I/O
+7: class MockSettingsManager:
+8: 	extends Node
+9: 	
+10: 	var _data: Dictionary = {}
+11: 	
+12: 	func get_setting(key: String, default_value: Variant = null) -> Variant:
+13: 		return _data.get(key, default_value)
+14: 	
+15: 	func set_setting(key: String, value: Variant) -> void:
+16: 		_data[key] = value
+17: 
+18: 
+19: var ai_service: Node
+20: var mock_settings: MockSettingsManager
+21: 
+22: 
+23: func before_each() -> void:
+24: 	# Load AIService directly (headless-safe — no autoload dependency)
+25: 	ai_service = load("res://scripts/AIService.gd").new()
+26: 	assert_not_null(ai_service, "AIService should load without errors.")
+27: 	add_child_autofree(ai_service)
+28: 	
+29: 	# Inject mock settings manager to bypass file I/O
+30: 	mock_settings = MockSettingsManager.new()
+31: 	add_child_autofree(mock_settings)
+32: 	ai_service._settings_mgr = mock_settings
+33: 
+34: 
+35: # ---------------------------------------------------------------------------
+36: # Tests: Settings Manager Injection
+37: # ---------------------------------------------------------------------------
+38: 
+39: func test_ai_service_loads_successfully() -> void:
+40: 	assert_not_null(ai_service, "AIService node should instantiate successfully.")
+41: 
+42
+<truncated 30098 bytes>
+k_startup_greeting_discarded_when_interaction_active() -> void:
+759: 	var win_ctrl := MockWindowController.new()
+760: 	# Set _active_panel to CHAT (which is 1)
+761: 	win_ctrl.set("_active_panel", 1)
+762: 	add_child_autofree(win_ctrl)
+763: 	
+764: 	var script := GDScript.new()
+765: 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+766: 		"var mock_window_controller = null\n" + \
+767: 		"func _get_window_controller() -> Node:\n" + \
+768: 		"    return mock_window_controller\n" + \
+769: 		"func _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false) -> String:\n" + \
+770: 		"    return 'Greeting message'"
+771: 	script.reload()
+772: 	
+773: 	var mock_ai = Node.new()
+774: 	mock_ai.set_script(script)
+775: 	add_child_autofree(mock_ai)
+776: 	mock_ai._settings_mgr = mock_settings
+777: 	mock_ai.mock_window_controller = win_ctrl
+778: 	
+779: 	# Stub window controller to track if show_startup_greeting was called
+780: 	var win_script := GDScript.new()
+781: 	win_script.source_code = "extends Node\n" + \
+782: 		"var _fairy = null\n" + \
+783: 		"var _active_panel = 1\n" + \
+784: 		"var greeting_called = false\n" + \
+785: 		"func show_startup_greeting(text: String) -> void:\n" + \
+786: 		"    greeting_called = true"
+787: 	win_script.reload()
+788: 	win_ctrl.set_script(win_script)
+789: 	
+790: 	# Scenario 1: Active panel is open (CHAT)
+791: 	await mock_ai._speak_startup_greeting()
+792: 	assert_false(win_ctrl.get("greeting_called"), "Greeting should be discarded when an active panel is open.")
+793: 	
+794: 	# Scenario 2: Request in progress
+795: 	win_ctrl.set("_active_panel", 0) # reset
+796: 	mock_ai._request_in_progress = true
+797: 	await mock_ai._speak_startup_greeting()
+798: 	assert_false(win_ctrl.get("greeting_called"), "Greeting should be discarded when a request is in progress.")
+799: 	
+800: 	# Scenario 3: History not empty
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

@@ -1,0 +1,116 @@
+Created At: 2026-06-09T02:04:50Z
+Completed At: 2026-06-09T02:04:50Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/test/test_skill_confirmation.gd`
+Total Lines: 128
+Total Bytes: 4275
+Showing lines 1 to 128
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: extends GutTest
+2: 
+3: class MockSettingsManager:
+4: 	extends Node
+5: 	
+6: 	var _data: Dictionary = {}
+7: 	
+8: 	func get_setting(key: String, default_value: Variant = null) -> Variant:
+9: 		return _data.get(key, default_value)
+10: 	
+11: 	func set_setting(key: String, value: Variant) -> void:
+12: 		_data[key] = value
+13: 
+14: class MockFollowController extends Node:
+15: 	var last_fly_target = null
+16: 	var aborted = false
+17: 	
+18: 	func fly_to_screen_coordinate(target: Vector2) -> void:
+19: 		last_fly_target = target
+20: 		
+21: 	func abort_navigation(restore: bool) -> void:
+22: 		aborted = true
+23: 
+24: class MockMainNode extends Node2D:
+25: 	var follow_ctrl
+26: 	func _init():
+27: 		name = "Main"
+28: 		follow_ctrl = MockFollowController.new()
+29: 		follow_ctrl.name = "FollowController"
+30: 		add_child(follow_ctrl)
+31: 		
+32: 	func capture_clean_screenshot() -> Image:
+33: 		return null
+34: 
+35: var ai_service: Node
+36: var mock_settings: MockSettingsManager
+37: 
+38: func before_each() -> void:
+39: 	ai_service = load("res://scripts/AIService.gd").new()
+40: 	add_child_autofree(ai_service)
+41: 	
+42: 	mock_settings = MockSettingsManager.new()
+43: 	add_child_autofree(mock_settings)
+44: 	ai_service._settings_mgr = mock_settings
+45: 	ai_service._initialize_skills_registry()
+46: 
+47: func test_require_skill_confirmation_default_value() -> void:
+48: 	var manager = load("res://scripts/SettingsManager.gd").new()
+49: 	manager.SETTINGS_FILE = "user://settings_test_confirmation.json"
+50: 	add_child_autofree(manager)
+51: 	assert_true(manager.settings.has("require
+<truncated 1266 bytes>
+equested.connect(func(name, desc):
+74: 		state["signal_emitted"] = true
+75: 		state["confirmed_desc"] = desc
+76: 	)
+77: 	
+78: 	# Execute point_to (which requires confirmation)
+79: 	var context = {
+80: 		"args": {"x": 100, "y": 200}
+81: 	}
+82: 	
+83: 	# We run it as a coroutine/task and resume later
+84: 	var run_tool = func():
+85: 		await ai_service._on_tool_call_received("point_to", {"x": 100, "y": 200})
+86: 	run_tool.call_deferred()
+87: 	
+88: 	# Wait one frame for signal to emit
+89: 	await get_tree().process_frame
+90: 	
+91: 	assert_true(state["signal_emitted"], "skill_confirmation_requested signal should emit")
+92: 	assert_true(state["confirmed_desc"].contains("100"), "Description should contain parameters")
+93: 	assert_null(main_mock.follow_ctrl.last_fly_target, "Fairy should not fly until approved")
+94: 	
+95: 	# Now approve it
+96: 	ai_service.respond_to_confirmation(true)
+97: 	
+98: 	# Await execution to finish by waiting a frame/process
+99: 	await get_tree().process_frame
+100: 	await get_tree().process_frame
+101: 	
+102: 	assert_not_null(main_mock.follow_ctrl.last_fly_target, "Fairy should fly after approval")
+103: 	
+104: 	get_tree().root.remove_child(main_mock)
+105: 	main_mock.free()
+106: 
+107: func test_skill_execution_aborted_when_denied() -> void:
+108: 	mock_settings.set_setting("require_skill_confirmation", true)
+109: 	
+110: 	var main_mock = MockMainNode.new()
+111: 	get_tree().root.add_child(main_mock)
+112: 	
+113: 	# Run point_to
+114: 	var run_tool = func():
+115: 		await ai_service._on_tool_call_received("point_to", {"x": 100, "y": 200})
+116: 	run_tool.call_deferred()
+117: 	await get_tree().process_frame
+118: 	
+119: 	# Deny it
+120: 	ai_service.respond_to_confirmation(false)
+121: 	await get_tree().process_frame
+122: 	await get_tree().process_frame
+123: 	
+124: 	assert_null(main_mock.follow_ctrl.last_fly_target, "Fairy should not fly after denial")
+125: 	
+126: 	get_tree().root.remove_child(main_mock)
+127: 	main_mock.free()
+128: 
+The above content shows the entire, complete file contents of the requested file.

@@ -14,6 +14,37 @@ func before_each() -> void:
 	EmotionState.relationship_level = "acquaintance"
 
 
+const BACKUP_PATH := "user://emotion_state_backup.json"
+var _has_backup := false
+
+func before_all() -> void:
+	# Back up the user's real emotion state if it exists
+	if FileAccess.file_exists(EmotionState.SAVE_PATH):
+		var dir := DirAccess.open("user://")
+		if dir:
+			var err := dir.copy(EmotionState.SAVE_PATH, BACKUP_PATH)
+			if err == OK:
+				_has_backup = true
+				print("test_emotion_state: Backed up real emotion state to ", BACKUP_PATH)
+			else:
+				printerr("test_emotion_state: Failed to back up emotion state (error ", err, ")")
+
+func after_all() -> void:
+	# Restore the backup or clean up the test file
+	var dir := DirAccess.open("user://")
+	if dir:
+		if _has_backup and FileAccess.file_exists(BACKUP_PATH):
+			var err := dir.copy(BACKUP_PATH, EmotionState.SAVE_PATH)
+			if err == OK:
+				print("test_emotion_state: Restored real emotion state from ", BACKUP_PATH)
+				DirAccess.remove_absolute(BACKUP_PATH)
+			else:
+				printerr("test_emotion_state: Failed to restore emotion state (error ", err, ")")
+		elif FileAccess.file_exists(EmotionState.SAVE_PATH):
+			DirAccess.remove_absolute(EmotionState.SAVE_PATH)
+			print("test_emotion_state: Cleaned up test emotion state file.")
+
+
 # ---------------------------------------------------------------------------
 # Default state
 # ---------------------------------------------------------------------------

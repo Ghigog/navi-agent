@@ -35,9 +35,17 @@ func test_strip_thinking_block() -> void:
 	assert_eq(NaviUtils.strip_thinking_block("Hello"), "Hello")
 
 
+func test_strip_scratchpad_block() -> void:
+	assert_eq(NaviUtils.strip_scratchpad_block("<scratchpad>my notes</scratchpad>Hello"), "Hello")
+	assert_eq(NaviUtils.strip_scratchpad_block("<scratchpad>my notes</scratchpad>"), "")
+	assert_eq(NaviUtils.strip_scratchpad_block("Hello <scratchpad>notes"), "Hello ")
+	assert_eq(NaviUtils.strip_scratchpad_block("Hello"), "Hello")
+
+
 func test_strip_skill_and_pause_tags() -> void:
 	assert_eq(NaviUtils.strip_skill_and_pause_tags("<think>thoughts</think>[PAUSE]Hello [SKILL: point_to: 100,200]"), "Hello")
 	assert_eq(NaviUtils.strip_skill_and_pause_tags("[TOOL: read] Hello [SCREEN_CONTEXT: text]"), "Hello")
+	assert_eq(NaviUtils.strip_skill_and_pause_tags("<scratchpad>notes</scratchpad>Hello [CONTINUE]"), "Hello")
 
 
 func test_markdown_to_bbcode() -> void:

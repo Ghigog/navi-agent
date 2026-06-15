@@ -1,0 +1,67 @@
+Created At: 2026-06-08T23:22:09Z
+Completed At: 2026-06-08T23:22:09Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/AIService.gd`
+Total Lines: 1981
+Total Bytes: 79133
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: extends Node
+2: ## Service orchestrator that handles local (Ollama) and cloud (Gemini) LLM request payload generation and delivery.
+3: ## Supports dynamic streaming agent conversation, modular plug-and-play skills routing, and real-time reasoning.
+4: 
+5: # Signals emitted during the request lifecycle
+6: ## Emitted when an API request is initiated.
+7: signal request_started
+8: ## Emitted when a text response is successfully received from the LLM.
+9: signal response_received(response_text: String)
+10: ## Emitted if the API request fails due to network, configuration, or payload errors.
+11: signal request_failed(error_message: String)
+12: ## Emitted when the thinking model outputs intermediate reasoning/status updates.
+13: signal thinking_update(update_text: String)
+14: ## Emitted when a streaming chunk of the response is received.
+15: signal response_chunk(chunk_text: String)
+16: ## Emitted at the start of any new LLM stream request.
+17: signal response_cleared
+18: ## Emitted when a tool call is received from the LLM.
+19: signal tool_call_received(tool_name: String, args: Dictionary)
+20: ## Emitted when a sensitive skill requires confirmation.
+21: signal skill_confirmation_requested(skill_name: String, description: String)
+22: 
+23: 
+24: # Internal helper references
+25: var _settings_mgr: Node
+26: # Internal cache to avoid constant Dictionary lookups
+27: var _config_cache := {
+28: 	"system_prompt" : "",
+29: 	"personality": "",
+30: 	"llm_provider": "local",
+31: 	"heavy_model": ""
+32: }
+33: var _is_response_streaming := false
+34: var _model_override: String = "
+<truncated 38815 bytes>
+append the `[CONTINUE]` tag at the very end of your response to tell the system to trigger a background self-prompt. This splits your thoughts into discrete stages and gives the user a chance to read, digest, and intervene."
+778: 	identity += "\n- Use the scratchpad to store the plan (e.g. 'Plan: 1. Explain X. 2. Explain Y. 3. Ask Z.') and track the current step. When you are prompted next, resume from the next step of the plan."
+779: 	identity += "\n- When you have sufficiently made the full point and completed your plan without requiring further steps, do NOT output `[CONTINUE]`. This will naturally stop the continuation loop."
+780: 	identity += "\n- If you just explained something particularly complex or difficult, conclude by asking the user to clarify if they understood (e.g. 'Does that make sense?')."
+781: 	identity += "\n- Always write to the scratchpad to map out the full answer before writing the user-visible response, ensuring you know exactly where you are in the flow."
+782: 
+783: 	if _short_term_memory != "":
+784: 		identity += "\n\nCURRENT SCRATCHPAD NOTES:\n" + _short_term_memory
+785: 		
+786: 	return identity
+787: 
+788: 
+789: func _cleanup_request() -> void:
+790: 	print("AIService: ── REQUEST END ────────────────────────────────────────")
+791: 	var window_controller := _get_window_controller()
+792: 	var fairy: Node = null
+793: 	if window_controller and "_fairy" in window_controller:
+794: 		fairy = window_controller._fairy
+795: 	if fairy and fairy.has_method("clear_status_light"):
+796: 		var status_node = fairy.get_node_or_null("StatusLight")
+797: 		if status_node and status_node.visible and status_node.self_modulate.is_equal_approx(Color(0.6, 0.2, 1.0, 1.0)):
+798: 			fairy.clear_status_light()
+799: 	_request_in_progress = false
+800: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

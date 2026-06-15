@@ -1,0 +1,57 @@
+Created At: 2026-06-09T02:00:19Z
+Completed At: 2026-06-09T02:00:19Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/AIService.gd`
+Total Lines: 1626
+Total Bytes: 71365
+Showing lines 1 to 49
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: extends Node
+2: ## Service orchestrator that handles local (Ollama) and cloud (Gemini) LLM request payload generation and delivery.
+3: ## Supports dynamic streaming agent conversation, modular plug-and-play skills routing, and real-time reasoning.
+4: 
+5: # Signals emitted during the request lifecycle
+6: ## Emitted when an API request is initiated.
+7: signal request_started
+8: ## Emitted when a text response is successfully received from the LLM.
+9: signal response_received(response_text: String)
+10: ## Emitted if the API request fails due to network, configuration, or payload errors.
+11: signal request_failed(error_message: String)
+12: ## Emitted when the thinking model outputs intermediate reasoning/status updates.
+13: signal thinking_update(update_text: String)
+14: ## Emitted when a streaming chunk of the response is received.
+15: signal response_chunk(chunk_text: String)
+16: ## Emitted at the start of any new LLM stream request.
+17: signal response_cleared
+18: 
+19: # Internal helper references
+20: var _settings_mgr: Node
+21: # Internal cache to avoid constant Dictionary lookups
+22: var _config_cache := {
+23: 	"system_prompt" : "",
+24: 	"personality": "",
+25: 	"llm_provider": "local",
+26: 	"fast_model": "",
+27: 	"heavy_model": ""
+28: }
+29: var _is_response_streaming := false
+30: var _model_override: String = ""
+31: 
+32: # Active conversation history in the current session
+33: var _conversation_history: Array[Dictionary] = []
+34: # Cache of the previous conversation summary
+35: var _cached_summary: String = ""
+36: 
+37: # The plug-and-play skills registry mapping skill tags to Callable execution handlers.
+38: var _skills_registry: Dictionary = {}
+39: # Emotion scoring engine — evaluates each response and updates EmotionState.
+40: var _emotion_engine: Node = null
+41: # Last response text — used by pre-evaluation for hedging detection on subsequent turns.
+42: var _last_response_text: String = ""
+43: # Pre-compiled regex for Gemini SSE chunk text extraction (avoid per-chunk allocation)
+44: var _gemini_text_regex := RegEx.new()
+45: 
+46: ## Deterministic prompt classification library.
+47: ## Each rule maps a set of trigger patterns to a skill and a UI status message.
+48: ## Rules are evaluated top-to-bottom — more specific rules must come before general ones.
+49: ## To add a new skill trigger: add an entry here and register the skill in _initialize_skills_registry().
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

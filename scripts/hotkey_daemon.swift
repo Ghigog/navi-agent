@@ -61,22 +61,25 @@ if status != noErr {
     print("[HotkeyDaemon] Registered hotkey successfully (keycode \(keyCode), modifiers \(modifiers)).")
 }
 
-// Event type spec — keyboard hotkey pressed
-var eventType = EventTypeSpec(
-    eventClass: OSType(kEventClassKeyboard),
-    eventKind:  UInt32(kEventHotKeyPressed)
-)
+let handler: @convention(c) (EventHandlerCallRef?, EventRef?, UnsafeMutableRawPointer?) -> OSStatus = { (_, event, _) -> OSStatus in
+    if let event = event {
+        let kind = GetEventKind(event)
+        if kind == UInt32(kEventHotKeyPressed) {
+            print("[HotkeyDaemon] HOTKEY DOWN — sending UDP packet to Godot.")
+            sendUDP(message: "hotkey_down", port: 9999)
+        } else if kind == UInt32(kEventHotKeyReleased) {
+            print("[HotkeyDaemon] HOTKEY UP — sending UDP packet to Godot.")
+            sendUDP(message: "hotkey_up", port: 9999)
+        }
+    }
+    return noErr
+}
 
-// Install the Carbon event handler
-InstallEventHandler(
-    GetApplicationEventTarget(),
-    { (_, _, _) -> OSStatus in
-        print("[HotkeyDaemon] HOTKEY FIRED — sending UDP packet to Godot.")
-        sendUDP(message: "hotkey", port: 9999)
-        return noErr
-    },
-    1, &eventType, nil, nil
-)
+var eventPress = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+var eventRelease = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+
+InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventPress, nil, nil)
+InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventRelease, nil, nil)
 
 print("[HotkeyDaemon] Event loop running.")
 NSApplication.shared.run()

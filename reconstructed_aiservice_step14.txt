@@ -1,0 +1,70 @@
+Created At: 2026-06-08T22:55:44Z
+Completed At: 2026-06-08T22:55:44Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/done.md`
+Total Lines: 2361
+Total Bytes: 156846
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: # Navi Completed Tickets
+2: 
+3: This document contains completed, cancelled, or reverted historical tickets.
+4: 
+5: ## Template & Guidelines
+6: 
+7: ## Ticket Template
+8: 
+9: ```markdown
+10: 
+11: ---
+12: 
+13: ## Tickets
+14: 
+15: ### NAV-68: Voice-Text Streaming Sync, Emotion State Preservation & In-Character Responses (DONE)
+16: **User Story:**
+17: - **As a:** Navi user
+18: - **I want:** Navi to stream voice and text simultaneously, retain her emotional state across system reboots, and output natural in-character thoughts and status lines
+19: - **So that:** Navi behaves like a fluid, persistent, and authentic personal companion with zero lag and no hardcoded tone templates.
+20: 
+21: **Context:**
+22: 1. Visual/complex queries preemptively disabled stream-based TTS, causing Navi to remain completely silent during generation and then read back the full output at the very end.
+23: 2. Running unit tests directly overwrote and deleted the persistent state file `user://emotion_state.json`, resetting Navi to gray defaults on the subsequent boot.
+24: 3. Streaming thoughts from the `<think>` block were discarded and replaced with hard-coded rephrasing templates (often with legacy annoying tones).
+25: 
+26: **Description:**
+27: 1. Commented out preemptive disabling of stream TTS. Dynamically transition from streaming TTS to step-by-step guidance only when a step or pause tag is actually parsed in response chunks.
+28: 2. Implemented `before_all()` and `after_all()` backup/restore logic in `test_emotion_state.gd` to protect the user's real `emotion_state.json` file.
+29: 3. Bypassed 
+<truncated 45282 bytes>
+sponse bubble and verify cursor changes to a diagonal resize arrow. Click-drag to enlarge the response box and confirm it resizes smoothly.
+698: 
+699: ---
+700: 
+701: ---
+702: 
+703: ### NAV-16: Conversation Context Memory in AIService (DONE)
+704: **User Story:**
+705: - **As a:** Navi user
+706: - **I want:** Navi to remember previous turns of the conversation during an active session
+707: - **So that:** I can ask follow-up questions and have a continuous dialog with the assistant.
+708: 
+709: **Context:**
+710: Currently, each prompt submission is completely stateless. We need to store conversation history and include it in Ollama/Gemini request payloads.
+711: 
+712: **Description:**
+713: Update `AIService.gd` to store `_conversation_history`, adapt the request signature, format history into message arrays for each provider, and clean/append successful replies.
+714: 
+715: **Requirements:**
+716: 1. Declare `_conversation_history: Array[Dictionary] = []` in `AIService.gd`.
+717: 2. Update signatures of `_request_llm` and `_request_llm_stream` to accept `history: Array[Dictionary] = []`.
+718: 3. In `_request_llm` and `_request_llm_stream`, format the messages (Ollama) and contents (Gemini) lists using the history turns.
+719: 4. Implement `_clean_response_for_history(text: String) -> String` to strip `<think>` and `[SKILL]` tags using regex.
+720: 5. In `send_prompt()`, pass `_conversation_history` to LLM requests and call `_append_to_history()` with the current prompt and cleaned response upon success.
+721: 6. Provide public method `clear_history() -> void`.
+722: 
+723: **Acceptance Criteria:**
+724: - **GUT Test**: `test_history_appending` verifies that prompts and cleaned responses are correctly stored in `_conversation_history`.
+725: - **GUT Test**: `test_clear_history` verifies that calling `clear_history()` resets the array.
+726: - **Manual Verification**: Submit a
+<truncated 5030 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

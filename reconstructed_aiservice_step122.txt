@@ -1,0 +1,51 @@
+Created At: 2026-06-08T23:12:10Z
+Completed At: 2026-06-08T23:12:10Z
+File Path: `file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/test/test_ai_service.gd`
+Total Lines: 842
+Total Bytes: 31341
+Showing lines 800 to 842
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+800: 	# Scenario 3: History not empty
+801: 	mock_ai._request_in_progress = false
+802: 	mock_ai._conversation_history.clear()
+803: 	mock_ai._conversation_history.append({"role": "user", "text": "hello"})
+804: 	await mock_ai._speak_startup_greeting()
+805: 	assert_false(win_ctrl.get("greeting_called"), "Greeting should be discarded when conversation history is not empty.")
+806: 
+807: 
+808: func test_speak_startup_greeting_is_greeting_active_flag() -> void:
+809: 	var win_ctrl := MockWindowController.new()
+810: 	win_ctrl.set("_active_panel", 0)
+811: 	add_child_autofree(win_ctrl)
+812: 	
+813: 	var script := GDScript.new()
+814: 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+815: 		"var mock_window_controller = null\n" + \
+816: 		"func _get_window_controller() -> Node:\n" + \
+817: 		"    return mock_window_controller\n" + \
+818: 		"func _request_llm(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false) -> String:\n" + \
+819: 		"    return 'Greeting message'"
+820: 	script.reload()
+821: 	
+822: 	var mock_ai = Node.new()
+823: 	mock_ai.set_script(script)
+824: 	add_child_autofree(mock_ai)
+825: 	mock_ai._settings_mgr = mock_settings
+826: 	mock_ai.mock_window_controller = win_ctrl
+827: 	
+828: 	var win_script := GDScript.new()
+829: 	win_script.source_code = "extends Node\n" + \
+830: 		"var _fairy = null\n" + \
+831: 		"var _active_panel = 0\n" + \
+832: 		"var greeting_called = false\n" + \
+833: 		"func show_startup_greeting(text: String) -> void:\n" + \
+834: 		"    greeting_called = true"
+835: 	win_script.reload()
+836: 	win_ctrl.set_script(win_script)
+837: 	
+838: 	assert_false(mock_ai.is_greeting_active, "is_greeting_active should start false.")
+839: 	await mock_ai._speak_startup_greeting()
+840: 	assert_true(win_ctrl.get("greeting_called"), "Greeting should be triggered under normal conditions.")
+841: 	assert_true(mock_ai.is_greeting_active, "is_greeting_active should be true during active greeting.")
+842: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

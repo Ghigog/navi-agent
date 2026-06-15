@@ -3,12 +3,12 @@
 [ext_resource type="Script" path="res://scripts/SettingsUI.gd" id="1_settings_ui"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
-bg_color = Color(0.07, 0.09, 0.15, 0.88)
+bg_color = Color(0.08, 0.08, 0.1, 0.8)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.3, 0.75, 0.9, 0.7)
+border_color = Color(0.4, 0.6, 1, 0.4)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
@@ -180,7 +180,7 @@ theme_override_font_sizes/font_size = 12
 
 [node name="EndpointLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
-text = "Endpoint URL / Fast Model / Thinking Model"
+text = "Endpoint URL / AI Model"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -194,14 +194,7 @@ theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
 [node name="ModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
-placeholder_text = "llama3 / gemma4:e4b"
-theme_override_styles/normal = SubResource("StyleBoxFlat_input")
-theme_override_font_sizes/font_size = 12
-theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
-
-[node name="ThinkingModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
-layout_mode = 2
-placeholder_text = "deepseek-r1:8b"
+placeholder_text = "gemma4:e4b"
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -257,6 +250,12 @@ text = "Enable Screenshots"
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "Enable Deep Thinking"
+
+[node name="RequireSkillConfirmationCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/SkillsToggleRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Require Skill Confirmation"
+
 
 [node name="VoiceToggleRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2

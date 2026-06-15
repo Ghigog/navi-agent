@@ -48,12 +48,15 @@ var settings: Dictionary = {
 	"filter_show_neural": true,
 	"filter_show_system": true,
 	"filter_show_mutter": true,
-	"hotkey_keycode": 49,
-	"hotkey_modifiers": 6656,
-	"hotkey_text": "Ctrl + Shift + Opt + Space",
+	"hotkey_keycode": 126,
+	"hotkey_modifiers": 512,
+	"hotkey_text": "Shift + Up",
 	"tts_rate": 1.0,
 	"tts_pitch": 1.0,
-	"live_navi_mode": false
+	"live_navi_mode": false,
+	"require_skill_confirmation": true,
+	"enable_push_to_talk": true, # DEPRECATED: Voice detection is removed. Push-to-talk is now the default/only option.
+	"enable_predictive_trigger": false
 }
 
 var skills = [
@@ -68,6 +71,9 @@ func _ready() -> void:
 
 	# Migrate missing keys if they don't exist in loaded settings
 	var changed := false
+	if not settings.has("enable_predictive_trigger"):
+		settings["enable_predictive_trigger"] = false
+		changed = true
 	if not settings.has("local_thinking_model"):
 		settings["local_thinking_model"] = ""
 		changed = true
@@ -162,13 +168,13 @@ func _ready() -> void:
 		settings["openai_api_key"] = ""
 		changed = true
 	if not settings.has("hotkey_keycode"):
-		settings["hotkey_keycode"] = 49
+		settings["hotkey_keycode"] = 126
 		changed = true
 	if not settings.has("hotkey_modifiers"):
-		settings["hotkey_modifiers"] = 6656
+		settings["hotkey_modifiers"] = 512
 		changed = true
 	if not settings.has("hotkey_text"):
-		settings["hotkey_text"] = "Ctrl + Shift + Opt + Space"
+		settings["hotkey_text"] = "Shift + Up"
 		changed = true
 	if not settings.has("tts_rate"):
 		settings["tts_rate"] = 1.0
@@ -178,6 +184,12 @@ func _ready() -> void:
 		changed = true
 	if not settings.has("live_navi_mode"):
 		settings["live_navi_mode"] = false
+		changed = true
+	if not settings.has("require_skill_confirmation"):
+		settings["require_skill_confirmation"] = true
+		changed = true
+	if not settings.has("enable_push_to_talk"):
+		settings["enable_push_to_talk"] = true
 		changed = true
 	if changed:
 		save_settings()
@@ -220,6 +232,8 @@ func save_settings() -> void:
 
 ## Retrieves a configuration setting value. Returns [param default_value] if the key is missing.
 func get_setting(key: String, default_value: Variant = null) -> Variant:
+	if key == "enable_push_to_talk":
+		return true
 	return settings.get(key, default_value)
 
 
