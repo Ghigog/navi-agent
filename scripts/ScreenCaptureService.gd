@@ -43,14 +43,14 @@ func capture_screen() -> Image:
 					DirAccess.remove_absolute(temp_path)
 					print("ScreenCaptureService: Captured via macOS screencapture tool in background thread.")
 				else:
-					printerr("ScreenCaptureService: screencapture finished but temp file not found.")
+					ErrorBus.report("ScreenCaptureService: screencapture finished but temp file not found.")
 			else:
-				printerr("ScreenCaptureService: screencapture background thread failed (exit code ", exit_code, ").")
+				ErrorBus.report("ScreenCaptureService: screencapture background thread failed (exit code " + str(exit_code) + ").")
 		else:
-			printerr("ScreenCaptureService: Failed to start background thread for screencapture. Error: ", err)
+			ErrorBus.report("ScreenCaptureService: Failed to start background thread for screencapture. Error: " + str(err))
 
 	if img == null:
-		printerr("ScreenCaptureService: Both capture methods failed. Returning null.")
+		ErrorBus.report("ScreenCaptureService: Both capture methods failed. Returning null.")
 	return img
 
 

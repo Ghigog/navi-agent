@@ -28,6 +28,7 @@ func before_each() -> void:
 	
 	# Inject mock settings manager to bypass file I/O
 	mock_settings = MockSettingsManager.new()
+	mock_settings.set_setting("require_skill_confirmation", false)
 	add_child_autofree(mock_settings)
 	ai_service._settings_mgr = mock_settings
 
@@ -61,7 +62,7 @@ func test_request_started_signal_emitted_before_llm_call() -> void:
 	
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
-		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
 		"    return 'mock_reply'"
 	script.reload()
 	
@@ -265,7 +266,7 @@ func test_end_chat_session_clears_history() -> void:
 
 func test_recall_summary_injections() -> void:
 	var script := GDScript.new()
-	script.source_code = "extends 'res://scripts/AIService.gd'\nvar last_system_prompt := ''\nfunc _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]): last_system_prompt = s; return 'reply'"
+	script.source_code = "extends 'res://scripts/AIService.gd'\nvar last_system_prompt := ''\nfunc _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false): last_system_prompt = s; return 'reply'"
 	script.reload()
 	
 	var mock_ai = Node.new()
@@ -297,7 +298,7 @@ func test_honesty_directives_in_system_prompt() -> void:
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
 		"var last_system_prompt := ''\n" + \
-		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
 		"    last_system_prompt = s\n" + \
 		"    return 'reply'"
 	script.reload()
@@ -385,8 +386,9 @@ func test_visual_queries_escalate_to_heavy_model() -> void:
 		"func _execute_take_screenshot(context: Dictionary) -> String:\n" + \
 		"    context['base64_image'] = 'mock_image_data'\n" + \
 		"    return 'Success'\n" + \
-		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod) -> void:\n" + \
+		"func _deliver_final_response(p, context, has_heavy_thinking, id, s_usr, f_mod, h_mod, is_cont=false) -> bool:\n" + \
 		"    last_is_heavy = has_heavy_thinking or context.get('base64_image', '') != '' or context.get('base64_crop', '') != ''\n" + \
+		"    return true\n" + \
 		"func _get_window_controller() -> Node:\n" + \
 		"    return mock_window_controller"
 	script.reload()
@@ -425,7 +427,7 @@ func test_single_model_routing_and_no_escalation() -> void:
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
 		"var call_count: int = 0\n" + \
-		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
 		"    call_count += 1\n" + \
 		"    return 'direct answer'"
 	script.reload()
@@ -451,7 +453,7 @@ func test_status_light_updates_to_purple_for_heavy_thinking() -> void:
 		"var mock_window_controller = null\n" + \
 		"func _get_window_controller() -> Node:\n" + \
 		"    return mock_window_controller\n" + \
-		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
 		"    return 'mock_reply'"
 	script.reload()
 	
@@ -636,7 +638,7 @@ func test_empty_reply_with_tool_call_succeeds() -> void:
 	
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
-		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
 		"    _last_request_had_tool_call = true\n" + \
 		"    return ''"
 	script.reload()
@@ -673,6 +675,80 @@ func test_empty_reply_with_tool_call_succeeds() -> void:
 	
 	assert_true(state["response_received_emitted"], "Should emit response_received even if text is empty when a tool call was processed.")
 	assert_false(state["request_failed_emitted"], "Should not fail when a tool call was processed.")
+
+
+func test_agentic_tool_calling_loop() -> void:
+	mock_settings.set_setting("llm_provider", "local")
+	mock_settings.set_setting("local_url", "http://localhost:11434")
+	mock_settings.set_setting("local_model", "gemma4:e4b")
+	mock_settings.set_setting("enable_thinking", false)
+	mock_settings.set_setting("personality", "")
+	
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"var call_count := 0\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
+		"    call_count += 1\n" + \
+		"    if call_count == 1:\n" + \
+		"        _last_tool_call = {'name': 'point_to', 'args': {'x': 100, 'y': 200}}\n" + \
+		"        return '<think>thinking</think>'\n" + \
+		"    else:\n" + \
+		"        _last_tool_call = {}\n" + \
+		"        return 'Here is the button you asked for.'\n"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._config_cache = {
+		"system_prompt" : "Respond fast.",
+		"personality": "",
+		"llm_provider": "local",
+		"heavy_model": "gemma4:e4b"
+	}
+	
+	# Register mock point_to skill
+	var dummy_point_to = func(ctx):
+		return "Success: pointed to 100, 200"
+	mock_ai._skills_registry["point_to"] = dummy_point_to
+	
+	var state := {
+		"response_received": "",
+		"request_failed_emitted": false
+	}
+	
+	mock_ai.response_received.connect(func(reply):
+		state["response_received"] = reply
+	)
+	mock_ai.request_failed.connect(func(msg):
+		state["request_failed_emitted"] = true
+	)
+	
+	await mock_ai.send_prompt("Point to the button")
+	
+	assert_eq(mock_ai.call_count, 2, "LLM stream should have been requested exactly twice (first for tool call, second for follow-up text).")
+	assert_eq(state["response_received"], "Here is the button you asked for.", "Final response should match the second LLM pass output.")
+	assert_false(state["request_failed_emitted"], "The request should not fail.")
+	
+	# Verify history contents
+	var hist = mock_ai._conversation_history
+	assert_eq(hist.size(), 4, "History should have 4 entries: user prompt, assistant tool call, tool response, and final assistant reply.")
+	assert_eq(hist[0]["role"], "user")
+	assert_eq(hist[0]["text"], "Point to the button")
+	
+	assert_eq(hist[1]["role"], "assistant")
+	assert_eq(hist[1]["tool_calls"].size(), 1)
+	assert_eq(hist[1]["tool_calls"][0]["name"], "point_to")
+	
+	assert_eq(hist[2]["role"], "tool")
+	assert_eq(hist[2]["name"], "point_to")
+	assert_eq(hist[2]["text"], "Success: pointed to 100, 200")
+	
+	assert_eq(hist[3]["role"], "assistant")
+	assert_eq(hist[3]["text"], "Here is the button you asked for.")
+
+
 func test_complete_preload_resets_warming_up_and_loading_states() -> void:
 	# Mock SettingsManager and WindowController with a mock Fairy
 	var win_ctrl := MockWindowController.new()
@@ -848,6 +924,23 @@ func test_scratchpad_meta_extraction() -> void:
 	assert_eq(ai_service._short_term_memory, "Step 1: explain X\nStep 2: explain Y", "Scratchpad content should be extracted and saved.")
 
 
+func test_process_reply_meta_ignores_continue_in_scratchpad_or_think() -> void:
+	var context := {"fairy_pos": Vector2.ZERO, "window_size": Vector2.ZERO}
+	ai_service._continuation_token = 0
+	
+	# Test with [CONTINUE] only inside scratchpad
+	ai_service._process_reply_meta("<scratchpad>Plan: use [CONTINUE] tags</scratchpad>Hello there!", context)
+	assert_eq(ai_service._continuation_token, 0, "Should NOT schedule continuation if [CONTINUE] is only in scratchpad.")
+	
+	# Test with [CONTINUE] only inside think block
+	ai_service._process_reply_meta("<think>Thinking: should I [CONTINUE]?</think>Hello there!", context)
+	assert_eq(ai_service._continuation_token, 0, "Should NOT schedule continuation if [CONTINUE] is only in think block.")
+	
+	# Test with [CONTINUE] in valid conversation response
+	ai_service._process_reply_meta("<scratchpad>notes</scratchpad>Hello there! [CONTINUE]", context)
+	assert_eq(ai_service._continuation_token, 1, "Should schedule continuation if [CONTINUE] is in conversational response.")
+
+
 func test_continuation_cancelled_by_new_prompt() -> void:
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
@@ -875,3 +968,50 @@ func test_continuation_cancelled_by_new_prompt() -> void:
 	await get_tree().create_timer(2.2).timeout
 	
 	assert_eq(mock_ai.send_prompt_called_count, 1, "Only the user prompt should be called; the continuation should be cancelled.")
+
+
+func test_unsupported_vision_model_error_decreases_power() -> void:
+	# Enable live navi mode so emotions update
+	mock_settings.set_setting("live_navi_mode", true)
+	mock_settings.set_setting("llm_provider", "local")
+	mock_settings.set_setting("local_model", "llama3.2:3b")
+	
+	# Set baseline power to 0.0
+	EmotionState.power = 0.0
+	
+	var script := GDScript.new()
+	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
+		"func _request_llm_stream(prompt, system_prompt, is_thinking_model=false, base64_image='', base64_crop='', temp=0.7, hist=[], is_cont=false) -> String:\n" + \
+		"    return ''\n"
+	script.reload()
+	
+	var mock_ai = Node.new()
+	mock_ai.set_script(script)
+	add_child_autofree(mock_ai)
+	mock_ai._settings_mgr = mock_settings
+	mock_ai._emotion_engine = ai_service._emotion_engine
+	
+	var state := {
+		"failed_message": ""
+	}
+	mock_ai.request_failed.connect(func(msg):
+		state["failed_message"] = msg
+	)
+	
+	var context := {
+		"prompt": "How many clocks are on the screen?",
+		"base64_image": "fake_image_data",
+		"personality": "friendly"
+	}
+	
+	# Mock calling final response with image context
+	var ok = await mock_ai._deliver_final_response("How many clocks are on the screen?", context, false, "", "", "", "llama3.2:3b")
+	var msg = state["failed_message"]
+	print("TEST DEBUG: failed_message is: '", msg, "'")
+	assert_false(ok, "Visual response delivery should return false when reply is empty.")
+	assert_true(msg.contains("llama3.2:3b"), "Should generate helpful error message mentioning the local model name.")
+	assert_true(msg.contains("doesn't support vision") or msg.contains("lacks vision capabilities"), "Should explain vision capability limitation.")
+	
+	# Evaluate emotion with failure
+	mock_ai._evaluate_emotion("How many clocks are on the screen?", "", true, false, false, true)
+	assert_true(EmotionState.power < 0.0, "Power should decrease when visual analysis fails.")

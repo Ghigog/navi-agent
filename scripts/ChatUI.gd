@@ -38,8 +38,6 @@ var _hotkey_press_start_time := 0.0
 var _abort_recording := false
 var _navi_was_open_on_press := false
 
-# Predictive auto-trigger typing state
-var _predictive_token: int = 0
 
 # Interactive guide/step-by-step state
 var _is_interactive_mode: bool = false
@@ -404,6 +402,13 @@ func _on_ai_response_received(response_text: String) -> void:
 		_is_interactive_mode = false
 		_update_send_button_ui()
 		
+		# Check if anything user-visible was streamed during response generation
+		var was_silent := true
+		if _current_response_text != "":
+			var visible_streamed := NaviUtils.strip_skill_and_pause_tags(_current_response_text)
+			if visible_streamed != "":
+				was_silent = false
+		
 		var committed := ""
 		if _thought_trail.size() > 0:
 			var trail_text := ""
@@ -428,7 +433,11 @@ func _on_ai_response_received(response_text: String) -> void:
 		response_label.text = NaviUtils.markdown_to_bbcode(_visual_history)
 
 		if has_node("/root/TTSService"):
-			get_node("/root/TTSService").end_speech_stream()
+			var tts = get_node("/root/TTSService")
+			tts.end_speech_stream()
+			if was_silent and committed != "":
+				# Read aloud the committed text since nothing was streamed during response
+				tts.speak(committed)
 
 		input_edit.grab_focus.call_deferred()
 
@@ -436,16 +445,19 @@ func _on_ai_response_received(response_text: String) -> void:
 		_resume_stt_recording_when_done_speaking()
 
 
-# Callback triggered when thinking model has intermediate thought updates
+# Callback triggered when thinking model has intermediate thought updates.
+# Think lines are spoken via TTS as natural utterances ("Hmm, let me think...").
+# They are NOT shown in the UI — the purple status light already signals thinking visually.
+# The personality-aware phrasing is applied by AIService._apply_personality_voice() before emission.
 func _on_ai_thinking_update(update_text: String) -> void:
 	if update_text.strip_edges() == "":
 		return
-	# Ignore late thinking updates if we are not actively awaiting a response,
-	# or if the response streaming has already started.
+	# Only speak think updates while actively waiting for a response (before streaming starts)
 	if input_edit.editable or _response_active:
 		return
-	_thought_trail.append(update_text)
-	_render_display()
+	# Speak the thought line — text output and voice output are the same in this app.
+	if has_node("/root/TTSService"):
+		get_node("/root/TTSService").speak(update_text)
 
 
 # Callback triggered when a streaming chunk of response is received
@@ -515,6 +527,9 @@ func _on_ai_request_failed(error_message: String) -> void:
 		response_label.text = NaviUtils.markdown_to_bbcode(_visual_history + "\n\n[color=#ff6666]Error: " + error_message + "[/color]")
 	input_edit.grab_focus.call_deferred()
 
+	if has_node("/root/TTSService"):
+		get_node("/root/TTSService").speak(error_message)
+
 	# Automatically trigger STT recording if enabled by default (deferred until speaking finishes)
 	_resume_stt_recording_when_done_speaking()
 
@@ -577,16 +592,7 @@ func _on_guidance_finished(_restore_follow: bool) -> void:
 func _render_display() -> void:
 	var text := _visual_history
 
-	# Append thought trail — each step on its own line, faded italic with a 💭 prefix
-	if _thought_trail.size() > 0:
-		if text != "":
-			text += "\n\n"
-		for i in _thought_trail.size():
-			if i > 0:
-				text += "\n"
-			text += _thought_trail[i]
-
-	# Append streaming response below the trail
+	# Append streaming response
 	if _current_response_text != "":
 		if text != "":
 			text += "\n\n"
@@ -596,8 +602,8 @@ func _render_display() -> void:
 		else:
 			text += NaviUtils.strip_skill_and_pause_tags(_current_response_text)
 
-	# Show placeholder only when the turn has just started (no trail, no response yet)
-	if _thought_trail.is_empty() and _current_response_text == "":
+	# Show placeholder only when the turn has just started (no response yet)
+	if _current_response_text == "":
 		if text != "":
 			text += "\n\n"
 		text += "[color=#888888]Thinking...[/color]"
@@ -799,7 +805,8 @@ func handle_hotkey_up() -> void:
 			await get_tree().process_frame
 			while _is_transcribing:
 				await get_tree().process_frame
-			_on_prompt_submitted(input_edit.text)
+			if input_edit.text.strip_edges() != "":
+				_on_prompt_submitted(input_edit.text)
 
 
 func _on_voice_toggled(toggled_on: bool) -> void:
@@ -997,40 +1004,33 @@ func _resume_stt_recording_when_done_speaking() -> void:
 
 
 ## Updates the chat window styling based on the active fairy base color.
+## Uses the mood color as a subtle accent (border + pointer) while keeping
+## a fixed dark background for consistent text legibility.
 func update_theme_colors(base_color: Color) -> void:
 	if not main_panel:
 		return
 	var stylebox: StyleBoxFlat = main_panel.get_theme_stylebox("panel")
 	if stylebox:
 		var new_stylebox := stylebox.duplicate() as StyleBoxFlat
-		new_stylebox.bg_color = Color(base_color.r, base_color.g, base_color.b, 0.85)
-		new_stylebox.border_color = base_color.darkened(0.4)
-		new_stylebox.border_color.a = 1.0 # Opaque accent color border
+		# Fixed dark neutral background — never changes with mood
+		new_stylebox.bg_color = Color(0.06, 0.06, 0.08, 0.88)
+		# Mood color as accent border
+		var accent := base_color.lightened(0.15)
+		accent.a = 0.55
+		new_stylebox.border_color = accent
+		new_stylebox.border_width_left = 1
+		new_stylebox.border_width_top = 1
+		new_stylebox.border_width_right = 1
+		new_stylebox.border_width_bottom = 1
 		main_panel.add_theme_stylebox_override("panel", new_stylebox)
 	if pointer:
-		pointer.color = Color(base_color.r, base_color.g, base_color.b, 0.85)
+		# Subtle accent tint on the pointer triangle
+		var pointer_color := base_color.lightened(0.1)
+		pointer_color.a = 0.45
+		pointer.color = pointer_color
 
 
 func _on_input_text_changed(new_text: String) -> void:
 	_update_send_button_ui()
-	
-	if _settings_mgr and not _settings_mgr.get_setting("enable_predictive_trigger", false):
-		return
-		
-	_predictive_token += 1
-	var token := _predictive_token
-	
-	var text_trimmed := new_text.strip_edges()
-	if text_trimmed == "":
-		return
-		
-	# Check if the text ends with punctuation (e.g. "?", ".", "!")
-	var last_char := text_trimmed[-1]
-	if last_char in ["?", ".", "!"]:
-		print("ChatUI: [AUTO-TRIGGER] Punctuation detected. Starting 1.2s debounced trigger...")
-		# Wait 1.2 seconds of typing inactivity
-		var timer = get_tree().create_timer(1.2)
-		await timer.timeout
-		if _predictive_token == token and input_edit.text.strip_edges() == text_trimmed:
-			print("ChatUI: [AUTO-TRIGGER] Inactivity period reached. Auto-submitting prompt.")
-			_on_prompt_submitted(input_edit.text)
+	# Predictive auto-submit (punctuation trigger) has been removed.
+	# Users submit by pressing Enter or the Send button only.

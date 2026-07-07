@@ -356,28 +356,53 @@ func test_greeting_mode_hotkey_transitions_to_interactive() -> void:
 	assert_false(chat_ui._is_greeting_mode, "Pressing hotkey in greeting mode should transition to interactive mode.")
 
 
-func test_predictive_auto_submit_on_punctuation() -> void:
-	var real_settings = get_node_or_null("/root/SettingsManager")
-	var prev_predictive = false
-	if real_settings:
-		prev_predictive = real_settings.get_setting("enable_predictive_trigger", false)
-		real_settings.set_setting("enable_predictive_trigger", true)
-		
+func test_response_received_fallback_scratchpad() -> void:
 	chat_ui.open_chat()
-	chat_ui.input_edit.text = "Hello Navi, what's up?"
-	chat_ui._on_input_text_changed("Hello Navi, what's up?")
-	
-	# Verify that it doesn't submit immediately
-	assert_true(chat_ui.input_edit.editable, "Input field should still be editable immediately after typing punctuation.")
-	
-	# Wait 1.4 seconds (longer than the 1.2s debounced trigger)
-	await get_tree().create_timer(1.4).timeout
-	
-	# Auto-submit will trigger _on_prompt_submitted, disabling editable state
-	assert_false(chat_ui.input_edit.editable, "Input field should be submitted (disabled) after debounced inactivity timeout.")
+	chat_ui._on_ai_request_started()
+	chat_ui._on_ai_response_chunk("")
+	chat_ui._on_ai_response_received("<scratchpad>This is a fallback message</scratchpad>")
+	assert_true(chat_ui.response_label.text.contains("This is a fallback message"), "Should display the fallback scratchpad content when empty.")
 
-	if real_settings:
-		real_settings.set_setting("enable_predictive_trigger", prev_predictive)
+
+func test_parse_interactive_steps_with_scratchpad() -> void:
+	var raw_response := "<scratchpad>\n* Plan: do things\n</scratchpad>\nFirst part.\n[PAUSE]\nSecond part."
+	var GC_Script = load("res://scripts/GuidanceController.gd")
+	var steps: Array = GC_Script.parse_interactive_steps(raw_response)
+	
+	assert_eq(steps.size(), 1, "Should parse steps cleanly without scratchpad.")
+	assert_eq(steps[0]["text"], "First part.\n\nSecond part.", "Scratchpad-stripped step text matches.")
+	assert_null(steps[0]["point"], "Merged step has no coordinate.")
+
+
+func test_guidance_controller_stream_with_scratchpad() -> void:
+	var GC_Script = load("res://scripts/GuidanceController.gd")
+	var gc = GC_Script.new()
+	add_child_autofree(gc)
+	gc.reset()
+	
+	# The filtered streamed chunks parsed incrementally
+	var stream_text := "\nHello Navi! [SKILL: point_to: 100, 200] [PAUSE] Let's do this."
+	gc.parse_and_append_new_steps(stream_text)
+	
+	# The raw final reply containing scratchpad
+	var raw_final_reply := "<scratchpad>\n* Goal: count clocks\n* Locations:\n    1. Top-left\n</scratchpad>\nHello Navi! [SKILL: point_to: 100, 200] [PAUSE] Let's do this."
+	gc.finish_stream(raw_final_reply)
+	
+	# Verify that no step contains the scratchpad text
+	for step in gc.steps:
+		assert_false(step["text"].contains("Goal"), "Step text should not contain scratchpad keywords.")
+		assert_false(step["text"].contains("Locations"), "Step text should not contain scratchpad locations.")
+		assert_false(step["text"].contains("Top-left"), "Step text should not contain scratchpad detail.")
+		assert_false(step["text"].contains("scratchpad"), "Step text should not contain scratchpad tags.")
+	
+	# Verify remainder step text specifically
+	assert_eq(gc.steps.size(), 3, "Should have 3 steps parsed (Intro, point, and remainder).")
+	assert_eq(gc.steps[2]["text"], "Let's do this.", "Final remainder step text should match the clean end of raw response.")
+
+
+
+
+
 
 
 

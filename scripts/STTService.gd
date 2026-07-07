@@ -62,7 +62,7 @@ func _setup_audio_bus() -> void:
 ## Starts recording microphone audio.
 func start_recording() -> void:
 	if not _record_effect:
-		printerr("STTService: Record effect not initialized.")
+		ErrorBus.report("STTService: Record effect not initialized.")
 		return
 	
 	# Clear out any previous recording buffer
@@ -81,7 +81,7 @@ func stop_recording() -> AudioStreamWAV:
 		return null
 		
 	var elapsed := Time.get_ticks_msec() - _recording_start_time
-	if elapsed < 100:
+	if elapsed < 10:
 		_record_effect.set_recording_active(false)
 		print("STTService: Recording too short (%d ms), discarding to avoid empty buffer error." % elapsed)
 		return null
@@ -93,7 +93,7 @@ func stop_recording() -> AudioStreamWAV:
 		print("STTService: Audio recording stopped. Sample Rate: ", recording.mix_rate)
 		return recording
 	else:
-		printerr("STTService: Failed to retrieve recording buffer.")
+		ErrorBus.report("STTService: Failed to retrieve recording buffer.")
 		return null
 
 
@@ -109,7 +109,7 @@ func transcribe_audio(recording: AudioStreamWAV) -> String:
 	# Save the buffer to disk temporarily to compile correct WAV header format
 	var err := recording.save_to_wav(TEMP_RECORD_FILE)
 	if err != OK:
-		printerr("STTService: Failed to save recording to wav file. Code: ", err)
+		ErrorBus.report("STTService: Failed to save recording to wav file. Code: " + str(err))
 		return ""
 
 	if not _settings_mgr:
@@ -136,7 +136,7 @@ func transcribe_audio(recording: AudioStreamWAV) -> String:
 					file.close()
 					text = await _transcribe_gemini(bytes)
 			else:
-				printerr("STTService: Whisper failed and no Cloud Gemini credentials are available for fallback.")
+				ErrorBus.report("STTService: Whisper failed and no Cloud Gemini credentials are available for fallback.")
 	else:
 		print("STTService: Transcribing via Cloud Gemini...")
 		var file := FileAccess.open(TEMP_RECORD_FILE, FileAccess.READ)
@@ -183,10 +183,10 @@ func _transcribe_whisper(wav_path: String) -> String:
 	var abs_wav_path := ProjectSettings.globalize_path(wav_path)
 
 	if not FileAccess.file_exists(bin_path):
-		printerr("STTService: whisper-cli binary not found at ", bin_path)
+		ErrorBus.report("STTService: whisper-cli binary not found at " + str(bin_path))
 		return ""
 	if not FileAccess.file_exists(model_path):
-		printerr("STTService: GGML model not found at ", model_path)
+		ErrorBus.report("STTService: GGML model not found at " + str(model_path))
 		return ""
 
 	# Call whisper-cli with no-prints and no-timestamps options for clean output
@@ -202,7 +202,7 @@ func _transcribe_whisper(wav_path: String) -> String:
 
 	var thread_err: Error = thread.start(_execute_whisper_task.bind(bin_path, args, output))
 	if thread_err != OK:
-		printerr("STTService: Failed to start background transcription thread. Code: ", thread_err)
+		ErrorBus.report("STTService: Failed to start background transcription thread. Code: " + str(thread_err))
 		# Fallback to main thread execution if thread spawn fails
 		var exit_code: int = OS.execute(bin_path, args, output, true)
 		if exit_code == 0 and output.size() > 0:
@@ -215,7 +215,7 @@ func _transcribe_whisper(wav_path: String) -> String:
 
 	var exit_code: int = thread.wait_to_finish()
 	if exit_code != 0:
-		printerr("STTService: Local whisper-cli failed with exit code ", exit_code)
+		ErrorBus.report("STTService: Local whisper-cli failed with exit code " + str(exit_code))
 		return ""
 
 	if output.size() > 0:
@@ -233,7 +233,7 @@ func _transcribe_gemini(bytes: PackedByteArray) -> String:
 		
 	var url: String = _settings_mgr.get_setting("cloud_url", "")
 	if api_key == "" or url == "":
-		printerr("STTService: Cloud Gemini credentials or URL are missing. Cannot perform Gemini STT.")
+		ErrorBus.report("STTService: Cloud Gemini credentials or URL are missing. Cannot perform Gemini STT.")
 		return ""
 
 	# Build target Gemini transcription endpoint using gemini-2.5-flash
@@ -288,7 +288,7 @@ func _transcribe_gemini(bytes: PackedByteArray) -> String:
 	var body: PackedByteArray = completed_args[3]
 
 	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
-		printerr("STTService: Gemini fallback request failed with code ", response_code)
+		ErrorBus.report("STTService: Gemini fallback request failed with code " + str(response_code))
 		return ""
 
 	var response_string := body.get_string_from_utf8()

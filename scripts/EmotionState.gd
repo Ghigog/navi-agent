@@ -94,7 +94,7 @@ func save() -> void:
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
-		printerr("EmotionState: could not open %s for writing (error %d)" % [SAVE_PATH, FileAccess.get_open_error()])
+		ErrorBus.report("EmotionState: could not open %s for writing (error %d)" % [SAVE_PATH, FileAccess.get_open_error()])
 		return
 	file.store_string(JSON.stringify(data, "\t"))
 	file.close()
@@ -109,7 +109,7 @@ func load_state() -> void:
 
 	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if file == null:
-		printerr("EmotionState: could not open %s for reading (error %d)" % [SAVE_PATH, FileAccess.get_open_error()])
+		ErrorBus.report("EmotionState: could not open %s for reading (error %d)" % [SAVE_PATH, FileAccess.get_open_error()])
 		return
 
 	var raw := file.get_as_text()
@@ -118,7 +118,7 @@ func load_state() -> void:
 	var json := JSON.new()
 	var parse_err := json.parse(raw)
 	if parse_err != OK or not json.data is Dictionary:
-		printerr("EmotionState: malformed JSON in %s — resetting to defaults." % SAVE_PATH)
+		ErrorBus.report("EmotionState: malformed JSON in %s — resetting to defaults." % SAVE_PATH)
 		return
 
 	var d: Dictionary = json.data

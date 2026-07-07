@@ -26,6 +26,7 @@ func parse_and_append_new_steps(current_response_text: String) -> void:
 	var think_regex := RegEx.new()
 	think_regex.compile("(?s)<think>.*?</think>")
 	var clean_text := think_regex.sub(current_response_text, "", true)
+	clean_text = NaviUtils.strip_scratchpad_block(clean_text)
 
 	var regex := RegEx.new()
 	regex.compile("\\[PAUSE\\]|\\[SKILL:\\s*point_to:\\s*(.*?)\\]")
@@ -82,6 +83,7 @@ func finish_stream(final_reply: String) -> void:
 	var think_regex := RegEx.new()
 	think_regex.compile("(?s)<think>.*?</think>")
 	var clean_reply := think_regex.sub(final_reply, "", true)
+	clean_reply = NaviUtils.strip_scratchpad_block(clean_reply)
 	
 	var remainder := clean_reply.substr(_unprocessed_stream_idx).strip_edges()
 	
@@ -262,6 +264,7 @@ func abort_guidance(restore_follow: bool = false) -> void:
 ## Helper parsing logic to split a text stream into discrete pause/point_to segments.
 static func parse_interactive_steps(text: String) -> Array[Dictionary]:
 	var raw_steps: Array[Dictionary] = []
+	text = NaviUtils.strip_scratchpad_block(NaviUtils.strip_thinking_block(text))
 	
 	var regex := RegEx.new()
 	regex.compile("\\[PAUSE\\]|\\[SKILL:\\s*point_to:\\s*(.*?)\\]")

@@ -12,6 +12,159 @@ This document contains completed, cancelled, or reverted historical tickets.
 
 ## Tickets
 
+### NAV-UI: Display Order Adjustment (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi (FairyVisuals) to be displayed on top of the Chat window but behind the Settings window
+- **So that:** Navi does not get hidden by the chat dialogue bubble, but the settings panel remains fully accessible and overlayed on top of her.
+
+**Description:**
+1. Modified `Main.tscn` to reorder the instantiation of the child nodes.
+2. Placed `ChatUI` first, followed by `FairyVisuals`, and finally `SettingsUI`. This naturally adjusts the Godot canvas draw order so Navi is drawn on top of the chat window but behind the settings panel.
+
+---
+
+### NAV-79: Visual Analysis Capability Error Handling (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to respond politely and in character when a local model lacks vision capabilities
+- **So that:** I understand exactly why visual analysis failed and how to configure settings to fix it, while also experiencing realistic emotional state changes (power decreasing) when Navi fails to perform an action.
+
+**Description:**
+1. Created personality-voiced error helper methods in `AIService.gd` matching `annoying`, `snarky`, `professional`, and default/friendly personalities to explain when local or cloud vision requests fail.
+2. Updated `_deliver_final_response()` return type to `bool` to signal success/failure of the stream delivery back to callers.
+3. Updated call sites in `AIService.gd` to pass `analysis_failed: bool` to the `_evaluate_emotion()` method.
+4. Updated `_evaluate_emotion()` and `EmotionEngine.gd` to check for `analysis_failed` and decrease the Triforce Power feeling by `5.0` points when true (clamping within `[-10.0, 10.0]`).
+5. Updated `ChatUI.gd` to speak request failures aloud via `TTSService.speak()`.
+6. Wrote a new unit test in `test_ai_service.gd` (`test_unsupported_vision_model_error_decreases_power`) to verify the message generation and emotional power reduction.
+
+---
+
+### NAV-69: Short-Term Memory Scratchpad System (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to write private planning notes in a scratchpad that persists across conversational turns
+- **So that:** Navi can plan multi-step answers, formulate clarifying questions, and refer back to information later.
+
+**Context:**
+Currently, Navi has no private state memory between turns. All history is user-visible, meaning she cannot "think ahead" or structure long-term responses without dumping it all to the screen.
+
+**Description:**
+1. Added `_short_term_memory` string property to `AIService.gd` to persist private context during active sessions.
+2. Implemented Regex block extraction for `<scratchpad>` and `</scratchpad>` tags in `AIService._process_reply_meta()`.
+3. Created `NaviUtils.strip_scratchpad_block()` to cleanly remove planning blocks from user-visible labels, with a fallback that displays scratchpad text if the conversational response is empty.
+4. Injected `_short_term_memory` into the system prompts inside `_build_identity()`.
+5. Cleared `_short_term_memory` inside `clear_history()`.
+
+---
+
+### NAV-70: Multi-Step Response Continuation Loop (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to output responses in sequential stages by triggering background continuations (`[CONTINUE]`)
+- **So that:** I can have realistic, paced conversations and intervene/interrupt between steps.
+
+**Description:**
+1. Updated `send_prompt` signature in `AIService.gd` to support `is_continuation: bool`.
+2. Skipped classification and emotion pre-evaluation on continuation requests.
+3. Automatically scheduled background continuations using a token-based timer when `[CONTINUE]` is parsed.
+4. Configured the continuation sequencer to verify `TTSService.is_speaking()` and enforce a 2.0-second pause.
+5. Setup logic to cancel the continuation if the user starts typing or submits a new prompt.
+6. Injected `(Continue)` hidden messages in history to maintain Gemini role alternation compliance.
+
+---
+
+### NAV-71: Unit & Integration Testing for Multi-Step System (DONE)
+**User Story:**
+- **As a:** Developer
+- **I want:** Comprehensive GUT tests for the scratchpad and continuation systems
+- **So that:** I can verify correct tag stripping, prompt injection, continuation scheduling, and interruption behavior.
+
+**Description:**
+1. Implemented unit tests for `<scratchpad>` stripping and fallback recovery in `test_navi_utils.gd`.
+2. Added `test_scratchpad_meta_extraction` and `test_continuation_cancelled_by_new_prompt` inside `test_ai_service.gd`.
+3. Verified full test suite runs and passes cleanly headlessly.
+
+---
+
+### NAV-77: Speech-to-Text (STT) User Instructions in Settings UI (DONE)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Clear instructions in the settings panel explaining how to use voice commands via the hotkey
+- **So that:** I know how to dictate, submit, and cancel voice entries without guess-work or unexpected behaviors.
+
+**Description:**
+1. Added `VoiceInstructionsLabel` in [SettingsUI.tscn](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scenes/SettingsUI.tscn) directly under the global interaction hotkey row. It outlines the push-to-talk holds, auto-submit on release, and the quick-tap to cancel action.
+2. Added a detailed hover tooltip to `HotkeyLabel` in [SettingsUI.tscn](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scenes/SettingsUI.tscn).
+3. Added a new "How to Interact & Voice Commands" guide section to [README.md](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/README.md) detailing interaction states.
+
+---
+
+### NAV-74: Portable Local Neural TTS (Piper) Setup (DONE)
+**User Story:**
+- **As a:** Developer setting up Navi on a new machine
+- **I want:** The local TTS dependency to run out of the box without referring to hardcoded paths on another user's machine
+- **So that:** Project setup is quick, robust, and portable.
+
+**Context:**
+`bin/piper` was a wrapper script hardcoded to a specific developer's path: `/Users/dylangrowcoot/.pyenv/...`.
+
+**Description:**
+1. Updated [bin/piper](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/bin/piper) to dynamically look for python/python3 on the user's environment `$PATH` instead of using the hardcoded absolute pyenv path.
+2. Verified that the `piper` module is available in python, outputting a clean developer-facing error message with pip installation instructions if missing.
+3. Added fallback safety tests in [test_stt_tts.gd](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/test/test_stt_tts.gd) to verify Whisper and Piper degrade gracefully if local environments fail.
+
+---
+
+### NAV-75: Model Bootstrapping & Setup Script / In-App Downloader (DONE)
+**User Story:**
+- **As a:** New developer or user setting up the project
+- **I want:** An easy and automated way to download the required large models that are excluded from Git
+- **So that:** I don't have to manually locate and download weights files from third-party sites.
+
+**Description:**
+1. Created [setup_models.sh](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/setup_models.sh) developer utility script in the project root to automatically download Whisper and default Piper voice models into local folders and set binary executable permissions.
+2. Programmatically added an `OfflineModelsRow` to the settings panel in [SettingsUI.gd](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/SettingsUI.gd) containing a **Download** button.
+3. Implemented asynchronous downloading in Godot using `HTTPRequest` nodes to download weights to the writable `user://models/` data directory, complete with real-time progress text.
+4. Auto-configured the settings to point to the downloaded `user://` models once complete and re-populated the local Piper voice options.
+5. Updated [README.md](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/README.md) to document downloader steps and packaging instructions.
+
+---
+
+### NAV-76: Export Packaging & Global Hotkey Distribution (DONE)
+**User Story:**
+- **As a:** Developer exporting Navi for distribution
+- **I want:** The global hotkey daemon and local binaries to be packaged and resolved correctly in the exported app without compiling Swift at runtime
+- **So that:** Users running the compiled application can register hotkeys and use offline voice/speech features out-of-the-box.
+
+**Description:**
+1. Built a pre-compiled macOS binary for [hotkey_daemon.swift](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/hotkey_daemon.swift) and saved it to [bin/hotkey_daemon](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/bin/hotkey_daemon).
+2. Updated [InputManager.gd](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/InputManager.gd) to check for and load the pre-compiled `res://bin/hotkey_daemon` binary, falling back to Swift compilation (`swiftc`) only if missing.
+3. Documented manual packaging instructions in [README.md](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/README.md) for copying the `bin/` directory relative to exported builds.
+
+---
+
+### NAV-73: Multi-Pass Agentic Tool Calling Loop (DONE)
+**User Story:**
+- **As a:** Developer / Navi user
+- **I want:** Native LLM tool calls to execute and have their outcome fed back to the LLM
+- **So that:** Navi can run multi-step agentic reasoning loops and solve complex queries requiring tools.
+
+**Context:**
+Previously, when a tool call was received, the tool call was executed but the outcome was never fed back to the LLM. The LLM's turn finished immediately, breaking agentic loops.
+
+**Description:**
+1. Implemented a synchronous execution helper `_execute_tool_synchronously` in `AIService.gd`.
+2. Created a member variable `_last_tool_call` to track the last parsed tool name and arguments.
+3. Updated `_request_llm_stream` to store parsed tool calls, handle tool/assistant history payloads correctly for Ollama and Gemini, and support followup passes without clearing the response UI.
+4. Implemented a multi-pass agentic loop inside `_deliver_final_response` (for both thinking and fast paths) that requests the LLM, executes tool calls, appends the tool call/response to the message history, and requests the LLM again in a loop until the final text response is returned.
+5. Refactored signal connections to avoid duplicate execution of tools.
+
+**Acceptance Criteria:**
+- **GUT Test**: `test_agentic_tool_calling_loop` verifies that a tool call starts an agentic loop pass, feeds the tool output back, and concludes with a text response.
+
+---
+
 ### NAV-68: Voice-Text Streaming Sync, Emotion State Preservation & In-Character Responses (DONE)
 **User Story:**
 - **As a:** Navi user
@@ -2354,6 +2507,159 @@ Currently, skills execute automatically as soon as they are resolved. As we buil
 
 **Acceptance Criteria:**
 - **Manual Verification**: Run the app with local model warm-up enabled. Confirm the loading spiral displays on startup, stays active while the greeting is being requested/generated, and only disappears when the greeting bubble opens.
+
+---
+
+### NAV-75: Fix Voice Push-to-Talk Hotkey Release Event (COMPLETED)
+**User Story:**
+- **As a:** Navi user holding the hotkey to speak
+- **I want:** Letting go of the hotkey to stop recording and trigger audio transcription immediately
+- **So that:** Voice interaction works correctly without hanging in the recording state.
+
+**Description:**
+1. Refactored Carbon event handler registration in `hotkey_daemon.swift` to use a single, array-based registration for both `kEventHotKeyPressed` and `kEventHotKeyReleased`.
+2. Updated the precompiled binary `bin/hotkey_daemon` to include the updated key release handler.
+3. Updated `InputManager.gd`'s `_start_daemon` method to automatically compile the daemon from source if the Swift source file is newer than the precompiled binary.
+4. Added a statically-typed `_copy_precompiled_binary` helper in `InputManager.gd` to handle binary copying cleanly, with a safe fallback to the precompiled binary if compilation fails.
+5. Updated `handle_hotkey_up()` in `ChatUI.gd` to only submit the prompt if the transcribed text is non-empty. This prevents empty/failed transcriptions from triggering Godot's default empty prompt callback, which previously re-enabled the voice recording button automatically.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run the app and verify that holding the hotkey, speaking, and releasing it correctly stops recording, displays the spinner, and submits the transcribed prompt.
+
+---
+
+### NAV-76: Fix Push-to-Talk Daemon Never Launching (COMPLETED)
+**User Story:**
+- **As a:** Navi user activating push-to-talk
+- **I want:** The hotkey daemon to actually launch and emit hotkey_up when I release the key
+- **So that:** Recording stops correctly, the red light clears, and voice input is transcribed.
+
+**Root Cause:**
+A refactoring in NAV-75 introduced a critical indentation bug in `InputManager.gd`. The daemon launch code (`OS.create_process`) was accidentally placed **inside** `_copy_precompiled_binary()`, after its `return` statements — making it permanently unreachable dead code. As a result, the daemon process was never started. Without the daemon, no UDP packets were ever sent to Godot, so the `hotkey_released` signal was never emitted, and `handle_hotkey_up()` was never called.
+
+**Fix:**
+Moved the `OS.create_process` launch block back into `_start_daemon()` at the correct indentation level (L149–155), so it is always executed after the binary preparation logic regardless of whether the binary was compiled, copied, or was already up-to-date.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run the app. Confirm that the log shows `"InputManager: Daemon running with PID"`. Verify that pressing and releasing the hotkey correctly starts and stops recording, and that holding + speaking transcribes the speech into the input field.
+
+---
+
+### NAV-77: Global Error Surface via ErrorBus + ⚠️ Emoji Notification (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** A visual indicator whenever any internal error occurs
+- **So that:** I know something went wrong even when no chat window is open.
+
+**Description:**
+1. Created `scripts/ErrorBus.gd` — a lightweight global autoload singleton with an `error_occurred(message)` signal and a `report(message: String)` method that both prints to stderr and emits the signal.
+2. Registered `ErrorBus` as the **first** autoload in `project.godot` so it's available before any other service.
+3. Replaced all 31 `printerr()` calls across `STTService.gd`, `TTSService.gd`, `InputManager.gd`, `ScreenCaptureService.gd`, `SettingsManager.gd`, `EmotionState.gd`, and `SettingsUI.gd` with `ErrorBus.report()`.
+4. Added `spawn_error_emoji()` to `FairyVisuals.gd` — spawns a ⚠️ emoji above the fairy using the existing `EmojiNotification.tscn` scene, with a 1-second debounce to prevent spam.
+5. Wired `FairyVisuals._ready()` to connect `ErrorBus.error_occurred` → `_on_error_occurred()` → `spawn_error_emoji()`.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Trigger any error (e.g. STT failing). Confirm ⚠️ floats above Navi. Confirm multiple rapid errors within 1 second only show one emoji.
+
+---
+
+### NAV-78: Fix whisper-cli SIGABRT + Settings Download Button State (COMPLETED)
+**User Story:**
+- **As a:** Navi user using push-to-talk
+- **I want:** Speech to actually be transcribed when I release the hotkey
+- **So that:** My voice input reaches the AI instead of silently failing.
+
+**Root Cause (whisper-cli exit 134 / SIGABRT):**
+The `bin/whisper-cli` binary was dynamically linked against `libwhisper.1.dylib` from a temporary scratch build directory that no longer existed. On launch, `dyld` aborted the process immediately because the library path was invalid.
+
+**Fix:**
+1. Cloned `whisper.cpp` source fresh into `scratch/whisper.cpp` (gitignored).
+2. Built with `cmake -DBUILD_SHARED_LIBS=OFF` to produce a fully statically linked binary — only system frameworks (`Accelerate`, `Metal`, `Foundation`, `libc++`) remain as dependencies.
+3. Replaced `bin/whisper-cli` with the new static build. Verified with `jfk.wav` sample: transcribes correctly.
+
+**Fix (Download Button UX):**
+Added `_check_offline_models_state()` to `SettingsUI.gd`:
+- Called on settings panel open — detects `user://models/ggml-base.en.bin` and a Piper voice ONNX file.
+- If both exist: button shows "✅ Downloaded" and is disabled with a tooltip explaining how to re-download.
+- If only Whisper exists: button shows "Download (Voice missing)".
+- Called again after a successful download completes so state is always current.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Open settings after models are already downloaded — button shows ✅ and is disabled. Hold hotkey, speak, release — text appears in the input box.
+
+---
+
+### NAV-79: UI Streaming and Auto-Trigger Bug Fixes (COMPLETED)
+**User Story:**
+- **As a:** Navi user sending messages via voice/text
+- **I want:** The chat interface to stream responses smoothly without scratchpad leakage, flicker, disappearing texts, or punctuation auto-triggering
+- **So that:** The conversation experience is polished, clean, and reliable.
+
+**Description:**
+1. **Scratchpad & Control Tag Filtering**: Updated `_filter_stream_chunk()` in `AIService.gd` to filter out `<scratchpad>...</scratchpad>` blocks completely and swallow internal control tags (`[CONTINUE]`, `[PAUSE]`, `[ESCALATE]`) silently from the user-facing stream.
+2. **Continuation Live Stream Persist**: Added `is_continuation` flag to `_request_llm_stream()` in `AIService.gd` and threaded it from the continuation self-prompt loop. Gated the `response_cleared` signal so continuation passes do not wipe the current streamed text in the UI.
+3. **Conversational Spoken Thoughts**: Re-routed intermediate `<think>` blocks in `ChatUI.gd` to `TTSService.speak()` as fire-and-forget spoken utterances (with natural, personality-voiced prefixes like *"Hmm, let me think..."*) instead of displaying them as a faded italic thought trail in the UI. Removed visual thought trail rendering.
+4. **Predictive Punctuation Auto-Trigger Removal**: Deleted debounced auto-submit logic on punctuation from `ChatUI.gd` and programmatically removed the "Predictive Auto-Submit" toggle row, defaults, and serialization from `SettingsUI.gd` and `SettingsManager.gd`.
+5. **STT & PointTo Enhancements**: Lowered STT minimum audio recording duration threshold to `10ms` in `STTService.gd`. Improved the tool description for `point_to` in `PointToSkill.gd` to minimize hallucinated triggers by smaller models.
+6. **Headless GUT Test Suite Fixes**:
+   - Fixed display server deadlocks by adding unit test (`GutRunner`) bypasses to `TTSService.speak()` and `TTSService.is_speaking()`.
+   - Bypassed LLM preloader queries during GUT execution using command-line argument checks in `preload_model()`.
+   - Relaxed static type checking of custom class variables in `WindowController.gd` to resolve class name compiler errors headlessly.
+   - Updated mock signatures of `_request_llm_stream` and `_deliver_final_response` in test files.
+   - Disabled skill confirmation by default in tests via mock settings to prevent hangs on tool tests.
+
+**Acceptance Criteria:**
+- **Manual Verification**: Run the app and verify: no scratchpad leakage; continuations append correctly; thoughts are spoken and not shown; punctuation doesn't auto-submit; tests pass headlessly.
+
+
+---
+
+### NAV-80: Continuation Tag Scratchpad/Think Suppression (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's background continuation triggers to only activate when `[CONTINUE]` is explicitly outputted in the user-facing response, rather than matching planning/thinking notes inside `<scratchpad>` or `<think>` blocks
+- **So that:** Navi does not start loop-replying or self-prompting on simple prompts when she merely references the word/pattern `[CONTINUE]` in her scratchpad plans.
+
+**Description:**
+1. **Continuation Tag Filtering**: Modified `_process_reply_meta()` in `scripts/AIService.gd` to strip out `<scratchpad>...</scratchpad>` and `<think>...</think>` blocks (using helper methods from `NaviUtils`) before running the `.contains("[CONTINUE]")` check.
+2. **Unit Test Coverage**: Added `test_process_reply_meta_ignores_continue_in_scratchpad_or_think()` in `test/test_ai_service.gd` to verify that `[CONTINUE]` tags residing purely inside scratchpad or thinking blocks do not trigger background continuations.
+
+**Acceptance Criteria:**
+- **Automated Verification**: Run GUT tests headlessly; the new suite asserts that only user-facing continuation tags trigger execution.
+
+
+---
+
+### NAV-BUG-12: HighDPI Coordinate Calibration and Step-by-Step Guidance Restore (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi to fly to the correct logical coordinates on HighDPI/Retina screens, and to play back step-by-step guidance sequences in real-time
+- **So that:** Navi points accurately at visual elements on my screen and moves sequentially as she explains each step.
+
+**Description:**
+1. **HighDPI Calibration**: Updated `map_normalized_coordinate_to_screen()` in `scripts/NaviUtils.gd` to divide the screen's physical pixel dimensions by the active screen scale factor (`DisplayServer.screen_get_scale()`). This calibrates coordinates to logical points, aligning with macOS window positioning.
+2. **Expose Pause Tags**: Removed `[PAUSE]` from `INTERNAL_TAGS` in `_filter_stream_chunk()` in `scripts/AIService.gd`. This allows the client-side `ChatUI` to receive `[PAUSE]` in real-time stream chunks, triggering step playback and feeding step coordinates to `GuidanceController.gd`.
+3. **Clarify System Prompts**: Updated system instructions in `thinking_system_prompt` and `analysis_system_prompt` in `scripts/AIService.gd` to explain that the model should use native tool calling for single targets but MUST output bracket tags (e.g. `[SKILL: point_to: X, Y]`) and `[PAUSE]` tags for multi-step guidance.
+4. **Unit Test Updates**: Updated `test_map_normalized_coordinate_to_screen` in `test/test_navi_utils.gd` to assert logical mapping coordinates scaled by the screen DPI factor.
+
+**Acceptance Criteria:**
+- **Automated Verification**: Run GUT tests headlessly; the updated test suite verifies logical mapping scaling, and all 180+ tests pass successfully.
+
+
+---
+
+### NAV-BUG-13: Guidance Sequence Scratchpad Suppression (COMPLETED)
+**User Story:**
+- **As a:** Navi user
+- **I want:** Navi's step-by-step guidance system to exclude private planning notes from the `<scratchpad>...</scratchpad>` block
+- **So that:** Navi does not read out or display scratchpad information during interactive step guides.
+
+**Description:**
+1. **Guidance Scratchpad Suppression**: Updated `GuidanceController.gd` to call `NaviUtils.strip_scratchpad_block` inside `parse_and_append_new_steps()`, `finish_stream()`, and `parse_interactive_steps()`. This prevents index offset misalignment and ensures that private scratchpad details are fully excluded.
+2. **Unit Test Coverage**: Added `test_parse_interactive_steps_with_scratchpad` and `test_guidance_controller_stream_with_scratchpad` in `test/test_chat_ui.gd` to verify scratchpad suppression.
+
+**Acceptance Criteria:**
+- **Automated Verification**: Run GUT tests headlessly; the updated test suite verifies scratchpad suppression, and all 185+ tests pass successfully.
 
 
 

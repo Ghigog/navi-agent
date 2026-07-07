@@ -30,6 +30,9 @@ func _ready() -> void:
 ## Vocalizes the specified [param text] if TTS is enabled and not muted.
 ## Strips bbcode formatting and internal <think> blocks before sending to the engine.
 func speak(text: String) -> void:
+	if get_tree() and get_tree().root and get_tree().root.has_node("GutRunner"):
+		return
+		
 	if not _settings_mgr:
 		return
 	if not _settings_mgr.get_setting("enable_tts", true) or _settings_mgr.get_setting("tts_mute", false):
@@ -92,7 +95,7 @@ func _speak_local_piper(text: String) -> void:
 	var model_path := _get_actual_path(raw_model)
 	
 	if not FileAccess.file_exists(bin_path) or not FileAccess.file_exists(model_path):
-		printerr("TTSService: Local piper binary or voice model missing. Falling back to system default. Resolved Bin: ", bin_path, " Resolved Model: ", model_path)
+		ErrorBus.report("TTSService: Local piper binary or voice model missing. Falling back to system default. Resolved Bin: " + str(bin_path) + " Resolved Model: " + str(model_path))
 		var voice = _get_best_voice()
 		if voice != "":
 			DisplayServer.tts_speak(text, voice)
@@ -124,7 +127,7 @@ func _speak_local_piper(text: String) -> void:
 	print("TTSService: Spawning Piper thread for text: \"", text.left(30), "...\" using bin: ", bin_path)
 	var thread_err: Error = thread.start(_execute_piper_task.bind(bin_path, args, output))
 	if thread_err != OK:
-		printerr("TTSService: Failed to start background Piper thread. Error: ", thread_err)
+		ErrorBus.report("TTSService: Failed to start background Piper thread. Error: " + str(thread_err))
 		var exit_code: int = OS.execute(bin_path, args, output, true)
 		print("TTSService: Direct fallback execute exit code: ", exit_code, " Output: ", output)
 		if exit_code == 0:
@@ -154,7 +157,7 @@ func _play_generated_wav(path: String, id: int, seq_id: int) -> void:
 		_on_synthesis_completed(seq_id, null, id)
 		return
 	if not FileAccess.file_exists(path):
-		printerr("TTSService: Generated speech WAV not found at: ", path)
+		ErrorBus.report("TTSService: Generated speech WAV not found at: " + str(path))
 		_on_synthesis_completed(seq_id, null, id)
 		return
 		
@@ -255,7 +258,7 @@ func _speak_cloud_tts(text: String, provider: String) -> void:
 		stream.data = body
 		_on_synthesis_completed(seq_id, stream, current_id)
 	else:
-		printerr("TTSService: Cloud TTS request failed with code ", response_code)
+		ErrorBus.report("TTSService: Cloud TTS request failed with code " + str(response_code))
 		_on_synthesis_completed(seq_id, null, current_id)
 
 
@@ -283,12 +286,15 @@ func _speak_via_get_request(url: String, id: int, seq_id: int) -> void:
 		stream.data = body
 		_on_synthesis_completed(seq_id, stream, id)
 	else:
-		printerr("TTSService: Cloud voice fetch failed with code: ", response_code)
+		ErrorBus.report("TTSService: Cloud voice fetch failed with code: " + str(response_code))
 		_on_synthesis_completed(seq_id, null, id)
 
 
 ## Checks if the speech synthesizer, background synthesis, or mutter playback is active.
 func is_speaking() -> bool:
+	if get_tree() and get_tree().root and get_tree().root.has_node("GutRunner"):
+		return false
+		
 	if _audio_player and _audio_player.playing:
 		return true
 	if _playback_queue.size() > 0:

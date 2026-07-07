@@ -55,8 +55,7 @@ var settings: Dictionary = {
 	"tts_pitch": 1.0,
 	"live_navi_mode": false,
 	"require_skill_confirmation": true,
-	"enable_push_to_talk": true, # DEPRECATED: Voice detection is removed. Push-to-talk is now the default/only option.
-	"enable_predictive_trigger": false
+	"enable_push_to_talk": true # DEPRECATED: Voice detection is removed. Push-to-talk is now the default/only option.
 }
 
 var skills = [
@@ -71,9 +70,6 @@ func _ready() -> void:
 
 	# Migrate missing keys if they don't exist in loaded settings
 	var changed := false
-	if not settings.has("enable_predictive_trigger"):
-		settings["enable_predictive_trigger"] = false
-		changed = true
 	if not settings.has("local_thinking_model"):
 		settings["local_thinking_model"] = ""
 		changed = true
@@ -216,7 +212,7 @@ func load_settings() -> void:
 				for key in loaded_data.keys():
 					settings[key] = loaded_data[key]
 		else:
-			printerr("SettingsManager: Failed to parse settings file. Error: ", parse_err)
+			ErrorBus.report("SettingsManager: Failed to parse settings file. Error: " + str(parse_err))
 
 
 ## Serializes the active settings dictionary to disk as formatted JSON.
@@ -227,7 +223,7 @@ func save_settings() -> void:
 		file.store_string(json_string)
 		file.close()
 	else:
-		printerr("SettingsManager: Failed to open settings file for writing.")
+		ErrorBus.report("SettingsManager: Failed to open settings file for writing.")
 
 
 ## Retrieves a configuration setting value. Returns [param default_value] if the key is missing.
