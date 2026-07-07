@@ -3,12 +3,12 @@
 [ext_resource type="Script" path="res://scripts/SettingsUI.gd" id="1_settings_ui"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
-bg_color = Color(0.08, 0.08, 0.1, 0.8)
+bg_color = Color(0.06, 0.06, 0.08, 0.88)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.4, 0.6, 1, 0.4)
+border_color = Color(0.25, 0.3, 0.4, 0.45)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
@@ -19,12 +19,12 @@ content_margin_right = 0.0
 content_margin_bottom = 0.0
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_input"]
-bg_color = Color(0.12, 0.15, 0.22, 0.9)
+bg_color = Color(0.06, 0.08, 0.12, 0.95)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.3, 0.75, 0.9, 0.4)
+border_color = Color(0.18, 0.2, 0.26, 0.8)
 corner_radius_top_left = 6
 corner_radius_top_right = 6
 corner_radius_bottom_right = 6
@@ -118,6 +118,7 @@ theme_override_constants/separation = 10
 [node name="SystemPromptLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 text = "System Prompt"
+tooltip_text = "Custom instructions sent to the AI before every conversation. Leave blank to use the default."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -126,6 +127,7 @@ autowrap_mode = 3
 custom_minimum_size = Vector2(0, 68)
 layout_mode = 2
 placeholder_text = "You are Navi, a helpful fairy companion..."
+tooltip_text = "Custom instructions sent to the AI before every conversation. Leave blank to use the default."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -133,6 +135,7 @@ theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 [node name="PersonalityLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 text = "Personality"
+tooltip_text = "A short description of how Navi should behave (e.g., 'cheerful and glowing'). Disabled when Live Navi Mode is on."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -140,6 +143,7 @@ autowrap_mode = 3
 [node name="PersonalityEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "cheerful and glowing"
+tooltip_text = "A short description of how Navi should behave (e.g., 'cheerful and glowing'). Disabled when Live Navi Mode is on."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -152,6 +156,7 @@ theme_override_constants/separation = 10
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Fairy Color"
+tooltip_text = "Choose Navi's body color. Disabled when Live Navi Mode is on."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -163,13 +168,15 @@ color = Color(0.4, 0.7, 1.0, 1.0)
 
 [node name="ProviderLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
-text = "LLM Provider"
+text = "AI Provider"
+tooltip_text = "Choose whether Navi uses a local AI server (Ollama) or a cloud API (Gemini)."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
 
 [node name="ProviderOption" type="OptionButton" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
+tooltip_text = "Local runs AI on your own computer (requires Ollama). Cloud uses Google's Gemini API (requires API key)."
 item_count = 2
 selected = 0
 popup/item_0/text = "Local (Ollama)"
@@ -180,7 +187,8 @@ theme_override_font_sizes/font_size = 12
 
 [node name="EndpointLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
-text = "Endpoint URL / AI Model"
+text = "Server Address & Model"
+tooltip_text = "The URL of your AI server. For local: usually http://localhost:11434. For cloud: the API endpoint."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -188,6 +196,7 @@ autowrap_mode = 3
 [node name="EndpointEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "http://localhost:11434"
+tooltip_text = "The URL of your AI server. For local: usually http://localhost:11434. For cloud: the API endpoint."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -195,6 +204,7 @@ theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 [node name="ModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "gemma4:e4b"
+tooltip_text = "The name of the AI model to use (e.g., 'gemma4:e4b' for local, 'gemini-2.5-flash' for cloud)."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -203,6 +213,7 @@ theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 layout_mode = 2
 visible = false
 text = "API Key"
+tooltip_text = "Your cloud provider API key. Required for cloud providers. Stored locally on this device, never shared."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -212,13 +223,15 @@ layout_mode = 2
 visible = false
 secret = true
 placeholder_text = "Paste your API key here"
+tooltip_text = "Your cloud provider API key. Required for cloud providers. Stored locally on this device, never shared."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 
 [node name="WhisperLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
-text = "Whisper Transcription URL / Model"
+text = "Speech Recognition Server"
+tooltip_text = "Advanced: The URL and model name for the Whisper speech-to-text server. Only needed for local STT."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -226,6 +239,7 @@ autowrap_mode = 3
 [node name="WhisperUrlEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "http://localhost:8080/v1/audio/transcriptions"
+tooltip_text = "The URL of your local Whisper speech recognition server."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -233,6 +247,7 @@ theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
 [node name="WhisperModelEdit" type="LineEdit" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
 placeholder_text = "whisper-1"
+tooltip_text = "The Whisper model name to use for speech recognition."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -245,16 +260,19 @@ theme_override_constants/separation = 4
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "Enable Screenshots"
+tooltip_text = "Allows Navi to capture your screen to understand what you're looking at. Navi only screenshots when needed."
 
 [node name="EnableThinkingCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/SkillsToggleRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "Enable Deep Thinking"
+tooltip_text = "Lets Navi use extended reasoning for complex questions. Uses more processing time but gives better answers."
 
 [node name="RequireSkillConfirmationCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/SkillsToggleRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "Require Skill Confirmation"
+tooltip_text = "When on, Navi asks your permission before taking actions like screenshots. Recommended to keep enabled."
 
 
 [node name="VoiceToggleRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
@@ -264,12 +282,14 @@ theme_override_constants/separation = 4
 [node name="EnableSTTCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/VoiceToggleRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
-text = "Enable Speech-to-Text (STT)"
+text = "Enable Voice Input"
+tooltip_text = "Turns on voice input — hold the hotkey to speak to Navi instead of typing."
 
 [node name="EnableTTSCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/VoiceToggleRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
-text = "Enable Text-to-Speech (TTS)"
+text = "Enable Navi's Voice"
+tooltip_text = "Lets Navi speak responses aloud using the selected voice below."
 
 [node name="HotkeyRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
@@ -278,7 +298,8 @@ theme_override_constants/separation = 10
 [node name="HotkeyLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/HotkeyRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Global Interaction Hotkey"
+tooltip_text = "Hold this key combo to start voice recording. Release to send. Quick-tap (under 0.4s) to cancel and type instead."
+text = "Talk Hotkey"
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -287,7 +308,19 @@ autowrap_mode = 3
 custom_minimum_size = Vector2(180, 28)
 layout_mode = 2
 text = "Ctrl + Shift + Opt + Space"
+tooltip_text = "Click here, then press your desired key combination to set a new hotkey."
 theme_override_font_sizes/font_size = 11
+
+[node name="VoiceInstructionsLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "Voice Commands Guide:
+• Hold down the hotkey to record your voice.
+• Speak your command or query while holding the key.
+• Release the key to stop recording and automatically submit the command.
+• Tapping the key quickly (under 0.4s) cancels the recording and refocuses the text box."
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.65, 0.75, 0.85, 0.65)
+autowrap_mode = 3
 
 [node name="FontSizeRow" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
 layout_mode = 2
@@ -296,7 +329,8 @@ theme_override_constants/separation = 10
 [node name="FontSizeLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/FontSizeRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Font Size Adjustment"
+text = "Text Size"
+tooltip_text = "Make all text in Navi larger or smaller. Positive = bigger, negative = smaller."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -308,6 +342,7 @@ min_value = -4.0
 max_value = 12.0
 step = 1.0
 value = 0.0
+tooltip_text = "Make all text in Navi larger or smaller. 0 = default size."
 theme_override_font_sizes/font_size = 12
 
 [node name="MutterRow" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer"]
@@ -321,17 +356,20 @@ theme_override_constants/separation = 4
 [node name="ShowNeuralCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/FilterVoicesRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
-text = "Neural"
+text = "Show Neural Voices"
+tooltip_text = "Show high-quality neural voices (Piper, OpenAI, Edge, Gemini) in the voice list."
 
 [node name="ShowSystemCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/FilterVoicesRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
-text = "System"
+text = "Show System Voices"
+tooltip_text = "Show your operating system's built-in text-to-speech voices."
 
 [node name="ShowMutterCheck" type="CheckBox" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/FilterVoicesRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
-text = "Mutter"
+text = "Show Mutter Voices"
+tooltip_text = "Show retro-style procedural 'mutter' sounds (like Animal Crossing dialogue)."
 
 [node name="VoiceModeHBox" type="VBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
 layout_mode = 2
@@ -339,20 +377,23 @@ theme_override_constants/separation = 4
 
 [node name="VoiceLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/VoiceModeHBox"]
 layout_mode = 2
-text = "Voice Option"
+text = "Navi's Voice"
+tooltip_text = "Choose how Navi speaks: Neural voices sound natural, Mutter is retro/quirky, System uses your OS voices."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
 
 [node name="VoiceOption" type="OptionButton" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/VoiceModeHBox"]
 layout_mode = 2
+tooltip_text = "Choose how Navi speaks: Neural voices sound natural, Mutter is retro/quirky, System uses your OS voices."
 theme_override_font_sizes/font_size = 12
 clip_text = true
 
 [node name="OpenAIApiKeyLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
 visible = false
 layout_mode = 2
-text = "OpenAI API Key (for Cloud TTS)"
+text = "OpenAI API Key (for Cloud Voice)"
+tooltip_text = "Required when using OpenAI cloud voices. Get your key from platform.openai.com. Stored locally."
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.85)
 autowrap_mode = 3
@@ -362,6 +403,7 @@ visible = false
 layout_mode = 2
 secret = true
 placeholder_text = "Paste your OpenAI API key here"
+tooltip_text = "Required when using OpenAI cloud voices. Get your key from platform.openai.com. Stored locally."
 theme_override_styles/normal = SubResource("StyleBoxFlat_input")
 theme_override_font_sizes/font_size = 12
 theme_override_colors/font_color = Color(0.9, 0.95, 1.0, 1.0)
@@ -374,6 +416,7 @@ theme_override_constants/separation = 6
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "Path to custom mutter (.wav/.ogg)"
+tooltip_text = "Add a custom short sound file (under 1 second) for mutter-style voice. Supports .wav and .ogg."
 theme_override_font_sizes/font_size = 11
 
 [node name="AddMutterButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomMutterHBox"]
@@ -394,6 +437,7 @@ theme_override_constants/separation = 6
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "Path to custom Piper voice (.onnx)"
+tooltip_text = "Add a custom Piper neural voice model (.onnx). The model and its .json config will be copied to the voices folder."
 theme_override_font_sizes/font_size = 11
 
 [node name="AddVoiceButton" type="Button" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/CustomVoiceHBox"]
@@ -418,7 +462,8 @@ theme_override_constants/separation = 8
 
 [node name="MutterPitchMinLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterPitchHBox"]
 layout_mode = 2
-text = "Pitch min"
+text = "Pitch Min"
+tooltip_text = "Minimum random pitch for mutter sounds. Lower = deeper blips."
 theme_override_font_sizes/font_size = 11
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
 
@@ -433,7 +478,8 @@ theme_override_font_sizes/font_size = 12
 
 [node name="MutterPitchMaxLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterPitchHBox"]
 layout_mode = 2
-text = "Pitch max"
+text = "Pitch Max"
+tooltip_text = "Maximum random pitch for mutter sounds. Higher = squeakier blips."
 theme_override_font_sizes/font_size = 11
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
 
@@ -452,7 +498,8 @@ theme_override_constants/separation = 8
 
 [node name="MutterSpeedLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/MutterSpeedHBox"]
 layout_mode = 2
-text = "Blip interval (s)"
+text = "Blip Speed"
+tooltip_text = "Time between each mutter blip in seconds. Smaller = faster talking."
 theme_override_font_sizes/font_size = 11
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
 
@@ -471,7 +518,8 @@ theme_override_constants/separation = 8
 
 [node name="TtsSpeedLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/TtsSpeedHBox"]
 layout_mode = 2
-text = "Voice Speed (Rate)"
+text = "Voice Speed"
+tooltip_text = "How fast Navi speaks. 1.0 is normal speed. Higher = faster."
 theme_override_font_sizes/font_size = 11
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
 
@@ -482,6 +530,7 @@ min_value = 0.5
 max_value = 3.0
 step = 0.1
 value = 1.0
+tooltip_text = "How fast Navi speaks. 1.0 is normal speed."
 theme_override_font_sizes/font_size = 12
 
 [node name="TtsPitchHBox" type="HBoxContainer" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow"]
@@ -491,6 +540,7 @@ theme_override_constants/separation = 8
 [node name="TtsPitchLabel" type="Label" parent="PanelContainer/MarginContainer/VBoxOuter/ScrollContainer/VBoxContainer/MutterRow/TtsPitchHBox"]
 layout_mode = 2
 text = "Voice Pitch"
+tooltip_text = "How high or low Navi's voice sounds. 1.0 is normal. Higher = more fairy-like."
 theme_override_font_sizes/font_size = 11
 theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 0.75)
 
@@ -501,6 +551,7 @@ min_value = 0.5
 max_value = 2.0
 step = 0.1
 value = 1.0
+tooltip_text = "How high or low Navi's voice sounds. 1.0 is normal."
 theme_override_font_sizes/font_size = 12
 
 

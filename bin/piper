@@ -1,2 +1,35 @@
 #!/usr/bin/env bash
-/Users/dylangrowcoot/.pyenv/versions/3.11.9/bin/python3 -m piper "$@"
+
+# Find python3 or python in the user's environment, prioritizing the environment that has the 'piper' module installed
+PYTHON_BIN=""
+FALLBACK_PYTHON=""
+
+# 1. Search for a python environment that has 'piper' installed
+for cmd in "$HOME/.pyenv/shims/python3" "$HOME/.pyenv/shims/python" python3 python; do
+    if command -v "$cmd" &> /dev/null; then
+        RESOLVED_CMD=$(command -v "$cmd")
+        if [ -z "$FALLBACK_PYTHON" ]; then
+            FALLBACK_PYTHON="$RESOLVED_CMD"
+        fi
+        if "$RESOLVED_CMD" -c "import piper" &> /dev/null; then
+            PYTHON_BIN="$RESOLVED_CMD"
+            break
+        fi
+    fi
+done
+
+# 2. If no python environment with 'piper' was found, use the first available python to print the error message
+if [ -z "$PYTHON_BIN" ]; then
+    if [ -n "$FALLBACK_PYTHON" ]; then
+        echo "ERROR: The 'piper' Python module is not installed." >&2
+        echo "Please install it using: pip install piper-tts" >&2
+        exit 127
+    else
+        echo "ERROR: python3 or python was not found in your PATH." >&2
+        echo "Please install Python 3 to use local Piper TTS." >&2
+        exit 127
+    fi
+fi
+
+# Execute piper
+exec "$PYTHON_BIN" -m piper "$@"

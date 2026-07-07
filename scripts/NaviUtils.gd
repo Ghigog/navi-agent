@@ -6,13 +6,19 @@ static func map_normalized_coordinate_to_screen(normalized_pos: Vector2) -> Vect
 	var screen := DisplayServer.window_get_current_screen()
 	var screen_pos := DisplayServer.screen_get_position(screen)
 	var screen_size := DisplayServer.screen_get_size(screen)
+	var scale := DisplayServer.screen_get_scale(screen)
+	if scale <= 0.0:
+		scale = 1.0
 	if screen_size.x <= 0 or screen_size.y <= 0:
 		screen_pos = Vector2i.ZERO
 		screen_size = Vector2i(1920, 1080)
+		scale = 1.0
+	var logical_screen_size := Vector2(screen_size) / scale
 	return Vector2(
-		screen_pos.x + (normalized_pos.x / 1000.0) * screen_size.x,
-		screen_pos.y + (normalized_pos.y / 1000.0) * screen_size.y
+		screen_pos.x + (normalized_pos.x / 1000.0) * logical_screen_size.x,
+		screen_pos.y + (normalized_pos.y / 1000.0) * logical_screen_size.y
 	)
+
 
 
 ## Cleanly strips <think>...</think> blocks from response strings.
@@ -48,7 +54,23 @@ static func strip_skill_and_pause_tags(input_text: String) -> String:
 	var tag_regex := RegEx.new()
 	tag_regex.compile("\\[PAUSE\\]|\\[CONTINUE\\]|\\[(SKILL|SCREEN_CONTEXT|TOOL):[^\\]]*\\]")
 	var cleaned := tag_regex.sub(no_scratch, "", true)
+	
+	# Fallback: if the cleaned text is empty, but there was a scratchpad block,
+	# use the scratchpad content as a fallback so the user doesn't get a silent blank response.
+	if cleaned.strip_edges() == "" and input_text.contains("<scratchpad>"):
+		var start_idx := input_text.find("<scratchpad>")
+		var end_idx := input_text.find("</scratchpad>", start_idx)
+		var scratch_content := ""
+		if end_idx != -1:
+			scratch_content = input_text.substr(start_idx + 12, end_idx - start_idx - 12)
+		else:
+			scratch_content = input_text.substr(start_idx + 12)
+		var clean_scratch = tag_regex.sub(strip_thinking_block(scratch_content), "", true)
+		if clean_scratch.strip_edges() != "":
+			return clean_scratch.strip_edges()
+
 	return cleaned.strip_edges()
+
 
 
 ## Converts markdown bold segments (*text* and **text**) to BBCode [b]text[/b] format.

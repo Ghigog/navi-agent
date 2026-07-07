@@ -23,6 +23,7 @@ driver/enable_input=true
 
 [autoload]
 
+ErrorBus="*res://scripts/ErrorBus.gd"
 InputManager="*res://scripts/InputManager.gd"
 ScreenCaptureService="*res://scripts/ScreenCaptureService.gd"
 SettingsManager="*res://scripts/SettingsManager.gd"
@@ -51,7 +52,8 @@ enabled=PackedStringArray("res://addons/gut/plugin.cfg")
 3d/physics_engine="Jolt Physics"
 
 [rendering]
+
+rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-rendering_device/driver.windows="d3d12"
 viewport/transparent_background=true

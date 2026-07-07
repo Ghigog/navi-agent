@@ -133,11 +133,12 @@ func test_agent_plan_validation() -> void:
 
 func test_greetings_speed_under_three_seconds() -> void:
 	var mock_settings = MockSettingsManager.new()
+	mock_settings.set_setting("require_skill_confirmation", false)
 	add_child_autofree(mock_settings)
 	
 	var script := GDScript.new()
 	script.source_code = "extends 'res://scripts/AIService.gd'\n" + \
-		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[]):\n" + \
+		"func _request_llm_stream(p, s, i=false, b1='', b2='', t=0.7, h=[], k=false):\n" + \
 		"    return 'hello back'"
 	script.reload()
 	

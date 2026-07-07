@@ -394,3 +394,16 @@ func test_long_conversation_with_low_retrieval_relevance_scores_low_wisdom() -> 
 	assert_eq(EmotionState.wisdom, -5.0,
 		"Wisdom should be negative (-5.0) when retrieval relevance is 0.0, regardless of large history size.")
 
+
+func test_analysis_failed_when_power_not_relevant_decreases_love_consistently() -> void:
+	# Set baseline power to 10.0 and love_score to 100
+	EmotionState.power = 10.0
+	EmotionState.love_score = 100
+	engine.evaluate({
+		"power_relevant": false,
+		"analysis_failed": true,
+	})
+	assert_eq(EmotionState.power, 5.0, "Power should drop by 5.0 on analysis failure even if power was not relevant.")
+	assert_eq(EmotionState.love_score, 95, "Love score should decrease by 5 points on analysis failure, not increase.")
+
+

@@ -6,8 +6,8 @@ extends Node
 # Internal Node Mappings
 @onready var _follow_ctrl: Node = $FollowController
 @onready var _chat_ui: Control = $ChatUI
-@onready var _fairy: FairyVisuals = $FairyVisuals
-@onready var _settings_ui: SettingsUI = $SettingsUI
+@onready var _fairy: Node2D = $FairyVisuals
+@onready var _settings_ui: Control = $SettingsUI
 
 # Visual state tracking configurations
 enum _ActivePanel { NONE, CHAT, SETTINGS }
@@ -377,6 +377,11 @@ func _on_fairy_clicked() -> void:
 	await get_tree().process_frame
 	_ignore_click_until_ready = false
 
+	# Re-apply text visibility to catch programmatically-created nodes
+	# (Live Navi toggle, Predictive trigger, Offline Models row, etc.)
+	if _settings_ui:
+		_apply_text_visibility(_settings_ui)
+
 
 # ---------------------------------------------------------------------------
 # Interactive dragging hooks
@@ -548,32 +553,81 @@ func _on_fairy_color_changed(color: Color) -> void:
 		_settings_ui.update_theme_colors(color)
 
 
-## Recursively traverses the tree to make text default white with a black outline
-## and gives input boxes a dark background stylebox override.
-func _apply_text_visibility(root: Node) -> void:
-	if root is Label:
-		root.add_theme_color_override("font_color", Color.WHITE)
-		root.add_theme_color_override("font_outline_color", Color.BLACK)
-		root.add_theme_constant_override("outline_size", 5)
-	elif root is RichTextLabel:
-		root.add_theme_color_override("default_color", Color.WHITE)
-		root.add_theme_color_override("font_outline_color", Color.BLACK)
-		root.add_theme_constant_override("outline_size", 5)
-	elif root is Button:
-		root.add_theme_color_override("font_color", Color.WHITE)
-		root.add_theme_color_override("font_pressed_color", Color.WHITE)
-		root.add_theme_color_override("font_hover_color", Color.WHITE)
-		root.add_theme_color_override("font_focus_color", Color.WHITE)
-		root.add_theme_color_override("font_outline_color", Color.BLACK)
-		root.add_theme_constant_override("outline_size", 4)
-	elif root is LineEdit or root is TextEdit:
-		root.add_theme_color_override("font_color", Color.WHITE)
-		root.add_theme_color_override("font_outline_color", Color.BLACK)
-		root.add_theme_constant_override("outline_size", 4)
-		
+## Determines the appropriate outline size based on the node's font size.
+## Smaller text gets thinner outlines for crispness; larger text gets thicker outlines for presence.
+func _get_outline_size_for_node(node: Control) -> int:
+	var font_size: int = 14 # sensible default
+	for prop in ["theme_override_font_sizes/font_size", "theme_override_font_sizes/normal_font_size"]:
+		var val: Variant = node.get(prop)
+		if val != null and (val is int or val is float) and val > 0:
+			font_size = int(val)
+			break
+	if font_size <= 10:
+		return 2
+	elif font_size <= 12:
+		return 3
+	else:
+		return 4
+
+
+## Applies white text + dark input backgrounds to a single node (non-recursive).
+## Called by _apply_text_visibility() and can also be called for late-created programmatic nodes.
+func _apply_text_visibility_to_node(node: Node) -> void:
+	if not node is Control:
+		return
+	var outline_size := _get_outline_size_for_node(node as Control)
+
+	# Ensure hover tooltips are active for nodes that have a tooltip set
+	if node.tooltip_text != "" and node.mouse_filter == Control.MOUSE_FILTER_IGNORE:
+		node.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	if node is Label:
+		node.add_theme_color_override("font_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", outline_size)
+	elif node is RichTextLabel:
+		node.add_theme_color_override("default_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", outline_size)
+	elif node is CheckBox or node is CheckButton:
+		node.add_theme_color_override("font_color", Color.WHITE)
+		node.add_theme_color_override("font_pressed_color", Color.WHITE)
+		node.add_theme_color_override("font_hover_color", Color.WHITE)
+		node.add_theme_color_override("font_hover_pressed_color", Color.WHITE)
+		node.add_theme_color_override("font_focus_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", outline_size)
+	elif node is Button:
+		node.add_theme_color_override("font_color", Color.WHITE)
+		node.add_theme_color_override("font_pressed_color", Color.WHITE)
+		node.add_theme_color_override("font_hover_color", Color.WHITE)
+		node.add_theme_color_override("font_focus_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", outline_size)
+	elif node is OptionButton:
+		node.add_theme_color_override("font_color", Color.WHITE)
+		node.add_theme_color_override("font_pressed_color", Color.WHITE)
+		node.add_theme_color_override("font_hover_color", Color.WHITE)
+		node.add_theme_color_override("font_focus_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", outline_size)
+	elif node is SpinBox:
+		# SpinBox contains an internal LineEdit child — style it directly
+		var line_edit: LineEdit = node.get_line_edit()
+		if line_edit:
+			line_edit.add_theme_color_override("font_color", Color.WHITE)
+			line_edit.add_theme_color_override("font_outline_color", Color.BLACK)
+			line_edit.add_theme_constant_override("outline_size", outline_size)
+	elif node is LineEdit or node is TextEdit:
+		node.add_theme_color_override("font_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", outline_size)
+		# Readable placeholder text — visible but clearly dimmed
+		node.add_theme_color_override("font_placeholder_color", Color(1.0, 1.0, 1.0, 0.35))
+
 		# Set dark background styleboxes for inputs
 		for style_name in ["normal", "read_only", "focus"]:
-			var style = root.get_theme_stylebox(style_name)
+			var style = node.get_theme_stylebox(style_name)
 			var new_style: StyleBoxFlat
 			if style is StyleBoxFlat:
 				new_style = style.duplicate() as StyleBoxFlat
@@ -588,17 +642,22 @@ func _apply_text_visibility(root: Node) -> void:
 				new_style.content_margin_right = 8.0
 				new_style.content_margin_bottom = 6.0
 			new_style.bg_color = Color(0.06, 0.08, 0.12, 0.95) # Dark slate background
-			new_style.border_color = Color.BLACK
+			new_style.border_color = Color(0.18, 0.2, 0.26, 0.8)
 			new_style.border_width_left = 1
 			new_style.border_width_top = 1
 			new_style.border_width_right = 1
 			new_style.border_width_bottom = 1
-			root.add_theme_stylebox_override(style_name, new_style)
-	elif root is PopupMenu:
-		root.add_theme_color_override("font_color", Color.WHITE)
-		root.add_theme_color_override("font_hover_color", Color.WHITE)
-		root.add_theme_color_override("font_outline_color", Color.BLACK)
-		root.add_theme_constant_override("outline_size", 4)
+			node.add_theme_stylebox_override(style_name, new_style)
+	elif node is PopupMenu:
+		node.add_theme_color_override("font_color", Color.WHITE)
+		node.add_theme_color_override("font_hover_color", Color.WHITE)
+		node.add_theme_color_override("font_outline_color", Color.BLACK)
+		node.add_theme_constant_override("outline_size", 3)
 
+
+## Recursively traverses the tree to make text default white with a black outline
+## and gives input boxes a dark background stylebox override.
+func _apply_text_visibility(root: Node) -> void:
+	_apply_text_visibility_to_node(root)
 	for child in root.get_children():
 		_apply_text_visibility(child)

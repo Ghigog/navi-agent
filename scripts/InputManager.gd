@@ -90,46 +90,97 @@ func _start_daemon() -> void:
 	var source_path := ProjectSettings.globalize_path("res://scripts/hotkey_daemon.swift")
 	var dest_dir   := ProjectSettings.globalize_path("user://")
 	var dest_path  := dest_dir + "hotkey_daemon"
+	var precompiled_res := "res://bin/hotkey_daemon"
+	var precompiled_path := _get_actual_path(precompiled_res)
 
 	print("InputManager: source  = ", source_path)
 	print("InputManager: binary  = ", dest_path)
+	print("InputManager: precompiled = ", precompiled_path)
 
-	# Only compile if destination binary doesn't exist, or if source file has been modified
-	var compile_needed := true
-	if FileAccess.file_exists(dest_path):
+	var use_precompiled := false
+	
+	if FileAccess.file_exists(source_path):
 		var source_time := FileAccess.get_modified_time(source_path)
-		var dest_time := FileAccess.get_modified_time(dest_path)
-		if dest_time >= source_time:
-			compile_needed = false
-			print("InputManager: Binary is up-to-date. Skipping compilation.")
-
-	if compile_needed:
-		# Delete previous binary to force fresh compilation
+		var dest_time := 0
 		if FileAccess.file_exists(dest_path):
-			DirAccess.remove_absolute(dest_path)
-			print("InputManager: Removed stale binary.")
+			dest_time = FileAccess.get_modified_time(dest_path)
+		
+		if source_time > dest_time or not FileAccess.file_exists(dest_path):
+			print("InputManager: Source code is newer than current binary. Compiling from source...")
+			# Delete previous binary to force fresh compilation
+			if FileAccess.file_exists(dest_path):
+				DirAccess.remove_absolute(dest_path)
+				
+			var compile_output: Array = []
+			var exit_code := OS.execute("swiftc", [source_path, "-o", dest_path],
+										compile_output, true)
+			if exit_code != 0:
+				ErrorBus.report("InputManager: ERROR — swiftc compilation failed (exit code " + str(exit_code) + ").")
+				for line in compile_output:
+					ErrorBus.report("  swiftc: " + str(line))
+				use_precompiled = true
+			else:
+				print("InputManager: Compilation successful.")
+		else:
+			print("InputManager: Binary is up-to-date with source code.")
+	else:
+		print("InputManager: Source code not found. Will use precompiled binary.")
+		use_precompiled = true
 
-		# Compile Swift code via local swiftc utility
-		print("InputManager: Compiling hotkey_daemon.swift via swiftc...")
-		var compile_output: Array = []
-		var exit_code := OS.execute("swiftc", [source_path, "-o", dest_path],
-									compile_output, true)
-
-		if exit_code != 0:
-			printerr("InputManager: ERROR — swiftc compilation failed (exit code ", exit_code, ").")
-			for line in compile_output:
-				printerr("  swiftc: ", line)
+	if use_precompiled:
+		if FileAccess.file_exists(precompiled_path):
+			var precompiled_time := FileAccess.get_modified_time(precompiled_path)
+			var dest_time := 0
+			if FileAccess.file_exists(dest_path):
+				dest_time = FileAccess.get_modified_time(dest_path)
+			
+			if precompiled_time > dest_time or not FileAccess.file_exists(dest_path):
+				print("InputManager: Copying newer precompiled binary...")
+				var copy_success := _copy_precompiled_binary(precompiled_path, dest_path, dest_dir)
+				if not copy_success:
+					ErrorBus.report("InputManager: Failed to copy precompiled binary.")
+					return
+			else:
+				print("InputManager: Current binary is up-to-date with precompiled binary.")
+		else:
+			ErrorBus.report("InputManager: ERROR — neither precompiled binary nor source code exists.")
 			return
 
-		print("InputManager: Compilation successful.")
-
-	# Launch compiled binary as a detached OS background process
+	# Launch compiled/copied binary as a detached OS background process
 	print("InputManager: Launching daemon process with keycode: ", _current_keycode, " modifiers: ", _current_modifiers)
 	_daemon_pid = OS.create_process(dest_path, [str(_current_keycode), str(_current_modifiers)])
 	if _daemon_pid == -1:
-		printerr("InputManager: ERROR — OS.create_process failed. Check binary permissions.")
+		ErrorBus.report("InputManager: ERROR — OS.create_process failed. Check binary permissions.")
 	else:
 		print("InputManager: Daemon running with PID ", _daemon_pid, ".")
+
+
+func _copy_precompiled_binary(precompiled_path: String, dest_path: String, dest_dir: String) -> bool:
+	if FileAccess.file_exists(dest_path):
+		DirAccess.remove_absolute(dest_path)
+	var dir := DirAccess.open(dest_dir)
+	if dir:
+		var err := dir.copy(precompiled_path, dest_path)
+		if err != OK:
+			ErrorBus.report("InputManager: ERROR — failed to copy precompiled binary to user directory (code " + str(err) + ").")
+			return false
+		else:
+			print("InputManager: Copied precompiled binary successfully.")
+			# Make sure it's executable
+			OS.execute("chmod", ["+x", dest_path])
+			return true
+	return false
+
+
+func _get_actual_path(path: String) -> String:
+	if path.begins_with("res://bin/"):
+		var rel := path.substr("res://bin/".length())
+		if OS.has_feature("editor"):
+			return ProjectSettings.globalize_path(path)
+		else:
+			var exe_dir := OS.get_executable_path().get_base_dir()
+			return exe_dir.path_join("bin").path_join(rel)
+	return ProjectSettings.globalize_path(path)
 
 
 func _notification(what: int) -> void:

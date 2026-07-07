@@ -12,9 +12,9 @@ script = ExtResource("1_wndctrl")
 [node name="FollowController" type="Node" parent="." unique_id=1368106618]
 script = ExtResource("2_follow")
 
+[node name="ChatUI" parent="." unique_id=1320650395 instance=ExtResource("4_chat")]
+
 [node name="FairyVisuals" parent="." unique_id=343962056 instance=ExtResource("3_fairy")]
 position = Vector2(100, 100)
-
-[node name="ChatUI" parent="." unique_id=1320650395 instance=ExtResource("4_chat")]
 
 [node name="SettingsUI" parent="." unique_id=945193369 instance=ExtResource("5_settings")]

@@ -88,6 +88,7 @@ func evaluate(context: Dictionary) -> void:
 	var courage_relevant: bool   = context.get("courage_relevant", false)
 	var wisdom_relevant:  bool   = context.get("wisdom_relevant",  false)
 	var power_relevant:   bool   = context.get("power_relevant",   false)
+	var analysis_failed:  bool   = context.get("analysis_failed",  false)
 
 	# ── Detect hedging ───────────────────────────────────────────────────
 	var hedging_found: bool = _contains_hedging(response_text)
@@ -129,7 +130,9 @@ func evaluate(context: Dictionary) -> void:
 	var power_contribution: float = 0.0
 	if power_relevant:
 		power = 0.0
-		if skills_available and skill_succeeded:
+		if analysis_failed:
+			power -= 5.0
+		elif skills_available and skill_succeeded:
 			power += 7.0
 		elif skills_available and not skill_succeeded:
 			power += 3.0
@@ -137,6 +140,11 @@ func evaluate(context: Dictionary) -> void:
 			power -= 6.0
 		power = clampf(power, -10.0, 10.0)
 		power_contribution = power
+	else:
+		if analysis_failed:
+			power -= 5.0
+			power = clampf(power, -10.0, 10.0)
+			power_contribution = -5.0
 
 	# ── User Sentiment Adjustments ───────────────────────────────────────
 	var user_sentiment: String = context.get("user_sentiment", "neutral")

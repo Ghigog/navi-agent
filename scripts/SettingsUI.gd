@@ -50,8 +50,18 @@ var _hotkey_button: Button
 var _tts_speed_spin: SpinBox
 var _tts_pitch_spin: SpinBox
 var _live_navi_toggle: CheckButton
-var _predictive_trigger_toggle: CheckButton
-var _push_to_talk_toggle: CheckButton
+
+
+# In-app models downloader variables (NAV-74)
+var _download_models_button: Button
+var _download_http: HTTPRequest = null
+var _download_queue: Array = []
+var _current_download_url: String = ""
+var _install_piper_button: Button
+var _installer_thread: Thread = null
+var _current_download_dest: String = ""
+var _current_download_desc: String = ""
+var _progress_timer: Timer = null
 
 var _is_recording_hotkey := false
 var _recorded_keycode: int = 126
@@ -77,6 +87,60 @@ const GODOT_TO_MACOS_KEYCODES := {
 var _settings_manager: Node = null
 var _tween: Tween = null
 
+# Collapsible section containers: maps section_name -> { "header": Button, "container": VBoxContainer }
+var _sections: Dictionary = {}
+
+
+## Creates a collapsible section header with an icon, title, and tooltip.
+## Returns the VBoxContainer that child controls should be added to.
+func _create_section(vbox_parent: VBoxContainer, title: String, icon: String, tooltip: String, collapsed_by_default: bool = false) -> VBoxContainer:
+	# Separator line above section
+	var sep := HSeparator.new()
+	sep.add_theme_color_override("separator_color", Color(0.25, 0.35, 0.5, 0.3))
+	vbox_parent.add_child(sep)
+
+	# Header button (acts as a toggle)
+	var header := Button.new()
+	header.name = title.replace(" ", "") + "Header"
+	header.text = ("▾ " if not collapsed_by_default else "▸ ") + icon + " " + title
+	header.tooltip_text = tooltip
+	header.flat = true
+	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	header.add_theme_font_size_override("font_size", 13)
+	header.add_theme_color_override("font_color", Color(0.7, 0.85, 1.0, 0.9))
+	header.add_theme_color_override("font_hover_color", Color(0.85, 0.92, 1.0, 1.0))
+	header.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	vbox_parent.add_child(header)
+
+	# Content container
+	var container := VBoxContainer.new()
+	container.name = title.replace(" ", "") + "Content"
+	container.add_theme_constant_override("separation", 8)
+	container.visible = not collapsed_by_default
+	vbox_parent.add_child(container)
+
+	# Wire toggle
+	header.pressed.connect(func():
+		container.visible = not container.visible
+		if container.visible:
+			header.text = "▾ " + icon + " " + title
+		else:
+			header.text = "▸ " + icon + " " + title
+	)
+
+	_sections[title] = { "header": header, "container": container }
+	return container
+
+
+## Helper to reparent an existing child node into a section container.
+## Safely removes from current parent and adds to the section.
+func _reparent_to_section(node: Node, section_container: VBoxContainer) -> void:
+	if node == null:
+		return
+	var old_parent := node.get_parent()
+	if old_parent:
+		old_parent.remove_child(node)
+	section_container.add_child(node)
 
 func _ready() -> void:
 	# Resolve node tree connections lazily, preventing errors if run without full visual scenes (e.g., GUT testing)
@@ -172,46 +236,68 @@ func _ready() -> void:
 		if _live_navi_toggle:
 			_live_navi_toggle.toggled.connect(_on_live_navi_toggled)
 
-		# Predictive Trigger toggle (NAV-72) — built programmatically
-		var predictive_trigger_row := vbox.get_node_or_null("PredictiveTriggerRow")
-		if not predictive_trigger_row:
-			predictive_trigger_row = HBoxContainer.new()
-			predictive_trigger_row.name = "PredictiveTriggerRow"
-			var pt_label := Label.new()
-			pt_label.text = "🔮 Predictive Auto-Submit"
-			pt_label.tooltip_text = "When enabled, Navi will automatically predict when you have finished a complete thought (or typed punctuation) and submit your text without pressing Enter."
-			pt_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			_predictive_trigger_toggle = CheckButton.new()
-			_predictive_trigger_toggle.name = "PredictiveTriggerToggle"
-			predictive_trigger_row.add_child(pt_label)
-			predictive_trigger_row.add_child(_predictive_trigger_toggle)
-			# Insert right below LiveNaviRow (so index 1)
-			vbox.add_child(predictive_trigger_row)
-			vbox.move_child(predictive_trigger_row, 1)
-		else:
-			_predictive_trigger_toggle = predictive_trigger_row.get_node_or_null("PredictiveTriggerToggle")
 
-		# Push to Talk toggle — DEPRECATED and commented out
-		# var ptt_row := vbox.get_node_or_null("PushToTalkRow")
-		# if not ptt_row:
-		# 	ptt_row = HBoxContainer.new()
-		# 	ptt_row.name = "PushToTalkRow"
-		# 	var ptt_label := Label.new()
-		# 	ptt_label.text = "🎙️ Push To Talk (Hold Shift+Space)"
-		# 	ptt_label.tooltip_text = "When enabled, hold Shift + Space to speak and release to send instantly. When disabled, uses VAD (audio levels)."
-		# 	ptt_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		# 	_push_to_talk_toggle = CheckButton.new()
-		# 	_push_to_talk_toggle.name = "PushToTalkToggle"
-		# 	ptt_row.add_child(ptt_label)
-		# 	ptt_row.add_child(_push_to_talk_toggle)
-		# 	var voice_toggle_idx = vbox.get_child_count()
-		# 	var vtr = vbox.get_node_or_null("VoiceToggleRow")
-		# 	if vtr:
-		# 		voice_toggle_idx = vtr.get_index() + 1
-		# 	vbox.add_child(ptt_row)
-		# 	vbox.move_child(ptt_row, voice_toggle_idx)
-		# else:
-		# 	_push_to_talk_toggle = ptt_row.get_node_or_null("PushToTalkToggle")
+		# Offline Models Row (NAV-74)
+		var offline_models_row := vbox.get_node_or_null("OfflineModelsRow")
+		if not offline_models_row:
+			offline_models_row = HBoxContainer.new()
+			offline_models_row.name = "OfflineModelsRow"
+			var om_label := Label.new()
+			om_label.text = "📥 Local Offline Models"
+			om_label.tooltip_text = "Download local Whisper (STT) and Piper (TTS) models to use fully offline."
+			om_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_download_models_button = Button.new()
+			_download_models_button.name = "DownloadModelsButton"
+			_download_models_button.text = "Download"
+			_download_models_button.pressed.connect(_on_download_models_pressed)
+			offline_models_row.add_child(om_label)
+			offline_models_row.add_child(_download_models_button)
+			
+			var insert_idx := vbox.get_child_count()
+			var mr = vbox.get_node_or_null("MutterRow")
+			if mr:
+				insert_idx = mr.get_index() + 1
+			vbox.add_child(offline_models_row)
+			vbox.move_child(offline_models_row, insert_idx)
+		else:
+			_download_models_button = offline_models_row.get_node_or_null("DownloadModelsButton")
+			if _download_models_button and not _download_models_button.pressed.is_connected(_on_download_models_pressed):
+				_download_models_button.pressed.connect(_on_download_models_pressed)
+
+		# Reflect whether models are already present
+		_check_offline_models_state()
+
+		# Piper Engine Row
+		var piper_engine_row := vbox.get_node_or_null("PiperEngineRow")
+		if not piper_engine_row:
+			piper_engine_row = HBoxContainer.new()
+			piper_engine_row.name = "PiperEngineRow"
+			var pe_label := Label.new()
+			pe_label.text = "⚙️ Piper TTS Engine"
+			pe_label.tooltip_text = "Install the local Piper python package dependency to generate speech locally."
+			pe_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_install_piper_button = Button.new()
+			_install_piper_button.name = "InstallPiperButton"
+			_install_piper_button.text = "Install"
+			_install_piper_button.pressed.connect(_on_install_piper_pressed)
+			piper_engine_row.add_child(pe_label)
+			piper_engine_row.add_child(_install_piper_button)
+			
+			var insert_idx := vbox.get_child_count()
+			var om_row = vbox.get_node_or_null("OfflineModelsRow")
+			if om_row:
+				insert_idx = om_row.get_index() + 1
+			vbox.add_child(piper_engine_row)
+			vbox.move_child(piper_engine_row, insert_idx)
+		else:
+			_install_piper_button = piper_engine_row.get_node_or_null("InstallPiperButton")
+			if _install_piper_button and not _install_piper_button.pressed.is_connected(_on_install_piper_pressed):
+				_install_piper_button.pressed.connect(_on_install_piper_pressed)
+
+		# Reflect whether Piper engine is already installed
+		_check_piper_engine_state()
+
+
 
 		if _voice_option:
 			_voice_option.item_selected.connect(_on_voice_selected)
@@ -250,6 +336,73 @@ func _ready() -> void:
 	# Reference SettingsManager autoload singleton
 	if has_node("/root/SettingsManager"):
 		_settings_manager = get_node("/root/SettingsManager")
+
+	# -----------------------------------------------------------------------
+	# Organize controls into collapsible sections
+	# -----------------------------------------------------------------------
+	if vbox:
+		# Gather references to scene-defined nodes before reparenting
+		var system_prompt_label = vbox.get_node_or_null("SystemPromptLabel")
+		var personality_label = vbox.get_node_or_null("PersonalityLabel")
+		var personality_edit = vbox.get_node_or_null("PersonalityEdit")
+		var color_row = vbox.get_node_or_null("ColorRow")
+		var font_size_row = vbox.get_node_or_null("FontSizeRow")
+		var provider_label = vbox.get_node_or_null("ProviderLabel")
+		var provider_option = vbox.get_node_or_null("ProviderOption")
+		var endpoint_label = vbox.get_node_or_null("EndpointLabel")
+		var endpoint_edit = vbox.get_node_or_null("EndpointEdit")
+		var model_edit = vbox.get_node_or_null("ModelEdit")
+		var api_key_label = vbox.get_node_or_null("ApiKeyLabel")
+		var api_key_edit = vbox.get_node_or_null("ApiKeyEdit")
+		var skills_toggle_row = vbox.get_node_or_null("SkillsToggleRow")
+		var voice_toggle_row = vbox.get_node_or_null("VoiceToggleRow")
+		var hotkey_row = vbox.get_node_or_null("HotkeyRow")
+		var voice_instructions = vbox.get_node_or_null("VoiceInstructionsLabel")
+		var mutter_row = vbox.get_node_or_null("MutterRow")
+		var whisper_label = vbox.get_node_or_null("WhisperLabel")
+		var whisper_url_edit = vbox.get_node_or_null("WhisperUrlEdit")
+		var whisper_model_edit = vbox.get_node_or_null("WhisperModelEdit")
+		var live_navi_row = vbox.get_node_or_null("LiveNaviRow")
+		var offline_models_row = vbox.get_node_or_null("OfflineModelsRow")
+		var piper_engine_row = vbox.get_node_or_null("PiperEngineRow")
+		# Section 1: Behavior
+		var sec_behavior := _create_section(vbox, "Behavior", "✨", "Controls how Navi behaves and interacts with you.")
+		_reparent_to_section(live_navi_row, sec_behavior)
+		_reparent_to_section(skills_toggle_row, sec_behavior)
+
+		# Section 2: Appearance
+		var sec_appearance := _create_section(vbox, "Appearance", "🎨", "Customize how Navi looks and how text is displayed.")
+		_reparent_to_section(color_row, sec_appearance)
+		_reparent_to_section(personality_label, sec_appearance)
+		_reparent_to_section(personality_edit, sec_appearance)
+		_reparent_to_section(font_size_row, sec_appearance)
+
+		# Section 3: AI & Model
+		var sec_ai := _create_section(vbox, "AI & Model", "🧠", "Configure which AI model Navi uses and how it's connected.")
+		_reparent_to_section(provider_label, sec_ai)
+		_reparent_to_section(provider_option, sec_ai)
+		_reparent_to_section(endpoint_label, sec_ai)
+		_reparent_to_section(endpoint_edit, sec_ai)
+		_reparent_to_section(model_edit, sec_ai)
+		_reparent_to_section(api_key_label, sec_ai)
+		_reparent_to_section(api_key_edit, sec_ai)
+		_reparent_to_section(system_prompt_label, sec_ai)
+		_reparent_to_section(_system_prompt_edit, sec_ai)
+
+		# Section 4: Voice
+		var sec_voice := _create_section(vbox, "Voice", "🗣️", "Configure voice input (speech-to-text) and voice output (text-to-speech).")
+		_reparent_to_section(voice_toggle_row, sec_voice)
+		_reparent_to_section(hotkey_row, sec_voice)
+		_reparent_to_section(voice_instructions, sec_voice)
+		_reparent_to_section(mutter_row, sec_voice)
+		_reparent_to_section(offline_models_row, sec_voice)
+		_reparent_to_section(piper_engine_row, sec_voice)
+
+		# Section 5: Advanced (collapsed by default)
+		var sec_advanced := _create_section(vbox, "Advanced", "🔧", "Server URLs, model paths, and other technical settings. Most users don't need to change these.", true)
+		_reparent_to_section(whisper_label, sec_advanced)
+		_reparent_to_section(whisper_url_edit, sec_advanced)
+		_reparent_to_section(whisper_model_edit, sec_advanced)
 
 
 ## Opens the Settings panel, loading configuration settings and playing a scale-in transition.
@@ -349,11 +502,8 @@ func _populate_fields() -> void:
 		_live_navi_toggle.set_pressed_no_signal(live_mode)
 	_apply_live_mode_ui(live_mode)
 
-	if _predictive_trigger_toggle:
-		_predictive_trigger_toggle.set_pressed_no_signal(_settings_manager.get_setting("enable_predictive_trigger", false))
 
-	# if _push_to_talk_toggle:
-	# 	_push_to_talk_toggle.button_pressed = _settings_manager.get_setting("enable_push_to_talk", true)
+
 
 
 func _populate_voice_options() -> void:
@@ -380,18 +530,37 @@ func _populate_voice_options() -> void:
 
 	# 1. Neural Voices (Piper & Cloud APIs)
 	if show_neural:
-		var dir := DirAccess.open("res://bin/voices/")
 		var found_piper_voices := false
-		if dir:
-			dir.list_dir_begin()
-			var file_name: String = dir.get_next()
+		var added_voices := {}
+		
+		# Check res://bin/voices/
+		var dir_res := DirAccess.open("res://bin/voices/")
+		if dir_res:
+			dir_res.list_dir_begin()
+			var file_name: String = dir_res.get_next()
 			while file_name != "":
-				if not dir.current_is_dir() and file_name.ends_with(".onnx"):
+				if not dir_res.current_is_dir() and file_name.ends_with(".onnx"):
 					var voice_name: String = file_name.get_basename()
 					_voice_option.add_item("Neural: Local Piper (" + voice_name + ")")
 					_voice_option.set_item_metadata(_voice_option.get_item_count() - 1, "local_piper:res://bin/voices/".path_join(file_name))
 					found_piper_voices = true
-				file_name = dir.get_next()
+					added_voices[voice_name] = true
+				file_name = dir_res.get_next()
+		
+		# Also check user://models/voices/
+		var dir_user := DirAccess.open("user://models/voices/")
+		if dir_user:
+			dir_user.list_dir_begin()
+			var file_name: String = dir_user.get_next()
+			while file_name != "":
+				if not dir_user.current_is_dir() and file_name.ends_with(".onnx"):
+					var voice_name: String = file_name.get_basename()
+					if not added_voices.has(voice_name):
+						_voice_option.add_item("Neural: Local Piper (" + voice_name + ")")
+						_voice_option.set_item_metadata(_voice_option.get_item_count() - 1, "local_piper:user://models/voices/".path_join(file_name))
+						found_piper_voices = true
+						added_voices[voice_name] = true
+				file_name = dir_user.get_next()
 		
 		if not found_piper_voices:
 			_voice_option.add_item("Neural: Local Piper")
@@ -443,10 +612,10 @@ func _populate_voice_options() -> void:
 			selected_idx = i
 			break
 	_voice_option.selected = selected_idx
-	_update_mutter_visibility()
+	_update_conditional_field_visibility()
 
 
-func _update_mutter_visibility() -> void:
+func _update_conditional_field_visibility() -> void:
 	if not _voice_option:
 		return
 	var selected_idx: int = _voice_option.selected
@@ -459,6 +628,7 @@ func _update_mutter_visibility() -> void:
 		is_mutter = metadata == "mutter_procedural" or metadata.begins_with("mutter_custom:")
 		is_cloud_voice = metadata.begins_with("cloud_")
 	
+	# Mutter Settings vs. Normal Voice Settings
 	if _mutter_pitch_min_spin and _mutter_pitch_min_spin.get_parent():
 		_mutter_pitch_min_spin.get_parent().visible = is_mutter
 	if _mutter_speed_spin and _mutter_speed_spin.get_parent():
@@ -468,7 +638,7 @@ func _update_mutter_visibility() -> void:
 	if _tts_pitch_spin and _tts_pitch_spin.get_parent():
 		_tts_pitch_spin.get_parent().visible = not is_mutter
 
-	# Show API Key if LLM Provider is cloud
+	# LLM Provider API Key & Endpoint visibility
 	var provider_is_cloud: bool = false
 	if _provider_option:
 		provider_is_cloud = _provider_option.selected == 1
@@ -478,7 +648,15 @@ func _update_mutter_visibility() -> void:
 	if _api_key_label:
 		_api_key_label.visible = provider_is_cloud
 
-	# Show OpenAI API Key if cloud voice is selected (like cloud_openai)
+	# Whisper Local Settings visibility (hidden when using Cloud LLM)
+	if _whisper_label:
+		_whisper_label.visible = not provider_is_cloud
+	if _whisper_url_edit:
+		_whisper_url_edit.visible = not provider_is_cloud
+	if _whisper_model_edit:
+		_whisper_model_edit.visible = not provider_is_cloud
+
+	# OpenAI API Key (needed for Cloud OpenAI TTS voice)
 	var needs_openai_key: bool = (metadata == "cloud_openai")
 	if _openai_api_key_edit:
 		_openai_api_key_edit.visible = needs_openai_key
@@ -487,7 +665,7 @@ func _update_mutter_visibility() -> void:
 
 
 func _on_voice_selected(_index: int) -> void:
-	_update_mutter_visibility()
+	_update_conditional_field_visibility()
 
 
 func _on_add_mutter_pressed() -> void:
@@ -676,8 +854,7 @@ func _on_save_pressed() -> void:
 	var live_on: bool = _live_navi_toggle != null and _live_navi_toggle.button_pressed
 	batch["live_navi_mode"] = live_on
 
-	if _predictive_trigger_toggle:
-		batch["enable_predictive_trigger"] = _predictive_trigger_toggle.button_pressed
+
 
 	# Only persist personality/color from the UI fields when NOT in live mode
 	# (preserves the user's saved values so they restore cleanly when toggling off)
@@ -711,8 +888,7 @@ func _on_save_pressed() -> void:
 		batch["enable_screenshots"] = _enable_screenshots_check.button_pressed
 	if _enable_thinking_check:
 		batch["enable_thinking"] = _enable_thinking_check.button_pressed
-	# if _push_to_talk_toggle:
-	# 	batch["enable_push_to_talk"] = _push_to_talk_toggle.button_pressed
+
 	if _require_skill_confirmation_check:
 		batch["require_skill_confirmation"] = _require_skill_confirmation_check.button_pressed
 	if _enable_stt_check:
@@ -844,15 +1020,8 @@ func _on_provider_selected(index: int) -> void:
 func _update_provider_fields(provider: String) -> void:
 	var is_cloud: bool = provider == "cloud"
 
-	# Let _update_mutter_visibility update the api key visibility based on both LLM and TTS status
-	_update_mutter_visibility()
-
-	if _whisper_label:
-		_whisper_label.visible = not is_cloud
-	if _whisper_url_edit:
-		_whisper_url_edit.visible = not is_cloud
-	if _whisper_model_edit:
-		_whisper_model_edit.visible = not is_cloud
+	# Update all conditional field visibilities in one place
+	_update_conditional_field_visibility()
 
 	# Adjust inline placeholder guides based on context
 	if _endpoint_edit:
@@ -929,13 +1098,358 @@ func _on_live_navi_toggled(enabled: bool) -> void:
 
 
 ## Updates the settings panel container background & border colors.
+## Uses the mood color as a subtle accent (border) while keeping a fixed dark
+## background for consistent text legibility.
 func update_theme_colors(base_color: Color) -> void:
 	if not _panel:
 		return
 	var stylebox: StyleBoxFlat = _panel.get_theme_stylebox("panel")
 	if stylebox:
 		var new_stylebox := stylebox.duplicate() as StyleBoxFlat
-		new_stylebox.bg_color = Color(base_color.r, base_color.g, base_color.b, 0.85)
-		new_stylebox.border_color = base_color.darkened(0.4)
-		new_stylebox.border_color.a = 1.0 # Opaque border
+		# Fixed dark neutral background — never changes with mood
+		new_stylebox.bg_color = Color(0.06, 0.06, 0.08, 0.88)
+		# Mood color as accent border
+		var accent := base_color.lightened(0.15)
+		accent.a = 0.55
+		new_stylebox.border_color = accent
 		_panel.add_theme_stylebox_override("panel", new_stylebox)
+
+	# Tint the Save button with the mood color so it pops as an accent element
+	if _save_button:
+		var btn_style := StyleBoxFlat.new()
+		btn_style.bg_color = Color(base_color.r * 0.7, base_color.g * 0.7, base_color.b * 0.7, 0.85)
+		btn_style.corner_radius_top_left = 8
+		btn_style.corner_radius_top_right = 8
+		btn_style.corner_radius_bottom_right = 8
+		btn_style.corner_radius_bottom_left = 8
+		btn_style.content_margin_left = 12.0
+		btn_style.content_margin_top = 8.0
+		btn_style.content_margin_right = 12.0
+		btn_style.content_margin_bottom = 8.0
+		_save_button.add_theme_stylebox_override("normal", btn_style)
+		# Lighter hover state
+		var hover_style := btn_style.duplicate() as StyleBoxFlat
+		hover_style.bg_color = Color(base_color.r * 0.85, base_color.g * 0.85, base_color.b * 0.85, 0.9)
+		_save_button.add_theme_stylebox_override("hover", hover_style)
+
+
+# ---------------------------------------------------------------------------
+# In-app models downloader (NAV-74)
+# ---------------------------------------------------------------------------
+
+## Checks whether the offline Whisper + Piper models already exist on disk.
+## Updates the Download button state so users can't re-download unnecessarily.
+func _check_offline_models_state() -> void:
+	if not _download_models_button:
+		return
+	var whisper_ready := FileAccess.file_exists("user://models/ggml-base.en.bin")
+	var piper_ready := (
+		FileAccess.file_exists("user://models/voices/en_US-amy-medium.onnx") or
+		FileAccess.file_exists("user://models/voices/en_US-hfc_female-medium.onnx")
+	)
+	if whisper_ready and piper_ready:
+		_download_models_button.text = "✅ Downloaded"
+		_download_models_button.disabled = true
+		_download_models_button.tooltip_text = "Models are already installed. Delete user://models/ to re-download."
+	elif whisper_ready:
+		_download_models_button.text = "Download (Voice missing)"
+		_download_models_button.disabled = false
+	else:
+		_download_models_button.text = "Download"
+		_download_models_button.disabled = false
+
+
+func _on_download_models_pressed() -> void:
+	if _download_models_button:
+		_download_models_button.disabled = true
+		_download_models_button.text = "Initializing..."
+
+	# Ensure directories exist
+	DirAccess.make_dir_recursive_absolute("user://models/voices")
+
+	# Populate download queue
+	_download_queue.clear()
+	_download_queue.append({
+		"url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+		"dest": "user://models/ggml-base.en.bin",
+		"desc": "Whisper STT"
+	})
+	_download_queue.append({
+		"url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/medium/en_US-amy-medium.onnx",
+		"dest": "user://models/voices/en_US-amy-medium.onnx",
+		"desc": "Amy ONNX Model"
+	})
+	_download_queue.append({
+		"url": "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/medium/en_US-amy-medium.onnx.json",
+		"dest": "user://models/voices/en_US-amy-medium.onnx.json",
+		"desc": "Amy Config"
+	})
+
+	_start_progress_timer()
+	_process_download_queue()
+
+
+func _start_download(url: String, dest_path: String, desc: String) -> void:
+	if _download_http:
+		_download_http.queue_free()
+	
+	_download_http = HTTPRequest.new()
+	add_child(_download_http)
+	_download_http.download_file = dest_path
+	_download_http.request_completed.connect(_on_download_completed)
+	
+	_current_download_url = url
+	_current_download_dest = dest_path
+	_current_download_desc = desc
+	
+	var err = _download_http.request(url)
+	if err != OK:
+		_on_download_failed("Failed to start request: " + str(err))
+
+
+func _start_progress_timer() -> void:
+	if not _progress_timer:
+		_progress_timer = Timer.new()
+		_progress_timer.wait_time = 0.5
+		_progress_timer.timeout.connect(_update_download_progress)
+		add_child(_progress_timer)
+	_progress_timer.start()
+
+
+func _stop_progress_timer() -> void:
+	if _progress_timer:
+		_progress_timer.stop()
+
+
+func _update_download_progress() -> void:
+	if not _download_http or not _download_models_button:
+		return
+	
+	var downloaded = _download_http.get_downloaded_bytes()
+	var total = _download_http.get_body_size()
+	
+	if total > 0:
+		var percent = int((float(downloaded) / float(total)) * 100.0)
+		_download_models_button.text = "Downloading %s (%d%%)" % [_current_download_desc, percent]
+	else:
+		_download_models_button.text = "Downloading %s..." % _current_download_desc
+
+
+func _process_download_queue() -> void:
+	if _download_queue.is_empty():
+		_download_models_button.text = "Downloaded"
+		_download_models_button.disabled = false
+		_stop_progress_timer()
+		
+		if _settings_manager:
+			_settings_manager.set_setting("whisper_model_path", "user://models/ggml-base.en.bin")
+			_settings_manager.set_setting("piper_model_path", "user://models/voices/en_US-amy-medium.onnx")
+			_settings_manager.save_settings()
+			
+		_populate_voice_options()
+		_check_offline_models_state()
+		_show_mutter_error("Offline models downloaded successfully!")
+		return
+	
+	var next_item = _download_queue.pop_front()
+	_start_download(next_item.url, next_item.dest, next_item.desc)
+
+
+func _on_download_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
+	# Intercept HTTP redirects (301, 302, 303, 307, 308) and follow the Location header manually
+	if response_code in [301, 302, 303, 307, 308]:
+		var location := _get_header_value(headers, "Location")
+		if location != "":
+			var resolved_url := _resolve_redirect_url(_current_download_url, location)
+			print("Offline downloader: Redirected (", response_code, ") to ", resolved_url)
+			# Remove any redirection payload written to the destination file
+			if FileAccess.file_exists(_current_download_dest):
+				DirAccess.remove_absolute(_current_download_dest)
+			# Restart request with redirected absolute URL
+			_start_download(resolved_url, _current_download_dest, _current_download_desc)
+			return
+		else:
+			_on_download_failed("Redirect status received without a Location header.")
+			return
+
+	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
+		_on_download_failed("Download failed with result: %d, response: %d" % [result, response_code])
+		return
+	
+	_process_download_queue()
+
+
+func _get_header_value(headers: PackedStringArray, header_name: String) -> String:
+	var prefix := header_name.to_lower() + ":"
+	for header in headers:
+		var cleaned := header.strip_edges()
+		if cleaned.to_lower().begins_with(prefix):
+			return cleaned.substr(prefix.length()).strip_edges()
+	return ""
+
+
+func _resolve_redirect_url(original_url: String, redirect_url: String) -> String:
+	if redirect_url.begins_with("http://") or redirect_url.begins_with("https://"):
+		return redirect_url
+	
+	# Root-relative path
+	if redirect_url.begins_with("/"):
+		var scheme_end := original_url.find("://")
+		if scheme_end == -1:
+			return redirect_url
+		var host_end := original_url.find("/", scheme_end + 3)
+		var host: String
+		if host_end == -1:
+			host = original_url
+		else:
+			host = original_url.left(host_end)
+		return host + redirect_url
+
+	# Relative path (not starting with /)
+	var parent_url := original_url.get_base_dir()
+	if not parent_url.ends_with("/"):
+		parent_url += "/"
+	return parent_url + redirect_url
+
+
+func _on_download_failed(error_msg: String) -> void:
+	_stop_progress_timer()
+	_download_queue.clear()
+	if _download_models_button:
+		_download_models_button.text = "Download Failed"
+		_download_models_button.disabled = false
+	ErrorBus.report("Offline download failed: " + str(error_msg))
+	_show_mutter_error("Download failed: " + error_msg)
+
+
+func _check_piper_engine_installed() -> bool:
+	var raw_bin := "res://bin/piper"
+	if _settings_manager:
+		raw_bin = _settings_manager.get_setting("piper_bin_path", "res://bin/piper")
+	var bin_path := ProjectSettings.globalize_path(raw_bin)
+	
+	if not FileAccess.file_exists(bin_path):
+		return false
+		
+	var output: Array[String] = []
+	# bin/piper exits with 127 if the piper module import fails.
+	# It exits with 2 (missing args) if it succeeds.
+	var exit_code := OS.execute(bin_path, [], output, true)
+	return exit_code != 127
+
+
+func _check_piper_engine_state() -> void:
+	if not _install_piper_button:
+		return
+	if _check_piper_engine_installed():
+		_install_piper_button.text = "✅ Installed"
+		_install_piper_button.disabled = true
+		_install_piper_button.tooltip_text = "Piper TTS python package is installed in your python environment."
+	else:
+		_install_piper_button.text = "Install"
+		_install_piper_button.disabled = false
+		_install_piper_button.tooltip_text = "Piper TTS python package is missing. Click to install it."
+
+
+func _on_install_piper_pressed() -> void:
+	if _install_piper_button:
+		_install_piper_button.disabled = true
+		_install_piper_button.text = "Installing..."
+	
+	var script_path := ProjectSettings.globalize_path("res://install_piper.sh")
+	if not FileAccess.file_exists(script_path):
+		_write_install_piper_script()
+	
+	OS.execute("chmod", ["+x", script_path])
+	
+	_installer_thread = Thread.new()
+	var err = _installer_thread.start(_run_installer_thread.bind(script_path))
+	if err != OK:
+		_install_piper_button.text = "Install Failed"
+		_install_piper_button.disabled = false
+		_check_piper_engine_state()
+		_show_mutter_error("Failed to start background installer thread.")
+		return
+		
+	while _installer_thread.is_alive():
+		await get_tree().process_frame
+		
+	var results = _installer_thread.wait_to_finish()
+	var exit_code: int = results[0]
+	var output: Array = results[1]
+	_on_installer_finished(exit_code, output)
+
+
+func _run_installer_thread(script_path: String) -> Array:
+	var output: Array[String] = []
+	var exit_code := OS.execute(script_path, [], output, true)
+	return [exit_code, output]
+
+
+func _on_installer_finished(exit_code: int, output: Array) -> void:
+	print("Piper installer finished. Exit code: ", exit_code, " Output: ", output)
+	_check_piper_engine_state()
+	if _check_piper_engine_installed():
+		_show_mutter_error("Piper TTS installed successfully!")
+	else:
+		var error_msg := "Failed to install Piper. Run 'install_piper.sh' manually."
+		if output.size() > 0:
+			for line in output:
+				if "error" in line.to_lower() or "failed" in line.to_lower():
+					error_msg = "Installation failed: " + line.strip_edges()
+					break
+		_show_mutter_error(error_msg)
+
+
+func _write_install_piper_script() -> void:
+	var script_path := ProjectSettings.globalize_path("res://install_piper.sh")
+	var f := FileAccess.open(script_path, FileAccess.WRITE)
+	if f:
+		var script_content := (
+			"#!/usr/bin/env bash\n\n" +
+			"echo \"=== Piper TTS Installation Script ===\"\n\n" +
+			"# 1. Find python3\n" +
+			"PYTHON_CMD=\"\"\n" +
+			"for cmd in python3 python; do\n" +
+			"    if command -v \"$cmd\" &> /dev/null; then\n" +
+			"        PYTHON_CMD=$(command -v \"$cmd\")\n" +
+			"        break\n" +
+			"    fi\n" +
+			"done\n\n" +
+			"if [ -z \"$PYTHON_CMD\" ]; then\n" +
+			"    echo \"❌ ERROR: python3 or python was not found in your PATH.\" >&2\n" +
+			"    echo \"Please install Python 3 and ensure it is in your PATH.\" >&2\n" +
+			"    exit 1\n" +
+			"fi\n\n" +
+			"echo \"Found Python at: $PYTHON_CMD\"\n\n" +
+			"# 2. Check if pip is available\n" +
+			"PIP_CMD=\"\"\n" +
+			"if \"$PYTHON_CMD\" -m pip --version &> /dev/null; then\n" +
+			"    PIP_CMD=\"$PYTHON_CMD -m pip\"\n" +
+			"elif command -v pip3 &> /dev/null; then\n" +
+			"    PIP_CMD=\"pip3\"\n" +
+			"elif command -v pip &> /dev/null; then\n" +
+			"    PIP_CMD=\"pip\"\n" +
+			"fi\n\n" +
+			"if [ -z \"$PIP_CMD\" ]; then\n" +
+			"    echo \"❌ ERROR: pip was not found. Please install pip for your Python environment.\" >&2\n" +
+			"    exit 1\n" +
+			"fi\n\n" +
+			"echo \"Installing piper-tts module...\"\n" +
+			"# 3. Try to install piper-tts\n" +
+			"if $PIP_CMD install piper-tts; then\n" +
+			"    echo \"✅ Successfully installed piper-tts!\"\n" +
+			"    exit 0\n" +
+			"else\n" +
+			"    echo \"Attempting install with --break-system-packages...\"\n" +
+			"    if $PIP_CMD install piper-tts --break-system-packages; then\n" +
+			"        echo \"✅ Successfully installed piper-tts!\"\n" +
+			"        exit 0\n" +
+			"    else\n" +
+			"        echo \"❌ ERROR: Failed to install piper-tts.\" >&2\n" +
+			"        exit 1\n" +
+			"    fi\n" +
+			"fi\n"
+		)
+		f.store_string(script_content)
+		f.close()

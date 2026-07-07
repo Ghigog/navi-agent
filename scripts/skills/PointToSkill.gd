@@ -4,7 +4,7 @@ func get_name() -> String:
 	return "point_to"
 
 func get_description() -> String:
-	return "Moves Navi to the specified screen coordinate (X, Y) in pixels and points at it."
+	return "Moves Navi's physical position on the user's screen to the specified normalized coordinate (x, y from 0 to 1000) and points at it. Only call this tool when the user explicitly asks you to point to, locate, navigate to, or highlight a specific element on screen, or when you are referencing a visual element you can see in a screenshot. Do not call this speculatively or for general positioning."
 
 func get_schema() -> Dictionary:
 	return {

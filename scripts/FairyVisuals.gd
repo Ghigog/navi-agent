@@ -42,6 +42,8 @@ var _pulse_tween: Tween = null
 var _emotion_tween: Tween = null
 ## Last emotion key, used to avoid duplicate emoji spawns on unchanged emotion.
 var _last_emotion: String = ""
+## Timestamp of last error emoji spawn — used to debounce rapid consecutive errors.
+var _last_error_emoji_time: float = -999.0
 
 ## Preloaded emoji notification scene (NAV-64).
 const _EMOJI_NOTIF_SCENE := preload("res://scenes/EmojiNotification.tscn")
@@ -109,6 +111,10 @@ func _ready() -> void:
 
 	# Apply initial customization color
 	set_fairy_color(base_color)
+
+	# Connect to the global error bus so any ErrorBus.report() call shows ⚠️
+	if has_node("/root/ErrorBus"):
+		get_node("/root/ErrorBus").error_occurred.connect(_on_error_occurred)
 	
 	# Set up Area2D input detection properties
 	click_area.input_pickable = true
@@ -448,6 +454,42 @@ func spawn_emoji_notification(emotion: String) -> void:
 	var spawn_pos := global_position + Vector2(0, -40)
 	print("FairyVisuals: ✨ Spawning emoji for '%s' at %s" % [emotion, str(spawn_pos)])
 	notif.play(emotion, spawn_pos)
+
+
+## Spawns a ⚠️ emoji above the fairy to indicate a background error.
+## Bypasses the emotion-dedup guard and uses a short cooldown to prevent spam.
+func spawn_error_emoji() -> void:
+	if not is_inside_tree():
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_error_emoji_time < 1.0:
+		# Debounce: don't show more than one error emoji per second
+		return
+	_last_error_emoji_time = now
+
+	var notif: Node2D = _EMOJI_NOTIF_SCENE.instantiate()
+	get_tree().root.add_child(notif)
+	var spawn_pos := global_position + Vector2(0, -40)
+	print("FairyVisuals: ⚠️ Spawning error emoji at %s" % str(spawn_pos))
+	# Directly set the emoji label text and play animation
+	# (EmojiNotification.play() expects an emotion key; bypass by calling the tween directly)
+	notif.get_node("EmojiLabel").text = "⚠️"
+	notif.global_position = spawn_pos
+	notif.scale = Vector2(0.1, 0.1)
+	var tween := notif.create_tween()
+	tween.tween_property(notif, "scale", Vector2(1.2, 1.2), 0.25)\
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tween.tween_property(notif, "scale", Vector2(1.0, 1.0), 0.1)\
+		.set_ease(Tween.EASE_IN_OUT)
+	tween.tween_interval(1.5)
+	tween.tween_property(notif, "scale", Vector2(0.0, 0.0), 0.2)\
+		.set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_BACK)
+	tween.tween_callback(notif.queue_free)
+
+
+## Callback wired to ErrorBus.error_occurred.
+func _on_error_occurred(_message: String) -> void:
+	spawn_error_emoji()
 
 
 ## Displays a temporary subtitle label under Navi's body that automatically fades out.

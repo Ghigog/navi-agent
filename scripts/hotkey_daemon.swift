@@ -75,11 +75,12 @@ let handler: @convention(c) (EventHandlerCallRef?, EventRef?, UnsafeMutableRawPo
     return noErr
 }
 
-var eventPress = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-var eventRelease = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+var eventSpecs = [
+    EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+    EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+]
 
-InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventPress, nil, nil)
-InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventRelease, nil, nil)
+InstallEventHandler(GetApplicationEventTarget(), handler, 2, &eventSpecs, nil, nil)
 
 print("[HotkeyDaemon] Event loop running.")
 NSApplication.shared.run()
