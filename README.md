@@ -10,12 +10,12 @@ Pressing a hotkey freezes the fairy in place on your screen and opens a subtle t
 ## 📖 Project Documentation
 
 Please review the following design and architectural specifications:
-- [AI Agent Guidelines](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/ai_agent.md): General architectural conventions, scene structures, styling rules, and GUT coding best practices.
-- [Emotion System Design](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/emotions.md): Full specification for the Triforce Emotion System — Courage/Wisdom/Power dimensions, Tier 2 composite emotions, Love Meter, prompt injection, and visual feedback.
+- [AI Agent Guidelines](ai_agent.md): General architectural conventions, scene structures, styling rules, and GUT coding best practices.
+- [Emotion System Design](emotions.md): Full specification for the Triforce Emotion System — Courage/Wisdom/Power dimensions, Tier 2 composite emotions, Love Meter, prompt injection, and visual feedback.
 - Development Tickets:
-  - [Active / In Progress Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/in_progress.md): Tickets currently in development.
-  - [Backlog Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/backlog.md): Future tickets scheduled for implementation.
-  - [Completed Tickets](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/done.md): Log of all completed, cancelled, or reverted tickets.
+  - [Active / In Progress Tickets](in_progress.md): Tickets currently in development.
+  - [Backlog Tickets](backlog.md): Future tickets scheduled for implementation.
+  - [Completed Tickets](done.md): Log of all completed, cancelled, or reverted tickets.
 
 ---
 
