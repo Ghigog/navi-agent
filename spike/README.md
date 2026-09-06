@@ -55,14 +55,21 @@ error:
 npm warn allow-scripts   electron@33.4.11 (postinstall: node install.js)
 ```
 
-Approve it and reinstall:
+Approving the script is necessary but **not sufficient**, because the blocked first attempt leaves a
+partial `dist/` directory behind with no `path.txt`. After that, `install.js` sees `dist/` and skips
+the download (exiting silently with status 0), while `index.js` looks for `path.txt` and fails. A
+plain `rm -rf node_modules && npm install` does not clear it. Do this instead:
 
 ```bash
 npm approve-scripts electron
-rm -rf node_modules
-npm install
+rm -rf node_modules/electron/dist node_modules/electron/path.txt
+node node_modules/electron/install.js
 npm run spike
 ```
+
+Confirm it worked before running the spike — `ls node_modules/electron/dist/` should show
+`Electron.app` on macOS. If `install.js` prints nothing and `dist/` is still missing, the download
+itself is being blocked (proxy or network), which is a different problem.
 
 `npm audit` will also report vulnerabilities in Electron's build-time dependency tree. Ignore them:
 this is a throwaway dev dependency that is never distributed.
