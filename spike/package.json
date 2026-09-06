@@ -1,0 +1,15 @@
+{
+  "name": "navi-overlay-spike",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NAV-94 Risk A spike: can Electron host the Navi overlay on macOS?",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "spike": "electron .",
+    "bench": "node bench.mjs"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
