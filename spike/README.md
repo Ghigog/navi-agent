@@ -44,6 +44,29 @@ npm install     # pulls Electron, ~250 MB, one time
 npm run spike
 ```
 
+### If it says "Electron failed to install correctly"
+
+npm 11 and later block package install scripts by default. The `electron` npm package is only a
+stub — its `postinstall` is what downloads the actual binary — so when that script is blocked you
+get a stub with no Electron behind it. The clue appears in the `npm install` output, above the
+error:
+
+```
+npm warn allow-scripts   electron@33.4.11 (postinstall: node install.js)
+```
+
+Approve it and reinstall:
+
+```bash
+npm approve-scripts electron
+rm -rf node_modules
+npm install
+npm run spike
+```
+
+`npm audit` will also report vulnerabilities in Electron's build-time dependency tree. Ignore them:
+this is a throwaway dev dependency that is never distributed.
+
 A fairy appears near your cursor. Then:
 
 1. **Drag it over a bright window, then a dark one.** Is the background genuinely transparent,
