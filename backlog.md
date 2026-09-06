@@ -28,9 +28,106 @@ This document contains outstanding tasks and features in the backlog.
 
 ---
 
+## Implementation Order
+
+**Ticket IDs are identity, not sequence.** They are assigned when a ticket is written and never
+change, because things link to them. Order lives here instead. This separation is deliberate: the
+historical log reused sixteen IDs precisely because numbering was doing double duty as sequence.
+
+Work top to bottom. Anything marked **parallel** can run alongside the item above it.
+
+### 1. Do now, whatever happens to the platform
+
+Nothing in this group is wasted by a later migration.
+
+| Order | Ticket | Why here |
+|---|---|---|
+| 1 | **NAV-81** Purge secret and bloat | Credential rotation is not a scheduling question. |
+| 2 | **NAV-99** Cursor-anchored "what's this?" | Highest daily value, smallest fix, and it is a bug rather than a feature. The core correction is to sample the cursor in `WindowController._on_hotkey_pressed()` (`:175`) and anchor the crop on that instead of `absolute_fairy_pos` (`:452`). Small in Godot today, and the reasoning ports unchanged. Do not wait for the platform decision to stop aiming at the wrong pixel. |
+| 3 | **NAV-97** Record the identity decision | A writing task, an hour of work, that constrains the design of NAV-91, NAV-95, NAV-96 and NAV-101. Cheapest possible thing to get right before the tickets it governs. |
+
+### 2. Decision gate
+
+| Order | Ticket | Why here |
+|---|---|---|
+| 4 | **NAV-94** Platform decision + overlay spike | Everything below branches on this. Run the spike before committing. |
+
+> **Deliberately not before the gate: NAV-82 (tests and CI).** A green suite is genuinely valuable,
+> but the current suite is GUT-on-Godot. Building CI around a stack that may be retired in the next
+> step spends real effort on something the migration would throw away. If NAV-94 says stay, NAV-82
+> becomes the immediate next item. If it says migrate, the suite is rebuilt on the new stack instead.
+> The one exception worth doing early either way is fixing the single failing test, since a red suite
+> makes every later change harder to trust.
+
+### 3a. If NAV-94 says **migrate**
+
+The Phase 1 tickets stop being refactors and become constraints on the port. Do not port and then
+clean up; build it correctly once.
+
+| Order | Ticket | Note |
+|---|---|---|
+| 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. |
+| 6 | Port the shell and agent loop | With **NAV-83** (no substring router), **NAV-84** (no in-band control tags), **NAV-85** (layered prompt assembler) and **NAV-86** (no personality post-processing) baked in from the first line. |
+| 7 | **NAV-89** Prebuilt native helper | Folds into the new build pipeline. |
+| 8 | **NAV-82** Tests and CI | Rebuilt on the new stack. |
+
+**NAV-87** (SSE parser) and **NAV-88** (decompose AIService) close as superseded — not implemented.
+**NAV-98** (dead code) largely closes too: code that is never ported needs no deletion. Check the
+`enable_push_to_talk` and thinking-model-key items survive into the new settings layer.
+
+### 3b. If NAV-94 says **stay in Godot**
+
+| Order | Ticket | Note |
+|---|---|---|
+| 5 | **NAV-82** Tests and CI | Now the immediate priority; everything below depends on trusting it. |
+| 6 | **NAV-98** Dead code | Pure deletion. Cheap, and it stops the codebase misleading you while you work in it. |
+| 7 | **NAV-83** Delete the router | Biggest single behaviour improvement. Do it before the tickets that depend on tool calling being trusted. |
+| 8 | **NAV-85** Prompt assembler | Before NAV-84, because the inspector makes NAV-84 far easier to verify. |
+| 9 | **NAV-84** Retire control tags | |
+| 10 | **NAV-86** Remove personality post-processing | Trivial once NAV-85 exists. |
+| 11 | **NAV-87** SSE parser | |
+| 12 | **NAV-88** Decompose AIService | Last: it is easiest once the router, tags and prompt code have already left the file. |
+| 13 | **NAV-89** Swift daemon into the build | |
+
+### 4. Computer use — same either way
+
+Order matters here more than anywhere else in the plan.
+
+| Order | Ticket | Note |
+|---|---|---|
+| 14 | **NAV-91** Safety model — *design and gate first* | Build the gate before the capability. Reversing this is how these projects go wrong. |
+| 15 | **NAV-90** Helper, read-only half | `list_windows`, `focus_window`, `dump_tree`, `observe_ui`. Reads only. Immediately makes NAV-99 faster and more accurate. |
+| 16 | **NAV-90** Helper, write half | `click_element`, `set_value`, CGEvent fallbacks. Ships **only** behind NAV-91's gate. |
+| 17 | **NAV-92** Onboarding flow, completion | Permissions rows land here even if the provider on-ramp shipped earlier. |
+
+### 5. Companion depth — by value
+
+| Order | Ticket | Note |
+|---|---|---|
+| 18 | **NAV-93** Bounded memory | Foundation: NAV-100 and NAV-101 both store into it. |
+| 19 | **NAV-100** Notes and reminders | Small, high daily value, sits directly on NAV-93's store. |
+| 20 | **NAV-101** Confidence and approval loop | Needs NAV-93's relationship store and NAV-97's bounds. |
+| 21 | **NAV-95** Model-driven emotion appraisal | Improvement to something that already works, so it waits. |
+| 22 | **NAV-96** Ambient presence | Last by design: needs NAV-90 and NAV-91, and carries the most risk of being annoying. |
+
+### Dependency summary
+
+```
+NAV-97 ──────────────► NAV-91, NAV-95, NAV-96, NAV-101   (identity bounds their design)
+NAV-94 ──────────────► everything in phases 3a/3b        (platform)
+NAV-91 ──────────────► NAV-90 write half                 (gate before capability)
+NAV-90 (read) ───────► NAV-99 fast path, NAV-96          (accessibility tree)
+NAV-93 ──────────────► NAV-100, NAV-101                  (shared store)
+NAV-85 ──────────────► NAV-84, NAV-86                    (assembler + inspector first)
+```
+
+NAV-99's cursor fix has no dependency on NAV-90 — the AX tree only makes it better.
+
+---
+
 ## Tickets
 
-Tickets are grouped into phases. **NAV-94 (platform decision) gates Phase 2 and Phase 3** — several
+Tickets below are grouped by theme for reading. **Sequence lives in Implementation Order above, not in the ID numbers.** NAV-94 gates most of the work — several
 tickets below are written platform-neutrally on purpose, describing target behaviour rather than a
 GDScript implementation, because whether they are a refactor or a port depends on that decision.
 
@@ -604,39 +701,72 @@ write actions, not a follow-up to them.
 
 ---
 
-### NAV-92: First-run permissions flow (Backlog)
+### NAV-92: First-run onboarding flow (Backlog)
 **User Story:**
 - **As a:** New user
-- **I want:** Clear guidance through the macOS permissions Navi needs
-- **So that:** The app works on first launch instead of failing silently
+- **I want:** To be walked from install to a working Navi
+- **So that:** I get a companion instead of a silent fairy that does nothing and never says why
 
 **Context:**
-Navi requires Accessibility (hotkeys, and after NAV-90, AX reads and input synthesis) and Screen
-Recording (screenshots). Both must be granted manually in System Settings, both require an app
-restart to take effect, and both fail silently when missing. The Swift daemon already emits a
-Carbon `-9878` hint to stdout, which no user will ever see. This is the most common place desktop
-assistants lose users.
+Navi's first run has to clear three separate hurdles, and today it clears none of them. It requires
+macOS Accessibility (hotkeys, and after NAV-90 the AX reads and input synthesis) and Screen Recording
+(screenshots). Both are granted manually in System Settings, both need a restart to take effect, and
+both fail **silently**. The Swift daemon emits a Carbon `-9878` hint to stdout that no user will ever
+read.
+
+On top of that, distribution is intended (NAV-94) while the primary path is local Ollama. A new user
+therefore needs a model provider before Navi says a word, and "install Ollama and pull a multi-GB
+model" is a steep wall to hit in the first sixty seconds.
+
+**Decision (2026-09-06):** bring-your-own cloud key is an acceptable on-ramp, **and** the flow must
+also teach the user how to set up Ollama locally. Both paths are first-class and both live in
+onboarding. Cloud is the fast start; local is the destination.
 
 **Description:**
-Detect each permission, explain why it is needed, deep-link to the right settings pane, and
-re-check without requiring a manual restart where possible.
+One guided first-run flow covering provider setup and permissions, with honest explanations and no
+silent failures.
 
 **Requirements:**
-- Detect Accessibility (`AXIsProcessTrusted`) and Screen Recording
-  (`CGPreflightScreenCaptureAccess`) independently.
-- On first launch, show a checklist with one row per permission and its live status.
+
+*Provider setup:*
+- Offer both paths plainly at first run: paste a cloud API key to start immediately, or set up Ollama
+  to run entirely locally. Neither should feel like the lesser option.
+- For the cloud path: where to get a key, what it will cost, and that prompts and screen captures
+  will leave the machine. That last point is not optional — Navi sees the user's screen.
+- For the local path: real setup instructions. Install Ollama, which model to pull and roughly how
+  large it is, how to verify it is running, and what to do when it is not. Link out; do not attempt
+  to install it silently.
+- Detect a reachable Ollama at `localhost:11434` and offer the local path more prominently when one
+  is already there.
+- Let the user switch later without re-running onboarding, and make the local path discoverable from
+  Settings for anyone who started on cloud.
+
+*Permissions:*
+- Detect Accessibility (`AXIsProcessTrusted`) and Screen Recording (`CGPreflightScreenCaptureAccess`)
+  independently.
+- Show a checklist with one row per permission and its live status.
 - Deep-link each row to its System Settings pane via the `x-apple.systempreferences:` URL scheme.
-- Explain in plain language what each permission is used for. Users are right to hesitate at
-  "allow this app to control your computer" — say what it does.
+- Explain in plain language what each is for. Users are right to hesitate at "allow this app to
+  control your computer"; earn it by saying what it does.
 - Poll for changes so the checklist updates without an app restart.
-- Degrade explicitly: if Screen Recording is denied, Navi says she cannot see rather than
-  hallucinating screen contents.
+
+*Failure behaviour:*
+- Degrade explicitly and audibly. With Screen Recording denied, Navi says she cannot see rather than
+  hallucinating screen contents. With no provider configured, she says so instead of failing mutely.
+- No silent failure anywhere in this flow. Every unmet requirement has a visible cause and a next
+  step.
 
 **Acceptance Criteria:**
-- [ ] Fresh install on a clean account shows the checklist.
-- [ ] Each deep link opens the correct pane.
-- [ ] Granting a permission updates the checklist within a few seconds, no restart.
-- [ ] With screen recording denied, a visual question yields an honest refusal.
+- [ ] A clean account reaches a working Navi via the cloud path without touching a config file.
+- [ ] A clean account reaches a working Navi via the local path following only the in-app instructions.
+- [ ] An already-running Ollama is detected and surfaced.
+- [ ] The cloud path states plainly that screen captures leave the machine.
+- [ ] Each permission deep link opens the correct pane; granting updates the checklist without a
+      restart.
+- [ ] With screen recording denied, a visual question yields an honest refusal, not a guess.
+- [ ] With no provider configured, Navi says so rather than failing silently.
+- [ ] Switching provider later does not require re-running onboarding.
+
 
 ---
 
