@@ -34,16 +34,22 @@
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  window.spike.onStats((d) => {
-    document.getElementById('hud').innerHTML =
-      `<b>NAV-94 overlay spike</b>\n` +
-      `frame   ${frameMs.toFixed(2)} ms   (~${fps.toFixed(0)} fps)\n` +
-      `cpu     ${d.cpu.toFixed(1)}%   mem ${d.mem.toFixed(0)} MB\n` +
-      `elapsed ${d.elapsed}s\n\n` +
-      `press T to toggle click-through\n` +
-      `drag me anywhere · Cmd+Q to finish`;
-  });
+  // Never let a broken bridge stop the fairy rendering or the key bindings registering.
+  const hud = document.getElementById('hud');
+  if (!window.spike) {
+    hud.innerHTML = '<b>preload bridge FAILED</b>\nstats and T unavailable\nchecks 1, 3, 4 still valid';
+  } else {
+    window.spike.onStats((d) => {
+      hud.innerHTML =
+        `<b>NAV-94 overlay spike</b>\n` +
+        `frame   ${frameMs.toFixed(2)} ms   (~${fps.toFixed(0)} fps)\n` +
+        `cpu     ${d.cpu.toFixed(1)}%   mem ${d.mem.toFixed(0)} MB\n` +
+        `elapsed ${d.elapsed}s\n\n` +
+        `press T to toggle click-through\n` +
+        `drag me anywhere · Cmd+Q to finish`;
+    });
+  }
   addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 't') window.spike.clickThrough('toggle');
+    if (e.key.toLowerCase() === 't') window.spike?.clickThrough('toggle');
   });
 </script>
