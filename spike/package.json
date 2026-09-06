@@ -8,7 +8,7 @@
   "scripts": {
     "spike": "electron .",
     "spike:direct": "./node_modules/electron/dist/Electron.app/Contents/MacOS/Electron .",
-    "fix-path": "echo Electron.app/Contents/MacOS/Electron > node_modules/electron/path.txt",
+    "fix-path": "printf 'Electron.app/Contents/MacOS/Electron' > node_modules/electron/path.txt",
     "bench": "node bench.mjs"
   },
   "devDependencies": {
