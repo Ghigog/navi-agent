@@ -33,7 +33,7 @@ function createWindow() {
       alwaysOnTop: true,
       skipTaskbar: true,
       fullscreenable: false,
-      webPreferences: { preload: join(here, 'preload.js'), sandbox: false },
+      webPreferences: { preload: join(here, 'preload.mjs'), sandbox: false },
     });
     record('window created with transparent:true', true, 'no throw');
   } catch (e) {
