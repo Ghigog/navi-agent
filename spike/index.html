@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Navi overlay spike</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font: 12px ui-sans-serif, -apple-system, system-ui, sans-serif; color: #fff;
+    -webkit-user-select: none; user-select: none; }
+  #c { position: fixed; inset: 0; }
+  #hud { position: fixed; left: 8px; bottom: 8px; padding: 7px 9px; border-radius: 8px;
+    background: rgba(12,14,20,.82); border: 1px solid rgba(255,255,255,.16);
+    line-height: 1.55; white-space: pre; font-variant-numeric: tabular-nums;
+    -webkit-app-region: no-drag; backdrop-filter: blur(8px); }
+  #hud b { color: #8ecbff; font-weight: 600; }
+  #drag { position: fixed; inset: 0; -webkit-app-region: drag; }
+</style>
+<div id="drag"></div>
+<canvas id="c"></canvas>
+<div id="hud">starting…</div>
+<script type="module">
+  import { createFairy, emotionColor } from './fairy.js';
+  const f = createFairy(document.getElementById('c'), { size: 200, dpr: devicePixelRatio });
+  let last = performance.now(), acc = 0, n = 0, fps = 0, frameMs = 0, t0 = performance.now();
+  // Drift the emotion tint so the colour path is exercised, not just a static fill.
+  setInterval(() => {
+    const s = (performance.now() - t0) / 1000;
+    f.setTint(emotionColor(Math.sin(s / 7) * 10, Math.cos(s / 11) * 10, Math.sin(s / 5) * 10, 400));
+  }, 500);
+  f.setStatusLight({ r: 153, g: 51, b: 255, pulsing: true });
+  function loop(t) {
+    const dt = t - last; last = t;
+    const a = performance.now(); f.draw(t, dt); const b = performance.now();
+    acc += b - a; n++;
+    if (n >= 30) { frameMs = acc / n; fps = 1000 / (dt || 16.7); acc = 0; n = 0; }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.spike.onStats((d) => {
+    document.getElementById('hud').innerHTML =
+      `<b>NAV-94 overlay spike</b>\n` +
+      `frame   ${frameMs.toFixed(2)} ms   (~${fps.toFixed(0)} fps)\n` +
+      `cpu     ${d.cpu.toFixed(1)}%   mem ${d.mem.toFixed(0)} MB\n` +
+      `elapsed ${d.elapsed}s\n\n` +
+      `press T to toggle click-through\n` +
+      `drag me anywhere · Cmd+Q to finish`;
+  });
+  addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 't') window.spike.clickThrough('toggle');
+  });
+</script>
