@@ -86,6 +86,10 @@ or write the file and use the normal script:
 npm run fix-path && npm run spike
 ```
 
+`path.txt` must have **no trailing newline** — `index.js` reads it raw and does not trim, so `echo`
+produces a path ending in `\n` and the spawn fails with `ENOENT`. Use `printf`, which is what
+`fix-path` does.
+
 **Do not spend more time than this on it.** The spike answers a question about macOS window
 behaviour; Electron's installer is not that question. If `spike:direct` does not start, say so and
 move on — the same checks can be run another way.
