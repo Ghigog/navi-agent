@@ -180,6 +180,18 @@ Against it:
   bridge, MCP — has a maintained library in TypeScript and none in GDScript. NAV-87 and NAV-88 exist
   purely because that infrastructure is being hand-written.
 
+**Constraints now confirmed (2026-09-06):**
+- **Local Ollama is the daily driver**, not a fallback. The core path must work with no network and no
+  cloud account. This rules out any design whose agent loop depends on a hosted SDK, and it makes the
+  accessibility tree (NAV-90) more important, not less: small local models are especially poor at
+  pixel-coordinate reasoning, which is the reported failure mode.
+- **Distribution is intended.** Code signing, notarisation, auto-update, and the first-run permissions
+  flow (NAV-92) are real requirements rather than nice-to-haves. This counts *for* a mainstream app
+  framework with established packaging, and against Godot, whose export pipeline already requires the
+  manual `bin/` copy step documented in the README.
+- **Windows and Linux are wanted eventually.** Not now, but the native helper's interface must be
+  abstract from day one even with only a macOS implementation behind it (see NAV-90).
+
 **Description:**
 Decide, record the decision, and if migrating, sequence the port.
 
@@ -189,10 +201,11 @@ Recommended target if migrating: **Electron + TypeScript**, with a Swift `navi-h
 - The Node main process hosts the agent directly. No shell/brain split, and no state living on both
   sides of a socket.
 - The renderer is HTML, so designed mockups drop straight in and the settings UI stops being a cost.
-- The Anthropic TypeScript SDK provides streaming, the Tool Runner (whose per-turn hooks are exactly
-  where `SkillConfirmationCard` belongs), prompt caching, and structured outputs. Retain a provider
-  seam so local Ollama stays a first-class option — local-first is a deliberate property of this
-  project, not an accident.
+- **Ollama is the primary target and must work offline.** Any hosted provider is an optional extra
+  behind the same seam, never a dependency of the core loop. Where a hosted SDK would supply the
+  agent loop, the equivalent for the local path is a small tool-call loop written once against the
+  OpenAI-compatible endpoint Ollama already serves — far less code than the current
+  `AIService.gd`, but still ours.
 - The Swift helper stays a stateless actuator with a narrow API, which is a materially different
   proposition from splitting the app into two stateful halves.
 - No new language: the team already writes Swift for the daemon and would write TypeScript for
@@ -525,6 +538,10 @@ Helper (Swift — extend the existing hotkey daemon into a general `navi-helper`
 - `click_point(x, y)` / `type_text(s)` / `key(combo)` / `scroll(dx, dy)` via CGEvent — the fallback
   for canvas-drawn UIs the AX tree does not describe.
 - Stateless. It holds no conversation state and makes no model calls. It is an actuator.
+- **Define the interface platform-neutrally from the start.** The implementation is macOS-only for
+  now, but Windows (UI Automation) and Linux (AT-SPI) expose equivalent accessibility trees, so the
+  wire protocol must not leak `AXUIElement` specifics. Getting this wrong now means rewriting every
+  call site later.
 
 Skills exposed to the model:
 - `observe_ui` — returns the focused window's pruned tree. This should be tried *before*
@@ -625,40 +642,71 @@ re-check without requiring a manual restart where possible.
 
 ## Phase 3 — Companion depth (the mission statement's unimplemented half)
 
-### NAV-93: Persistent long-term memory (Backlog)
+The three highest-value tickets here are **NAV-99** (cursor-anchored "what's this?"), **NAV-100**
+(notes and reminders) and **NAV-101** (confidence and the approval loop). They come from what the app
+is actually used for, rather than from reading the code, and NAV-99 in particular fixes a concrete
+anchoring bug rather than adding a feature. NAV-99 depends on NAV-90's `observe_ui` for its fast path,
+but its cursor-anchoring fix stands alone and can land before it.
+
+### NAV-93: Bounded persistent memory (Backlog)
 **User Story:**
 - **As a:** User
-- **I want:** Navi to remember our previous sessions
-- **So that:** The relationship accumulates instead of resetting
+- **I want:** Navi to remember me across sessions without her replies getting slower or worse
+- **So that:** The relationship accumulates, which is the point of her
 
 **Context:**
 `mission_statement.md` names Growth — "expanding your memory, context, and capabilities over time" —
-as one of three core desires, and instructs Navi to ask the user to help her remember. There is no
-memory implementation. `_conversation_history` is per-session, `_short_term_memory` is a scratchpad,
-and `end_chat_session` caches a single summary string. `EmotionState` is the only thing persisted.
+as a core desire, and tells Navi to ask the user to help her remember. There is no memory
+implementation. `_conversation_history` is per-session, `_short_term_memory` is a scratchpad, and
+`end_chat_session` caches one summary string. `EmotionState` is the only thing that survives a
+restart. Navi asks to remember things and then forgets them.
 
-The result is that Navi's most distinctive stated trait is the one thing the code does not do, and
-she asks to remember things she then forgets.
+**The binding constraint is the local model.** The daily driver is Ollama (`llama3.2:3b`,
+`gemma4:e4b`). These have small effective context and degrade noticeably as it fills, so "store
+everything and inject it" is not available. Unbounded memory growth would make Navi *worse* over
+time, which is the opposite of the intent. Size control is a functional requirement here, not an
+optimisation.
 
 **Description:**
-Add durable episodic memory that survives restarts and is recalled into context per turn.
+Three separate stores with three different lifecycles, because conflating them is what makes memory
+blow up.
 
 **Requirements:**
-- Local persistent store (SQLite is sufficient; no vector database needed at this scale).
-- Write memories at session end and on explicit user request ("remember that..."), as short
-  model-written summaries with timestamps and topic tags.
-- Recall on each turn: retrieve the few most relevant memories and inject them via `PromptBuilder`
-  Layer 3 (NAV-85). Start with recency plus keyword overlap; only add embeddings if that proves
-  insufficient.
-- Bound the recall budget so memory cannot crowd out the conversation.
-- User-facing memory viewer: list, search, edit, delete. Anything Navi remembers, the user must be
-  able to see and remove.
-- Keep memory local. It is never sent anywhere except as prompt context to the configured model.
+
+**1. Relationship state (tiny, always injected).** Already partly exists as `EmotionState`. Extend it
+with what Navi has learned the user likes and approves of. Structured fields, not prose. Hard budget:
+~50-100 tokens. This is the cheapest and highest-value memory in the system — it is most of what
+makes her feel like she knows you. See NAV-101.
+
+**2. Fact sheet (small, always injected).** Durable facts about the user: work, tools, preferences,
+people, recurring projects. Written when the user states something durable or says "remember that".
+Hard budget: ~500 tokens, enforced by consolidation, not truncation. Never silently drop the tail.
+
+**3. Episodic memories (many, retrieved).** Session summaries with timestamps and topic tags, stored
+in SQLite. Retrieved per turn, never bulk-injected.
+
+Retrieval and decay:
+- Retrieve at most 3 episodes per turn. Rank by recency plus keyword overlap. Do **not** start with
+  embeddings; add them only if keyword retrieval measurably fails, and measure before deciding.
+- Hard token budget on total injected memory, enforced before the request is built. If the budget is
+  exceeded, drop the lowest-ranked episode, never the fact sheet.
+- Consolidate on a schedule: roll old episodes into fact-sheet entries and delete the originals. This
+  is the actual answer to unbounded growth.
+- Decay: episodes never retrieved over a long window are dropped. A memory system that never forgets
+  eventually drowns.
+
+User control:
+- Memory viewer: list, search, edit, delete, across all three stores.
+- Anything Navi remembers, the user can see and remove.
+- Everything stays local. Memory leaves the machine only as prompt context to the configured model.
 
 **Acceptance Criteria:**
-- [ ] A fact stated in one session is recalled in the next after a restart.
-- [ ] Recall stays within its token budget with 1000+ stored memories.
-- [ ] The viewer lists, searches, edits, and deletes.
+- [ ] A fact stated in one session is recalled in the next, after a restart.
+- [ ] With 1000+ stored episodes, injected memory stays inside its token budget and response latency
+      is unchanged versus an empty store. This is the ticket's real test.
+- [ ] Consolidation reduces episode count without losing facts that were promoted.
+- [ ] Decay removes never-retrieved episodes and leaves retrieved ones.
+- [ ] The viewer lists, searches, edits, and deletes across all three stores.
 - [ ] Deleting a memory removes it from subsequent prompts.
 - [ ] `_calculate_retrieval_relevance` is replaced by real retrieval or removed.
 
@@ -684,10 +732,14 @@ Replace keyword scoring with model-driven appraisal, keeping the existing state 
 **Requirements:**
 - Keep `EmotionState`, the Courage/Wisdom/Power dimensions, the Love Meter, and all visual mapping.
   Only the scoring input changes.
-- Have the model emit an emotional appraisal as structured output alongside its reply
-  (`output_config.format`) rather than inferring it from keywords afterwards.
-- Keep the rule engine as the fallback when structured appraisal is unavailable (local models
-  without structured-output support).
+- **The rule engine stays the primary path**, because the daily driver is a small local model and
+  reliable structured output cannot be assumed from `llama3.2:3b` or `gemma4:e4b`. Improve it rather
+  than replace it: the goal is to beat keyword matching, not to require a frontier model.
+- Add a model-driven appraisal as an *enhancement* where the configured model supports constrained
+  output, and validate its result before applying it. A malformed or implausible appraisal falls back
+  to rules silently.
+- A cheap first improvement that needs no structured output at all: ask for the appraisal as a short
+  separate follow-up call with a tightly constrained answer space, and parse defensively.
 - Clamp per-turn deltas so a single message cannot swing the relationship level.
 - Remove `_classify_user_sentiment` and the sentiment keyword tables.
 
@@ -695,7 +747,8 @@ Replace keyword scoring with model-driven appraisal, keeping the existing state 
 - [ ] Sarcastic praise does not read as positive.
 - [ ] Sincere thanks raises the Love Meter.
 - [ ] A blunt but non-hostile technical question is not scored as mean.
-- [ ] Falls back cleanly to rule-based scoring on a model without structured outputs.
+- [ ] Works correctly with `llama3.2:3b` configured, with no structured-output support available.
+- [ ] A malformed appraisal falls back to rules without a visible error.
 - [ ] Existing `test_emotion_engine` coverage still passes against the fallback path.
 
 ---
@@ -721,22 +774,26 @@ Add a bounded ambient loop that can occasionally initiate contact.
 **Requirements:**
 - Periodic lightweight observation on a long interval. Prefer `observe_ui` (NAV-90) over screenshots:
   cheaper, faster, and far fewer tokens.
-- Use a cheap model for the observer pass and escalate to the main model only once the user engages.
-  `claude-haiku-4-5` is the appropriate tier for the observer.
+- Use the smallest configured local model for the observer pass and escalate to the main model only
+  once the user engages. With local inference the cost is not tokens but **CPU, GPU and battery** —
+  an ambient loop that spins up a model every minute will be felt as heat and fan noise long before
+  it is noticed as useful. Budget it against that, and idle to genuinely zero work when nothing has
+  changed on screen.
 - Strict interruption budget — at most a small number of unprompted remarks per hour, backing off
   when ignored, and silent by default.
 - Respect focus: never interrupt during full-screen presentations, video calls, or an explicit
   do-not-disturb toggle.
 - All ambient observation is subject to NAV-91's untrusted-content rules.
 - Off by default, with a clear settings toggle and a visible indicator when active.
-- Surface the token cost of ambient mode in Settings so it is never a surprise.
+- Surface the real cost of ambient mode in Settings: observation frequency and, for local models, an honest note about battery and thermal impact.
 
 **Acceptance Criteria:**
 - [ ] With ambient mode off, zero background model calls occur (verified by request log).
 - [ ] With it on, interruptions stay within the configured hourly budget.
 - [ ] Repeatedly dismissing remarks measurably reduces their frequency.
 - [ ] No interruption during a full-screen application.
-- [ ] Settings displays observed token spend for the current session.
+- [ ] Settings displays observation frequency and cost for the current session.
+- [ ] On battery with nothing changing on screen, ambient mode performs no model calls.
 
 ---
 
@@ -789,3 +846,138 @@ character trait rather than a failure mode.
 - [ ] The mood-affects-behaviour property is stated somewhere the user actually reads.
 - [ ] A documented path exists to recover the relationship from its worst state.
 - [ ] Confirmation and ambient defaults cite this decision.
+
+---
+
+### NAV-99: Cursor-anchored "what's this?" as the primary interaction (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** To ask "hey Navi, what's this near my cursor?" and get a correct answer
+- **So that:** I stop screenshotting things and pasting them into a chat window
+
+**Context:**
+This is the single most-wanted interaction, and it is **not what the code currently does.**
+
+`WindowController.capture_crop_screenshot()` (`:430`) centres a 600px crop on **the fairy**, not the
+cursor. The fairy sits at `FollowController.follow_offset = (20, 20)` from the cursor during normal
+following, and stops tracking entirely once the hotkey is pressed or she is dragged — which is
+exactly when the user asks the question. So the crop is anchored to wherever Navi happens to be,
+which by then may be nowhere near what the user meant.
+
+`TakeCropScreenshotSkill` compounds this: it describes itself as capturing "around Navi's current
+position", so even a well-behaved model is being told the wrong anchor. The prompt's spatial-awareness
+block then reinforces it, telling the model that "next to you" means near the fairy.
+
+This is very likely the root cause of the reported unreliability, and it is independent of model
+quality. No amount of better prompting fixes a crop centred on the wrong point.
+
+**Description:**
+Make the cursor the anchor, capture the cursor position at the moment of asking, and give the
+interaction its own fast path.
+
+**Requirements:**
+- Sample and freeze the OS cursor position at the instant the hotkey is pressed, **before** the fairy
+  stops following or is dragged. That frozen point, not the fairy's position, anchors the crop.
+- Add a `look_at_cursor` skill that crops around the frozen cursor point. Correct its description to
+  say cursor, not Navi.
+- Prefer `observe_ui` (NAV-90) first: the accessibility element under the cursor gives the answer as
+  text, with no image, faster and far more reliably than any crop. Fall back to the crop only when
+  the AX tree does not describe what is there (canvas, images, video, games).
+- Update the spatial-awareness prompt block so "this", "here", and "near my cursor" resolve to the
+  cursor anchor. Keep "next to you" meaning the fairy, since that is a genuinely different question.
+- Draw a brief visual confirmation of the sampled point so the user can see what she looked at, and
+  correct her when she is wrong.
+- Consider a dedicated hotkey so the whole interaction is one keystroke with no typing.
+
+**Acceptance Criteria:**
+- [ ] Hovering an unfamiliar icon and asking "what's this?" identifies it correctly.
+- [ ] The answer is unaffected by where the fairy happens to be, verified by dragging her far away
+      first.
+- [ ] For a standard UI control, the answer comes from the AX tree with no screenshot taken.
+- [ ] The sampled point is visibly confirmed to the user.
+- [ ] Tests cover: cursor frozen at press time, fairy position not consulted, AX-before-crop ordering.
+
+---
+
+### NAV-100: Notes and reminders (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** To tell Navi to note something down or remind me later
+- **So that:** She is useful for the small things I would otherwise lose
+
+**Context:**
+Named as a core daily use. There is **no implementation of any kind** — no skill, no store, no
+settings, nothing. A `grep` for note, reminder, or todo across `scripts/` returns nothing.
+
+This is small next to the rest of the backlog and disproportionately useful, since it is a thing the
+user wants several times a day and Navi is already always on screen.
+
+**Description:**
+Two skills over one local store, plus delivery.
+
+**Requirements:**
+- `save_note(text, tags)` — free-form note with a timestamp.
+- `set_reminder(text, when)` — natural-language time, resolved to a timestamp at write time so the
+  small local model is never asked to do date arithmetic later. Reject rather than guess when the
+  time is ambiguous, and ask.
+- `list_notes(query)` — search and recall.
+- Store in the same SQLite database as NAV-93, in its own table. Notes are user-authored data, not
+  inferred memory, and must never be silently consolidated or decayed away.
+- Delivery: reminders fire as an on-screen prompt from Navi, using the existing `EmojiNotification`
+  and speech-bubble path. Must fire reliably while Navi is unfocused.
+- Reminders must survive an app restart. A reminder that only exists in memory is not a reminder.
+- Notes are a read/write-own-data capability, so they are **not** gated by the NAV-91 computer-use
+  confirmation flow. Writing to her own store is not acting on the user's machine.
+
+**Acceptance Criteria:**
+- [ ] "Note that the SSE parser is the flaky one" is saved and later found by search.
+- [ ] "Remind me in 20 minutes to check the build" fires on time with Navi unfocused.
+- [ ] A reminder set before a restart still fires after it.
+- [ ] An ambiguous time produces a clarifying question, not a guess.
+- [ ] Notes survive a memory-consolidation pass untouched.
+
+---
+
+### NAV-101: Confidence stat and the approval loop (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** My approval to visibly teach Navi what I want and make her more sure of herself
+- **So that:** Looking after her is a real loop with visible consequences, like a virtual pet
+
+**Context:**
+The described mechanic — "give her approval and recognition when she does something right, so she
+learns what I want and increases her confidence, one of her stats" — does not exist.
+
+`EmotionState` holds `courage`, `wisdom`, `power`, `love_score`, and `relationship_level`. There is no
+confidence, and more importantly there is **no explicit approval signal at all**. Everything is
+inferred after the fact by `_classify_user_sentiment` keyword matching (`AIService.gd:894`). The user
+cannot deliberately tell Navi she did well, which means the central feedback loop of the pet
+relationship has no input.
+
+**Description:**
+Add confidence as a stat, give the user a direct way to grant approval, and store what earned it.
+
+**Requirements:**
+- Add `confidence` to `EmotionState`, persisted alongside the existing dimensions, with the same
+  clamping and save behaviour.
+- Add an explicit approval affordance. A one-keystroke or one-click "good job" on a reply is better
+  than hoping the sentiment classifier notices praise. Explicit beats inferred; keep inference as a
+  supplement, not the only channel.
+- Record **what** was approved, not just that approval happened. A note of the interaction shape
+  ("used the screen tool unprompted and was right") is what lets her actually learn preferences,
+  rather than merely feeling better. Store it in NAV-93's relationship-state store.
+- Feed accumulated approvals into the prompt as learned preferences, within the relationship-state
+  token budget.
+- Confidence drives behaviour, visibly: low confidence means more hedging and more checking in; high
+  confidence means acting without asking twice. This is what makes the stat legible to the user.
+- Confidence must interact with NAV-97's bounds. It may change willingness, hedging, and tone. It must
+  **not** license fabrication — a confident Navi who is wrong is worse than a hesitant one.
+- Show the stats somewhere. A pet whose stats are invisible cannot be looked after.
+
+**Acceptance Criteria:**
+- [ ] Approving a reply raises confidence and is visible in the UI.
+- [ ] What was approved is recorded, not just the fact of approval.
+- [ ] Accumulated approvals measurably change later behaviour in the approved direction.
+- [ ] Low confidence produces more hedging; high confidence produces less.
+- [ ] A test confirms high confidence does not increase fabrication on questions Navi cannot answer.
+- [ ] Relationship state stays inside its token budget as approvals accumulate.
