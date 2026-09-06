@@ -71,6 +71,25 @@ Confirm it worked before running the spike — `ls node_modules/electron/dist/` 
 `Electron.app` on macOS. If `install.js` prints nothing and `dist/` is still missing, the download
 itself is being blocked (proxy or network), which is a different problem.
 
+### If `dist/Electron.app` exists but it still says "failed to install correctly"
+
+`install.js` downloaded the binary but never wrote `path.txt`, the one-line file `index.js` reads to
+locate it. Either bypass the wrapper, which does not consult `path.txt` at all:
+
+```bash
+npm run spike:direct
+```
+
+or write the file and use the normal script:
+
+```bash
+npm run fix-path && npm run spike
+```
+
+**Do not spend more time than this on it.** The spike answers a question about macOS window
+behaviour; Electron's installer is not that question. If `spike:direct` does not start, say so and
+move on — the same checks can be run another way.
+
 `npm audit` will also report vulnerabilities in Electron's build-time dependency tree. Ignore them:
 this is a throwaway dev dependency that is never distributed.
 
