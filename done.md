@@ -12,6 +12,42 @@ This document contains completed, cancelled, or reverted historical tickets.
 
 ## Tickets
 
+### NAV-UI: Full UI Refactor (DONE)
+
+**Changes**
+- **Text Legibility**: All text uses white with proportional black outlines (2-4px based on font size). Coverage extended to CheckBox, CheckButton, OptionButton, SpinBox, and programmatically-created nodes.
+- **Accent Color System**: Panel backgrounds are now a fixed dark neutral (`Color(0.06, 0.06, 0.08, 0.88)`). Navi's mood color is used only as a subtle accent on borders, the Save button, and the chat pointer triangle. Text is always readable regardless of mood state.
+- **Settings UX Overhaul**: All 25+ settings now have plain-English hover tooltips. Settings are organized into 5 collapsible sections: Behavior, Appearance, AI & Model, Voice, and Advanced. Developer-facing labels replaced with user-friendly descriptions.
+- **Code Cleanup**: Removed the deprecated Voice Activity Detection (VAD) dead code from `ChatUI.gd` — the fully commented-out `_start_vad_monitoring()` function, the stubbed-out `_resume_stt_recording_when_done_speaking()` function and its three call sites, and scattered leftover commented-out push-to-talk auto-trigger blocks. The live push-to-talk feature itself (`enable_push_to_talk` setting, hotkey handling in `WindowController.gd`) was left untouched.
+
+---
+
+### NAV-78: Install Piper TTS Dependency UI and Script (DONE)
+
+**User Story:**
+- **As a:** User running local offline voice output
+- **I want:** A script to install the Piper TTS python package and an easy way to verify/install it within the settings panel
+- **So that:** I can resolve missing local Piper issues directly or using a simple script, and see when it is correctly set up.
+
+**Description:**
+- Created `install_piper.sh` in the project root to install `piper-tts` using the local python environment.
+- Added checking logic to the settings page (`_check_piper_engine_installed()` / `_check_piper_engine_state()` in `SettingsUI.gd`) to verify if `piper` is installed by executing the wrapper and checking the exit code.
+- Added an "Install" button in the settings UI (under Voice) wired to `_on_install_piper_pressed()`, which triggers a background installation of `piper-tts` and reflects success/failure state on the button.
+
+---
+
+### NAV-80: Prevent Duplicate Hotkey Daemon Instances (DONE)
+**User Story:**
+- **As a:** Navi user playing games like League of Legends
+- **I want:** The application to ensure only a single instance of the hotkey helper daemon runs in the background
+- **So that:** Duplicate daemon processes do not accumulate, hook the window server event loops repeatedly, and cause system-wide micro-stutters or input lag.
+
+**Description:**
+1. Modified [InputManager.gd](file:///Users/dylangrowcoot/Documents/Personal%20Apps/navi/scripts/InputManager.gd) to execute `killall hotkey_daemon` on startup and configuration reload before launching the new daemon.
+2. Manually terminated all 28 orphaned instances of `hotkey_daemon` active on the host machine.
+
+---
+
 ### NAV-UI: Display Order Adjustment (DONE)
 **User Story:**
 - **As a:** Navi user

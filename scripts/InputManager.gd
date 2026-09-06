@@ -146,6 +146,10 @@ func _start_daemon() -> void:
 			ErrorBus.report("InputManager: ERROR — neither precompiled binary nor source code exists.")
 			return
 
+	# Kill any existing orphaned hotkey_daemon processes before starting a new one
+	if OS.get_name() == "macOS":
+		OS.execute("killall", ["hotkey_daemon"])
+
 	# Launch compiled/copied binary as a detached OS background process
 	print("InputManager: Launching daemon process with keycode: ", _current_keycode, " modifiers: ", _current_modifiers)
 	_daemon_pid = OS.create_process(dest_path, [str(_current_keycode), str(_current_modifiers)])
