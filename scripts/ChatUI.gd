@@ -166,12 +166,6 @@ func open_chat(screenshot: Image = null, fairy_pos: Vector2 = Vector2.ZERO, wind
 	# Grab text editor focus deferredly to ensure input fields are ready
 	input_edit.grab_focus.call_deferred()
 
-	# Automatically trigger STT recording if enabled by default (NAV-57)
-	# DEPRECATED: With voice detection deprecated, we do not auto-trigger recording on open.
-	# if _settings_mgr and _settings_mgr.get_setting("enable_stt", true) and _voice_button:
-	# 	if not _settings_mgr.get_setting("enable_push_to_talk", true):
-	# 		_voice_button.button_pressed = true
-
 
 func close_chat() -> void:
 	_is_greeting_mode = false
@@ -441,9 +435,6 @@ func _on_ai_response_received(response_text: String) -> void:
 
 		input_edit.grab_focus.call_deferred()
 
-		# Automatically trigger STT recording if enabled by default (deferred until speaking finishes)
-		_resume_stt_recording_when_done_speaking()
-
 
 # Callback triggered when thinking model has intermediate thought updates.
 # Think lines are spoken via TTS as natural utterances ("Hmm, let me think...").
@@ -469,13 +460,7 @@ func _on_ai_response_chunk(chunk: String) -> void:
 	if is_first_chunk and not _use_step_playback and not _disable_stream_tts:
 		if has_node("/root/TTSService"):
 			get_node("/root/TTSService").start_speech_stream()
-			
-	# if is_first_chunk:
-		# Enable recording/VAD monitoring during playback to support voice interruption
-		# DEPRECATED: Voice detection is deprecated.
-		# if _settings_mgr and _settings_mgr.get_setting("enable_stt", true) and _voice_button:
-		# 	_voice_button.button_pressed = true
-	
+
 	if _use_step_playback:
 		_guidance_controller.parse_and_append_new_steps(_current_response_text)
 	else:
@@ -530,9 +515,6 @@ func _on_ai_request_failed(error_message: String) -> void:
 	if has_node("/root/TTSService"):
 		get_node("/root/TTSService").speak(error_message)
 
-	# Automatically trigger STT recording if enabled by default (deferred until speaking finishes)
-	_resume_stt_recording_when_done_speaking()
-
 
 func _on_skill_confirmation_requested(skill_name: String, description: String) -> void:
 	var card_scene = load("res://scenes/SkillConfirmationCard.tscn")
@@ -582,9 +564,6 @@ func _on_guidance_finished(_restore_follow: bool) -> void:
 	input_edit.editable = true
 	_update_send_button_ui()
 	input_edit.grab_focus.call_deferred()
-
-	# Automatically trigger STT recording if enabled by default (deferred until speaking finishes)
-	_resume_stt_recording_when_done_speaking()
 
 
 ## Rebuilds the response label from the current visual history, live thought trail,
@@ -828,10 +807,6 @@ func _on_voice_toggled(toggled_on: bool) -> void:
 			fairy.set_status_light(Color(1.0, 0.0, 0.0, 1.0), true) # Pulsing Red indicator
 		if has_node("/root/STTService"):
 			get_node("/root/STTService").start_recording()
-			# DEPRECATED: VAD voice detection is deprecated and commented out.
-			# if not _settings_mgr.get_setting("enable_push_to_talk", true):
-			# 	_start_vad_monitoring()
-			pass
 	else:
 		_live_transcribe_active = false
 		_voice_button.text = "🎙️"
@@ -874,93 +849,6 @@ func _on_voice_toggled(toggled_on: bool) -> void:
 				input_edit.editable = true
 
 
-## DEPRECATED: Voice Activity Detection (VAD) / continuous voice detection logic.
-## This has been commented out to enforce Push-to-Talk (Shift + Up) as the sole voice interaction model.
-## To re-enable in a future iteration:
-## 1. Un-comment the VAD monitoring loop below.
-## 2. Restore the push-to-talk toggle in the settings UI.
-## 3. Wire the toggles back to conditional checks in ChatUI and WindowController.
-func _start_vad_monitoring() -> void:
-	# if not has_node("/root/STTService"):
-	# 	return
-	# var stt = get_node("/root/STTService")
-	# var bus_idx := AudioServer.get_bus_index("Record")
-	# print("[VAD] Monitoring Started. Bus index: ", bus_idx)
-	# if bus_idx == -1:
-	# 	return
-	# 	
-	# _live_transcribe_active = true
-	# _has_spoken_in_chunk = false
-	# _silence_duration = 0.0
-	# 
-	# var check_interval := 0.1
-	# while _live_transcribe_active and _voice_button and _voice_button.button_pressed:
-	# 	await get_tree().create_timer(check_interval).timeout
-	# 	if not _live_transcribe_active or not _voice_button or not _voice_button.button_pressed:
-	# 		break
-	# 		
-	# 	# Measure current input volume level
-	# 	var volume := AudioServer.get_bus_peak_volume_left_db(bus_idx, 0)
-	# 	print("[VAD] volume: ", volume, " silence: ", _silence_duration, " spoken: ", _has_spoken_in_chunk)
-	# 	
-	# 	# Adaptive threshold: raise threshold if agent is vocalizing to filter out speaker bleed
-	# 	var is_tts_speaking := false
-	# 	if has_node("/root/TTSService"):
-	# 		is_tts_speaking = get_node("/root/TTSService").is_speaking()
-	# 		
-	# 	var threshold := -35.0
-	# 	if is_tts_speaking:
-	# 		threshold = -22.0
-	# 		
-	# 	if volume > threshold:
-	# 		_has_spoken_in_chunk = true
-	# 		_silence_duration = 0.0
-	# 		
-	# 		if is_tts_speaking:
-	# 			print("[VAD] User speech detected above barge-in threshold (", volume, " > ", threshold, "). Interrupting agent!")
-	# 			get_node("/root/TTSService").stop()
-	# 	else:
-	# 		if _has_spoken_in_chunk:
-	# 			_silence_duration += check_interval
-	# 			
-	# 	# If silence duration exceeds 0.8s, we process the current chunk
-	# 	if _has_spoken_in_chunk and _silence_duration >= 0.8:
-	# 		print("[VAD] Silence detected! Transcribing chunk...")
-	# 		# If we are already running a transcription, skip this turn
-	# 		if _is_transcribing:
-	# 			continue
-	# 			
-	# 		# Stop the current recording and get the stream
-	# 		var recording = stt.stop_recording()
-	# 		# Restart the recording immediately so we don't miss the next spoken phrase
-	# 		stt.start_recording()
-	# 		
-	# 		_silence_duration = 0.0
-	# 		_has_spoken_in_chunk = false
-	# 		
-	# 		if recording:
-	# 			_is_transcribing = true
-	# 			var text: String = await stt.transcribe_audio(recording)
-	# 			_is_transcribing = false
-	# 			print("[VAD] Chunk transcription: ", text)
-	# 			
-	# 			# Ensure user hasn't cancelled/stopped STT while transcription was running
-	# 			if _live_transcribe_active and _voice_button and _voice_button.button_pressed:
-	# 				if text != "":
-	# 					if _voice_session_text == "":
-	# 						_voice_session_text = text
-	# 					else:
-	# 						_voice_session_text = _voice_session_text + " " + text
-	# 					
-	# 					# Combine the initial typed text (if any) with the running STT session transcript
-	# 					if _initial_input_text == "":
-	# 						input_edit.text = _voice_session_text
-	# 					else:
-	# 						input_edit.text = _initial_input_text + " " + _voice_session_text
-	# 					input_edit.text_changed.emit(input_edit.text)
-	pass
-
-
 func _update_voice_buttons_visibility() -> void:
 	if not _settings_mgr:
 		return
@@ -982,25 +870,6 @@ func _get_fairy() -> Node:
 			if "_fairy" in child:
 				return child._fairy
 	return null
-
-
-## DEPRECATED: Resuming recording automatically after Navi finishes speaking is deprecated.
-func _resume_stt_recording_when_done_speaking() -> void:
-	# if not _settings_mgr or not _settings_mgr.get_setting("enable_stt", true) or not _voice_button:
-	# 	return
-	# if _settings_mgr.get_setting("enable_push_to_talk", true):
-	# 	return
-	# 	
-	# # Wait if TTSService is currently vocalizing
-	# if has_node("/root/TTSService"):
-	# 	var tts = get_node("/root/TTSService")
-	# 	while tts.is_speaking():
-	# 		await get_tree().create_timer(0.2).timeout
-	# 		
-	# # Double check that the user hasn't closed the chat or submitted a new prompt while waiting
-	# if visible and input_edit.editable and not _stream_is_running:
-	# 	_voice_button.button_pressed = true
-	pass
 
 
 ## Updates the chat window styling based on the active fairy base color.
