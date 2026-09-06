@@ -12,6 +12,74 @@ This document contains completed, cancelled, or reverted historical tickets.
 
 ## Tickets
 
+## Accuracy Audit (2026-09-06)
+
+The completed-ticket log below was audited against the code at commit `bb51774`. Historical entries
+are **left unedited** — they record what was believed at the time — but the following corrections
+apply. Where a ticket describes behaviour that no longer exists, the cause is almost always a later
+ticket that superseded it without amending the earlier entry.
+
+### Superseded, not wrong when written
+
+- **NAV-BUG-02** documents three-layer routing (Layer 0 classifier, Layer 1 fast model, Layer 2 heavy
+  model). **NAV-59** later collapsed this to a single tier. Only Layer 0 (`PROMPT_SKILL_RULES`) still
+  exists. Layers 1 and 2, and the `[ESCALATE]` protocol they used, are gone.
+- **NAV-BUG-05** documents a visual-refusal self-correction pipeline. **NAV-59** removed it. The
+  constant `_VISUAL_REFUSAL_PATTERNS` (`AIService.gd:153`) and the helper `_get_retraction_message()`
+  (`AIService.gd:1908`) remain with **zero callers** — dead code, not live behaviour.
+- **NAV-20** describes routing visual queries to a separate "heavy" model. After NAV-59 there is only
+  one model. Its test `test_visual_queries_escalate_to_heavy_model` still exists and passes, but its
+  name describes an architecture that no longer exists.
+- **NAV-BUG-10** added VAD; **NAV-69** deprecated it. The deprecation works, but via a hardcoded
+  special case in `SettingsManager.get_setting()` (`:230`) that always returns `true` for
+  `enable_push_to_talk` regardless of the stored value. Four call sites still read that key, and
+  `ChatUI._silence_duration` (`:34`) survives as an unused variable.
+
+### Inaccurate as written
+
+- **NAV-68**, description item 3, claims `_apply_personality_voice()` was "bypassed ... to return raw
+  cleaned thoughts". It was **not**. The function is still defined at `AIService.gd:1926` and still
+  applied to every `<think>` line at `AIService.gd:1817` and `:1826`. Thought lines are still wrapped
+  in hardcoded templates ("Ugh, ...", "Okay so, ..."). Superseded by **NAV-86**.
+- **NAV-59** claims model settings were consolidated to a single field. Partially true: the UI shows
+  one field, but `local_thinking_model` and `cloud_thinking_model` remain as separate stored keys and
+  are still read at `AIService.gd:312`. `_deliver_final_response()` also still carries an unused
+  `fast_model` parameter (`:479`) from the removed two-tier design, and the README still documents
+  two tiers.
+
+### Test claims that do not resolve
+
+Seven test functions named in acceptance criteria do not exist in `test/`. Some were presumably
+removed alongside the features they covered, but the criteria were never amended:
+
+| Claimed test | Ticket |
+|---|---|
+| `test_apply_personality_voice_annoying` | NAV-21 |
+| `test_apply_personality_voice_fallback` | NAV-21 |
+| `test_thought_trail_accumulates` | NAV-21 |
+| `test_thought_trail_committed_on_response_received` | NAV-21 |
+| `test_scroll_following_enabled` | NAV-17 |
+| `test_visual_history_retains_multiple_turns` | NAV-17 |
+| `test_escalation_rules_with_conversational_escalate_text` | NAV-BUG-07 |
+
+### Ticket ID collisions
+
+Sixteen IDs are used twice (NAV-67 three times), because numbering restarted at some point rather
+than continuing: NAV-59, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 78, 79, 80, NAV-BUG-06, NAV-BUG-07.
+IDs are **not** being renumbered, since inbound references would break — but every ID at or below
+NAV-80 is ambiguous and must be cited together with its title. New tickets start at NAV-81 and
+continue monotonically.
+
+### Verified accurate
+
+NAV-33 (correctly REVERTED — `bin/piper` is a Python wrapper script, with no platform subfolders and
+no `OS.get_name()` dispatch in `TTSService.gd`), NAV-49 (`NaviUtils` autoload), NAV-53 (native tool
+calling), NAV-54 (modular skill classes), NAV-55 (confirmation flow wired end to end, though it gates
+only `point_to`), NAV-60 through NAV-65 (emotion system), NAV-77 (`ErrorBus`), and the NAV-69 /
+NAV-71 scratchpad and continuation tests.
+
+---
+
 ### NAV-UI: Full UI Refactor (DONE)
 
 **Changes**

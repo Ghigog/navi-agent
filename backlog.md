@@ -105,6 +105,59 @@ Fix the failing test, eliminate the engine-error noise, and wire the suite into 
 
 ---
 
+### NAV-98: Remove dead code left by superseded tickets (Backlog)
+**User Story:**
+- **As a:** Developer
+- **I want:** Code from removed features deleted rather than left orphaned
+- **So that:** Reading the codebase does not mislead about what the app actually does
+
+**Context:**
+Surfaced by the accuracy audit in `done.md`. NAV-59 collapsed the two-tier model architecture and
+removed the escalation and visual-refusal pipelines, but left their artifacts behind. NAV-69
+deprecated VAD but left its remnants. None of this is load-bearing; all of it reads as live.
+
+**Description:**
+Delete the orphans and finish the two half-completed deprecations.
+
+**Requirements:**
+From the removed escalation / two-tier design:
+- `_get_retraction_message()` (`AIService.gd:1908`) — zero callers.
+- `_VISUAL_REFUSAL_PATTERNS` (`AIService.gd:153`) — zero callers. Also covered by NAV-83; delete
+  under whichever lands first.
+- The `[ESCALATE]` remnants in the `INTERNAL_TAGS` strip list (`AIService.gd:1839`) and the
+  `ChatUI.gd:468` tag check.
+- The unused `fast_model` parameter on `_deliver_final_response` (`AIService.gd:479`). Also covered
+  by NAV-88.
+
+From the VAD deprecation:
+- `ChatUI._silence_duration` (`:34`) — declared, never used.
+- The hardcoded `enable_push_to_talk` special case in `SettingsManager.get_setting()` (`:230`), which
+  makes the getter lie about one key. Remove the setting entirely: the default, the migration block
+  (`:187`), and the four call sites in `ChatUI.gd` and `WindowController.gd` that gate on a value
+  that is now always `true`.
+
+From the model consolidation:
+- Decide whether `local_thinking_model` / `cloud_thinking_model` are still meaningful. If they are
+  genuinely mirrors of the single model field, collapse them to one key with a migration; if the
+  distinction is real, restore it to the settings UI. Right now they are half of each.
+
+Also:
+- Rename `test_visual_queries_escalate_to_heavy_model` — it tests real current behaviour under a name
+  describing an architecture that no longer exists.
+- Amend or remove the seven unresolvable test claims listed in the `done.md` audit table.
+- Fix the unclosed ```` ```markdown ```` fence in the `done.md` template block (`:9`).
+
+**Acceptance Criteria:**
+- [ ] `grep -rn "_get_retraction_message\|_VISUAL_REFUSAL_PATTERNS\|ESCALATE\|_silence_duration" scripts/`
+      returns nothing.
+- [ ] `enable_push_to_talk` appears nowhere in `scripts/`.
+- [ ] `get_setting()` contains no per-key special cases.
+- [ ] Test suite passes with no behaviour change (this ticket is pure deletion).
+- [ ] Every test name in `done.md` acceptance criteria resolves to a real function, or the claim is
+      struck.
+
+---
+
 ## Phase 0.5 — Decision gate (blocks Phases 1-3)
 
 ### NAV-94: Platform decision — Godot or rebuild (Backlog)
@@ -687,37 +740,52 @@ Add a bounded ambient loop that can occasionally initiate contact.
 
 ---
 
-### NAV-97: Resolve the companion/agent identity tension (Backlog)
+### NAV-97: Encode the companion-first identity decision (Backlog)
 **User Story:**
 - **As a:** Maintainer
-- **I want:** An explicit decision about what Navi optimizes for when her two roles conflict
-- **So that:** Design decisions stop being made implicitly and inconsistently
+- **I want:** Navi's companion-first nature stated explicitly and enforced in code
+- **So that:** Design decisions follow from a recorded position instead of being made per-feature
 
 **Context:**
-Navi is currently two products sharing a window. The companion wants to be always-on, cheap,
-emotionally responsive, and proactive. The agent wants to be deliberate, confirmed, precise, and
-silent unless asked. Adding computer use (NAV-90) sharpens this considerably.
+**This decision is made.** Navi is **both** a companion and an agent, with **companion taking
+priority**. She has an emotional state and a relationship with the user, and mistreatment or misuse
+changes how she responds. The consequence is accepted deliberately: **Navi cannot be relied on for
+serious work.** Emotional state affecting task competence — "probably, a bit" — is the intended
+behaviour, not a defect.
 
-These pull in opposite directions on concrete questions: should an action auto-confirm to stay in
-flow, or always prompt? Should ambient observation run during focused work? Should emotional state
-influence agent behaviour — and if Navi is upset, does she work less well? That last question is
-currently unanswered and the emotion prompt injection means it has a de facto answer nobody chose.
+What is wrong today is only that this is implicit. `EmotionPromptBuilder` injects emotional state
+into every system prompt, so the behaviour already exists, but nothing states it, no test pins it,
+and nothing tells the user. Someone reading the code cannot tell the difference between a deliberate
+design property and an accident.
+
+This ticket makes the existing behaviour explicit and bounded. It does **not** remove it.
 
 **Description:**
-Write down the resolution and derive the rules from it.
+Record the decision, set expectations with the user, and put bounds on the degradation so it stays a
+character trait rather than a failure mode.
 
 **Requirements:**
-- Decide the primary identity and record it in `mission_statement.md`.
-- Answer explicitly: does emotional state ever affect task competence? A companion says yes; an
-  agent says never. The honest answer is likely "tone yes, competence no" — but it should be a
-  decision, not an accident of prompt injection.
-- Derive the confirmation defaults, ambient defaults, and emotion-injection scope from that decision
-  rather than choosing them per-feature.
-- Update `EmotionPromptBuilder` so emotion shapes voice without degrading accuracy or willingness to
-  act.
+- State the position in `mission_statement.md`: companion first, agent second; emotional state
+  colours both tone and willingness; Navi is not a reliability-critical tool.
+- Say it in the product too. Onboarding or the settings panel should tell the user plainly that Navi
+  has moods and that moods affect her work. A user who is surprised by this was failed by the
+  product, not by Navi.
+- Bound the degradation. Decide and document what it may and may not touch. The recommended line:
+  it may affect tone, verbosity, enthusiasm, and willingness to volunteer effort; it must **not**
+  cause her to fabricate facts, misreport what she sees, or silently skip a tool she agreed to use.
+  The honesty rule in `mission_statement.md` outranks mood — otherwise a bad mood becomes a
+  hallucination bug wearing a costume.
+- Give the user a way out. A "make up with Navi" path, or at minimum a visible relationship state and
+  a documented reset, so a sulking Navi is never a dead end.
+- Derive the confirmation and ambient defaults (NAV-91, NAV-96) from companion-first rather than
+  choosing them per-feature.
+- Update `EmotionPromptBuilder` so injected state shapes voice and eagerness within those bounds.
 
 **Acceptance Criteria:**
-- [ ] `mission_statement.md` states the primary identity and the competence rule.
-- [ ] A test confirms a strongly negative emotional state does not change tool-calling behaviour or
-      factual accuracy.
-- [ ] Confirmation and ambient defaults trace back to the recorded decision.
+- [ ] `mission_statement.md` states companion-first, the competence position, and the honesty bound.
+- [ ] A test confirms a strongly negative emotional state changes tone but does **not** change
+      factual accuracy or cause a committed tool call to be skipped.
+- [ ] A test confirms Navi does not fabricate screen contents regardless of emotional state.
+- [ ] The mood-affects-behaviour property is stated somewhere the user actually reads.
+- [ ] A documented path exists to recover the relationship from its worst state.
+- [ ] Confirmation and ambient defaults cite this decision.
