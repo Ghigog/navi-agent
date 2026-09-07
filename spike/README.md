@@ -97,15 +97,37 @@ move on — the same checks can be run another way.
 `npm audit` will also report vulnerabilities in Electron's build-time dependency tree. Ignore them:
 this is a throwaway dev dependency that is never distributed.
 
-A fairy appears near your cursor. Then:
+A fairy appears near your cursor. **Every control is a global shortcut**, on purpose — see the
+finding below.
 
-1. **Drag it over a bright window, then a dark one.** Is the background genuinely transparent,
-   or just dark-coloured? This is the one that fails silently and matters most.
-2. **Press `T`** to toggle click-through, then click a window underneath. Do the clicks land?
-3. **Put an app in full screen.** Does the fairy stay visible?
-4. **Focus another app and press `Shift+Ctrl+Alt+Space`.** Does the shortcut fire?
-5. **Leave it running several minutes** so the idle CPU average means something.
-6. **`Cmd+Q`.** It asks the three questions only your eyes can answer, then prints a verdict.
+1. **Drag it over a bright window, then a dark one.** Genuinely transparent, or just dark-coloured?
+   This is the one that fails silently and matters most.
+2. **`Shift+Cmd+T`** toggles click-through. Click a window underneath, then press it again. Does it
+   toggle *both* ways? (It auto-restores after 10s so you cannot get stuck.)
+3. **Focus another app and press `Shift+Cmd+N`.** Does the HUD acknowledge it?
+4. **Leave it idling several minutes** so the CPU average means something.
+5. **`Shift+Cmd+0`**, or `Ctrl+C` in the terminal. It asks the two questions only your eyes can
+   answer, then prints a verdict.
+
+### Finding: click-through cannot be toggled from inside the window
+
+A window in click-through mode cannot receive keystrokes — that is precisely what click-through
+means. An in-window key binding can therefore turn it *on* and never turn it *off*. This is inherent
+to the mechanism, not a bug.
+
+**Consequence for Navi:** click-through state must be driven from outside the window. Either a global
+shortcut, or — the usual pattern for desktop companions — automatically from cursor position, with
+click-through on by default and disabled only while the cursor is over the fairy's opaque pixels.
+Design for this before the port, not after.
+
+### Finding: macOS native fullscreen
+
+An app entering *native* fullscreen moves to its own Space, and the overlay stays behind on the
+original Space, even with `setVisibleOnAllWorkspaces(..., { visibleOnFullScreen: true })`. Zoom
+fullscreen (double-clicking the title bar) keeps the overlay visible.
+
+This is **expected and desirable**: NAV-96 requires that ambient presence never interrupt during
+full-screen presentations, so the OS is enforcing a rule the design already wanted.
 
 ### Pass bar
 
