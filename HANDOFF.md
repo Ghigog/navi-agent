@@ -41,7 +41,9 @@ This is a **companion first, agent second**. See "Decisions already made".
 | 6 | **Onboarding offers both paths:** bring-your-own cloud key as the fast on-ramp, plus real instructions for setting up Ollama locally. Both first-class. | NAV-92 |
 | 7 | **Computer use via the accessibility tree, not pixel coordinates.** Coordinates from screenshots have been unreliable and this is the agreed fix. | NAV-90 |
 | 8 | **The safety gate ships before the write capability**, not after. | NAV-91 |
-| 9 | **Recommended platform: Electron + TypeScript**, with a stateless Swift helper. Conditional on the spike below. | NAV-94 |
+| 9 | **Platform: Electron + TypeScript**, with a stateless Swift helper. **Decided 2026-09-07 — the spike passed.** | [ADR 0001](docs/adr/0001-platform-electron.md) |
+| 10 | **Click-through must be driven from outside the window.** A click-through window cannot receive keystrokes, so an in-window toggle can enable it and never disable it. Use a global shortcut, or cursor position. | ADR 0001 |
+| 11 | **The idle render loop must be throttled.** The spike passed its resource bar without much room (2.4-2.6% CPU, 356 MB). The fairy does not need 60fps when nothing is happening. | ADR 0001 |
 
 ---
 
@@ -64,19 +66,16 @@ Deleted this session: `tickets.md` (broken absolute `file://` links) and the emp
 
 ## Where to start
 
-### Step 1 — the owner runs the spike. You cannot.
+### Step 1 — NAV-94 is decided. Read the ADR.
 
-`spike/` decides whether the migration happens. It splits the risk:
+[docs/adr/0001-platform-electron.md](docs/adr/0001-platform-electron.md). Both spike halves passed on
+macOS. **The migration to Electron + TypeScript is approved.** Follow `backlog.md` →
+Implementation Order → **3a**; the 3b (stay in Godot) sequence is kept only as a record and must not
+be worked.
 
-- **Risk B (rendering cost) is already answered: PASS.** Measured at 0.208 ms mean frame,
-  27.8x headroom, ~1.2% of one core on CPU raster with no GPU. Reproduce with
-  `cd spike && npm run bench`. The fairy is not a reason to stay in Godot.
-- **Risk A (macOS window behaviour) is unanswered** and can only be answered on a Mac:
-  `cd spike && npm install && npm run spike`. It prints a GO/NO-GO verdict.
-
-**If you are not running on macOS with a display, you cannot resolve NAV-94.** Say so plainly
-and work the tickets that do not depend on it. Do not guess the verdict, and do not begin a port
-on the assumption it passes.
+`spike/` has done its job. Carry `spike/fairy.js` into the port as the starting point for the fairy
+renderer — it is ~100 lines against `FairyVisuals.gd`'s 520 and already does the Triforce emotion
+tint — then delete the rest of the directory.
 
 ### Step 2 — two tickets are safe to start immediately
 

@@ -206,8 +206,9 @@ app.on('before-quit', async (e) => {
   console.log('\n  VERDICT: ' + verdict);
   console.log('\n  Record this output in the NAV-94 ADR either way.\n');
 
-  reporting = false;
-  app.quit();
+  // Do NOT clear `reporting` — app.exit() bypasses before-quit entirely.
+  // Clearing it here re-entered this handler and printed the report repeatedly.
+  app.exit(0);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => app.quit());
