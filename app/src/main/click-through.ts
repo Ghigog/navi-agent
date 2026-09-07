@@ -11,31 +11,15 @@
 
 import type { BrowserWindow } from 'electron';
 import { screen } from 'electron';
+import { isOverFairy } from '../shared/geometry.js';
 
 /** How often to check whether the cursor is over the fairy. */
 const POLL_MS = 100;
 
-/**
- * The fairy's visible body is a small core in the middle of a 200px window that is mostly
- * transparent aura. Taking clicks across the whole window would make a 200px dead zone follow
- * the cursor around the desktop.
- */
-const INTERACTIVE_RADIUS = 46;
-
 export interface ClickThrough {
   stop(): void;
-  /** Exposed for tests and for the settings UI to show current state. */
+  /** Exposed for the settings UI to show current state. */
   isClickThrough(): boolean;
-}
-
-export function isOverFairy(
-  cursor: { x: number; y: number },
-  bounds: { x: number; y: number; width: number; height: number },
-  radius = INTERACTIVE_RADIUS,
-): boolean {
-  const cx = bounds.x + bounds.width / 2;
-  const cy = bounds.y + bounds.height / 2;
-  return Math.hypot(cursor.x - cx, cursor.y - cy) <= radius;
 }
 
 export function attachClickThrough(win: BrowserWindow): ClickThrough {

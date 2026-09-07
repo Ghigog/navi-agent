@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOverFairy } from '../src/main/click-through.js';
+import { isOverFairy } from '../src/shared/geometry.js';
 
 // A 200px window whose top-left is at (500, 300), so its centre is (600, 400).
 const BOUNDS = { x: 500, y: 300, width: 200, height: 200 };
