@@ -1,10 +1,10 @@
 # Navi modernization — handoff
 
-Written 2026-09-06. Branch `claude/navi-modernization-review-rpw3mq`.
+Written 2026-09-06. Updated 2026-09-07 on branch `claude/navi-modernization-review-xsaqgo`.
 
-You are picking up a planned-but-not-started modernization of Navi, a desktop AI companion
-currently written in Godot 4. **No production code has changed.** All work so far is planning:
-a review, a ticket backlog, an audit of the old ticket log, and one runnable spike.
+Navi is a desktop AI companion, written in Godot 4 and being rebuilt on Electron + TypeScript
+(ADR 0001). **The port has started and lives in `app/`.** The Godot app in the repository root
+is still the one that runs.
 
 Read this, then `backlog.md`. Do not start coding before the section "Where to start".
 
@@ -49,7 +49,7 @@ This is a **companion first, agent second**. See "Decisions already made".
 
 ## State of the repository
 
-Planning is committed on the branch. Four commits, all `docs:` or the spike.
+Planning is merged on `main`. The port is on the branch above, in `app/`.
 
 - **`backlog.md`** — the plan. Opens with **Implementation Order**, then 21 tickets NAV-81..101.
   **Ticket IDs are identity, not sequence.** Order lives in that section. The old log reused
@@ -57,41 +57,55 @@ Planning is committed on the branch. Four commits, all `docs:` or the spike.
   from NAV-102.
 - **`done.md`** — historical index of 111 completed tickets, plus an accuracy audit explaining
   why the full bodies were removed. Bodies remain in git history at `81a2e83`.
-- **`spike/`** — the NAV-94 spike. Throwaway; delete once NAV-94 is recorded.
-- `mission_statement.md`, `emotions.md`, `ai_agent.md` — design docs, still current and worth reading.
+- **`app/`** — the Electron port. Has its own README covering layout, the decisions that will
+  look wrong without context, and the Electron install failure mode that will bite you.
+- `mission_statement.md`, `emotions.md`, `ai_agent.md` — design docs, still current and worth
+  reading. `ai_agent.md`'s conventions are GDScript-specific and apply to the root project only.
 
-Deleted this session: `tickets.md` (broken absolute `file://` links) and the empty `in_progress.md`.
+Deleted: `tickets.md` (broken absolute `file://` links), the empty `in_progress.md`, and `spike/`
+(its fairy renderer is now `app/src/renderer/fairy.ts`; ADR 0001 holds its measurements).
 
 ---
 
 ## Where to start
 
-### Step 1 — NAV-94 is decided. Read the ADR.
+### Step 1 — read `app/README.md`, then the ADR.
 
-[docs/adr/0001-platform-electron.md](docs/adr/0001-platform-electron.md). Both spike halves passed on
-macOS. **The migration to Electron + TypeScript is approved.** Follow `backlog.md` →
-Implementation Order → **3a**; the 3b (stay in Godot) sequence is kept only as a record and must not
-be worked.
+[docs/adr/0001-platform-electron.md](docs/adr/0001-platform-electron.md) is the decision;
+`app/README.md` is what was built from it. Follow `backlog.md` → Implementation Order → **3a**;
+the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
 
-`spike/` has done its job. Carry `spike/fairy.js` into the port as the starting point for the fairy
-renderer — it is ~100 lines against `FairyVisuals.gd`'s 520 and already does the Triforce emotion
-tint — then delete the rest of the directory.
+### Step 2 — what is done, and what is next
 
-### Step 2 — two tickets are safe to start immediately
+**Done in the port** (`app/`, 62 tests, typecheck clean, builds):
 
-Neither depends on the platform decision.
+- NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
+- The Electron shell: overlay window, click-through driven from the main process, throttled
+  render loop, settings with redaction.
+- The agent loop: one provider seam, native tool calling, no substring router (NAV-83), no
+  in-band control tags (NAV-84), personality in the identity layer (NAV-86).
 
-- **NAV-81** — a real OpenAI key is committed in `test_run.log` (introduced `ec72554`, still at
-  HEAD). The repo is private, so this is not a fire, but the key must be rotated **by the owner**
-  — you cannot rotate it — and the file purged from history. Also `bin/` is ~124 MB of tracked
-  binaries.
-- **NAV-99** — the highest-value fix in the backlog. `WindowController.capture_crop_screenshot()`
-  (`:430`) centres its crop on **the fairy**, which sits at `follow_offset = (20, 20)` from the
-  cursor and stops following the moment the hotkey is pressed. So "what's this near my cursor?",
-  the single most-used interaction, has never looked at the cursor. Sample the cursor in
-  `_on_hotkey_pressed()` (`:175`) and anchor on that. Small, and it ports unchanged.
+**Next, in order:**
 
-### Step 3 — then follow Implementation Order in `backlog.md`.
+1. **Launch it on macOS.** Nothing in `app/` has run against a real display. Re-run ADR 0001's
+   Risk A checks and re-measure idle CPU and memory over a long window — the ADR requires this
+   anyway, and the Electron version moved from 33 to 44 for security patches.
+2. **Port the emotion engine and the chat surface.** The loop has no UI yet beyond the fairy.
+3. **NAV-92** onboarding — parallel, mostly product and copy.
+4. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
+
+### Step 3 — outstanding on NAV-81, and only the owner can do it
+
+The code half is done: settings logging is redacted (`NaviUtils.redact_secrets`, and
+`app/src/shared/redact.ts` in the port), and `test_run.log` plus the `reconstructed_aiservice_*`
+scratch files are untracked and ignored.
+
+**Still outstanding, and needs a human with a backup:**
+
+- The key is still in git history. `git log --all -p -- test_run.log` still returns it. Purging
+  needs `filter-repo` and a force push.
+- Confirm at the provider that the exposed key is actually revoked.
+- `bin/` is still ~124 MB of tracked binaries.
 
 ---
 
@@ -142,11 +156,12 @@ Things that will mislead you if you read the code straight.
 
 ## Working agreements
 
-- Branch: `claude/navi-modernization-review-rpw3mq`. Do not push elsewhere without asking.
-- Conventions live in `ai_agent.md`: static typing is mandatory in GDScript, PascalCase scenes,
-  composition over inheritance. Follow it while the project is still Godot.
-- Tests use GUT. Run headless:
-  `godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test/ -gexit`
+- Branch: `claude/navi-modernization-review-xsaqgo`. Do not push elsewhere without asking.
+- Root project (Godot): conventions live in `ai_agent.md` — static typing mandatory in GDScript,
+  PascalCase scenes, composition over inheritance. Tests use GUT, run headless with
+  `godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test/ -gexit`.
+- Port (`app/`): `npm test`, `npm run typecheck`. Both run offline and take under a second, so
+  there is no excuse for pushing without them.
 - Do not open a PR unless asked.
 - Ticket IDs are stable. Update the Implementation Order section when sequence changes; never
   renumber a ticket.
@@ -155,7 +170,7 @@ Things that will mislead you if you read the code straight.
 
 ## Things only the owner can do
 
-Flag these rather than attempting them: rotating the leaked API key; running the macOS spike;
-granting Accessibility and Screen Recording permissions; deciding NAV-94; any `git push --force`
-or history rewrite (NAV-81 needs `filter-repo`, which is destructive and should be run by a human
-who has a backup).
+Flag these rather than attempting them: rotating the leaked API key and confirming it revoked;
+running anything that needs a macOS display; granting Accessibility and Screen Recording
+permissions; any `git push --force` or history rewrite (NAV-81's history purge needs
+`filter-repo`, which is destructive and should be run by a human who has a backup).
