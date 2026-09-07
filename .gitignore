@@ -16,3 +16,8 @@ bin/voices/.DS_Store
 bin/ggml-base.en.bin
 bin/voices/en_US-ljspeech-high.onnx
 bin/voices/en_US-ljspeech-high.onnx.json
+
+# Never commit run logs — SettingsManager used to print the whole settings
+# dictionary, which put a live API key into a committed log (NAV-81).
+test_run.log
+*.log
