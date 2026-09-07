@@ -500,6 +500,8 @@ func _deliver_final_response(
 	if context.get("base64_image", "") != "" or context.get("base64_crop", "") != "":
 		vision_guideline = "\n\n### SCREEN ANALYSIS SANITY CHECK:\n"
 		vision_guideline += "You are performing a visual analysis of the user's screen capture. If you cannot see the screen clearly, if you have no eyes/vision capabilities, or if the screen contents are ambiguous, you MUST be honest and ask the user for clarification or state that you cannot see the screen. Never guess, assume, or hallucinate applications, code, or documents."
+		if context.get("base64_crop", "") != "":
+			vision_guideline += " This cropped image is centered exactly on where the user's cursor was the moment they asked — not on your own position. Treat 'this', 'here', and 'near my cursor' as referring to its center. That is a different question from 'next to you' or 'beside you', which means near the fairy."
 
 	if has_heavy_thinking:
 		# Update status light to Purple to indicate thinking/generation is in progress
