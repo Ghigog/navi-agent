@@ -46,11 +46,11 @@ Nothing in this group is wasted by a later migration.
 | 2 | **NAV-99** Cursor-anchored "what's this?" | Highest daily value, smallest fix, and it is a bug rather than a feature. The core correction is to sample the cursor in `WindowController._on_hotkey_pressed()` (`:175`) and anchor the crop on that instead of `absolute_fairy_pos` (`:452`). Small in Godot today, and the reasoning ports unchanged. Do not wait for the platform decision to stop aiming at the wrong pixel. |
 | 3 | **NAV-97** Record the identity decision | A writing task, an hour of work, that constrains the design of NAV-91, NAV-95, NAV-96 and NAV-101. Cheapest possible thing to get right before the tickets it governs. |
 
-### 2. Decision gate
+### 2. Decision gate — RESOLVED 2026-09-07
 
 | Order | Ticket | Why here |
 |---|---|---|
-| 4 | **NAV-94** Platform decision + overlay spike | Everything below branches on this. Run the spike before committing. |
+| 4 | **NAV-94** Platform decision + overlay spike | ✅ **Done. Verdict: GO — migrate to Electron.** See [ADR 0001](docs/adr/0001-platform-electron.md). **Follow 3a below; 3b is dead.**
 
 > **Deliberately not before the gate: NAV-82 (tests and CI).** A green suite is genuinely valuable,
 > but the current suite is GUT-on-Godot. Building CI around a stack that may be retired in the next
@@ -59,7 +59,7 @@ Nothing in this group is wasted by a later migration.
 > The one exception worth doing early either way is fixing the single failing test, since a red suite
 > makes every later change harder to trust.
 
-### 3a. If NAV-94 says **migrate**
+### 3a. ACTIVE PATH — migrate to Electron
 
 The Phase 1 tickets stop being refactors and become constraints on the port. Do not port and then
 clean up; build it correctly once.
@@ -75,7 +75,9 @@ clean up; build it correctly once.
 **NAV-98** (dead code) largely closes too: code that is never ported needs no deletion. Check the
 `enable_push_to_talk` and thinking-model-key items survive into the new settings layer.
 
-### 3b. If NAV-94 says **stay in Godot**
+### 3b. ~~If NAV-94 says stay in Godot~~ — NOT TAKEN
+
+Kept only as a record of the option that was rejected. Do not work these in this order.
 
 | Order | Ticket | Note |
 |---|---|---|
@@ -257,7 +259,7 @@ Also:
 
 ## Phase 0.5 — Decision gate (blocks Phases 1-3)
 
-### NAV-94: Platform decision — Godot or rebuild (Backlog)
+### NAV-94: Platform decision — Godot or rebuild (DECIDED 2026-09-07 → Electron)
 **User Story:**
 - **As a:** Maintainer
 - **I want:** A decided target platform
@@ -288,6 +290,13 @@ Against it:
   manual `bin/` copy step documented in the README.
 - **Windows and Linux are wanted eventually.** Not now, but the native helper's interface must be
   abstract from day one even with only a macOS implementation behind it (see NAV-90).
+
+**DECISION: migrate to Electron + TypeScript.** Recorded in
+[docs/adr/0001-platform-electron.md](docs/adr/0001-platform-electron.md). Both spike halves passed on
+macOS: Risk B at 27.8x render headroom, Risk A all eight checks PASS with idle CPU 2.4-2.6% and peak
+memory 356 MB. Follow **Implementation Order → 3a**. Two constraints the spike surfaced are now
+requirements of the port: click-through must be driven from outside the window, and the idle render
+loop must be throttled to protect the resource budget, which passed without much room.
 
 **Description:**
 Decide, record the decision, and if migrating, sequence the port.
@@ -484,7 +493,7 @@ failure states where no model response exists.
 
 ---
 
-### NAV-87: Replace hand-rolled SSE parsing (Backlog)
+### NAV-87: Replace hand-rolled SSE parsing (CLOSED — superseded by NAV-94)
 **User Story:**
 - **As a:** Developer
 - **I want:** Streaming to use a correct, tested parser
@@ -517,7 +526,7 @@ Replace brace counting with a proper line-oriented SSE reader.
 
 ---
 
-### NAV-88: Decompose AIService (Backlog)
+### NAV-88: Decompose AIService (CLOSED — superseded by NAV-94)
 **User Story:**
 - **As a:** Developer
 - **I want:** AIService split into single-responsibility modules
