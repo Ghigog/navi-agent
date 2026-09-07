@@ -77,19 +77,15 @@ be worked.
 renderer — it is ~100 lines against `FairyVisuals.gd`'s 520 and already does the Triforce emotion
 tint — then delete the rest of the directory.
 
-### Step 2 — two tickets are safe to start immediately
+### Step 2 — NAV-99 is done; NAV-81 is next
 
-Neither depends on the platform decision.
-
-- **NAV-81** — a real OpenAI key is committed in `test_run.log` (introduced `ec72554`, still at
-  HEAD). The repo is private, so this is not a fire, but the key must be rotated **by the owner**
-  — you cannot rotate it — and the file purged from history. Also `bin/` is ~124 MB of tracked
-  binaries.
-- **NAV-99** — the highest-value fix in the backlog. `WindowController.capture_crop_screenshot()`
-  (`:430`) centres its crop on **the fairy**, which sits at `follow_offset = (20, 20)` from the
-  cursor and stops following the moment the hotkey is pressed. So "what's this near my cursor?",
-  the single most-used interaction, has never looked at the cursor. Sample the cursor in
-  `_on_hotkey_pressed()` (`:175`) and anchor on that. Small, and it ports unchanged.
+- **NAV-99 — DONE** (`a15119d`, merged in #2). The cursor is now frozen at the top of
+  `_on_hotkey_pressed()` and anchors the crop, the skill description and spatial prompt were
+  corrected, and a confirmation marker shows the sampled point. Carry this behaviour into the port.
+- **NAV-81 — next, and partly blocked on the owner.** A real OpenAI key is committed in
+  `test_run.log` (introduced `ec72554`). The repo is private, so this is not a fire, but the key
+  must be rotated **by the owner** — you cannot rotate it — and the file purged from history. Also
+  `bin/` is ~124 MB of tracked binaries.
 
 ### Step 3 — then follow Implementation Order in `backlog.md`.
 
