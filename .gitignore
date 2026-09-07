@@ -22,4 +22,8 @@ bin/voices/*.onnx
 
 # Dead scratch output, never intentionally committed
 reconstructed_aiservice_step*.txt
+
+# Never commit run logs — SettingsManager used to print the whole settings
+# dictionary, which put a live API key into a committed log (NAV-81).
 test_run.log
+*.log

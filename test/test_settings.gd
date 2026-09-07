@@ -118,3 +118,43 @@ func test_font_size_offset_stored_and_retrieved() -> void:
 # 	_manager.set_setting("enable_push_to_talk", false)
 # 	var result: bool = _manager.get_setting("enable_push_to_talk", true)
 # 	assert_false(result, "enable_push_to_talk should be saved and retrieved correctly.")
+
+
+# ---------------------------------------------------------------------------
+# NAV-81: secret redaction
+# ---------------------------------------------------------------------------
+
+func test_redact_masks_api_keys() -> void:
+	var out: Dictionary = _manager.redact_secrets({
+		"cloud_api_key": "sk-live-abc123",
+		"openai_api_key": "sk-proj-def456",
+	})
+	assert_eq(out["cloud_api_key"], "<redacted>", "cloud_api_key must be masked")
+	assert_eq(out["openai_api_key"], "<redacted>", "openai_api_key must be masked")
+
+
+func test_redact_masks_any_key_suffix() -> void:
+	var out: Dictionary = _manager.redact_secrets({"anthropic_key": "sk-ant-xyz"})
+	assert_eq(out["anthropic_key"], "<redacted>", "a future *_key setting must be masked too")
+
+
+func test_redact_preserves_non_secrets() -> void:
+	var out: Dictionary = _manager.redact_secrets({
+		"hotkey_keycode": 45,
+		"hotkey_modifiers": 768,
+		"local_url": "http://localhost:11434",
+	})
+	assert_eq(out["hotkey_keycode"], 45, "hotkey_keycode is not a secret despite containing 'key'")
+	assert_eq(out["hotkey_modifiers"], 768, "hotkey_modifiers must survive redaction")
+	assert_eq(out["local_url"], "http://localhost:11434", "non-secret values must be untouched")
+
+
+func test_redact_leaves_empty_secrets_visible() -> void:
+	var out: Dictionary = _manager.redact_secrets({"cloud_api_key": ""})
+	assert_eq(out["cloud_api_key"], "", "an unset key should stay visibly unset for debugging")
+
+
+func test_redact_does_not_mutate_input() -> void:
+	var original := {"cloud_api_key": "sk-live-abc123"}
+	_manager.redact_secrets(original)
+	assert_eq(original["cloud_api_key"], "sk-live-abc123", "redaction must return a copy")
