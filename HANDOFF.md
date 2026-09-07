@@ -77,19 +77,27 @@ be worked.
 renderer — it is ~100 lines against `FairyVisuals.gd`'s 520 and already does the Triforce emotion
 tint — then delete the rest of the directory.
 
-### Step 2 — NAV-99 is done; NAV-81 is next
+### Step 2 — current state of NAV-81
 
-- **NAV-99 — DONE** (`a15119d`, merged in #2). The cursor is now frozen at the top of
-  `_on_hotkey_pressed()` and anchors the crop, the skill description and spatial prompt were
-  corrected, and a confirmation marker shows the sampled point. Carry this behaviour into the port.
-- **NAV-81 — next, and partly blocked on the owner.** A real OpenAI key is committed in
-  `test_run.log` (introduced `ec72554`). The repo is private, so this is not a fire, but the key
-  must be rotated **by the owner** — you cannot rotate it — and the file purged from history. Also
-  `bin/` is ~124 MB of tracked binaries.
+- **Done** (`8decbf8`): the leaked OpenAI key was **revoked by the owner and not replaced**. The
+  mechanism that leaked it is closed — `SettingsManager.load_settings()` printed the whole settings
+  dictionary on every start, which is how a live key ended up in `test_run.log` and got committed.
+  There is now a `redact_secrets()` helper, the load-time print goes through it, `test_run.log` is
+  deleted and `*.log` is gitignored, and five tests cover the redaction.
+  The `openai_api_key` **setting is deliberately kept** — NAV-92 needs it for the
+  bring-your-own-cloud-key onboarding path.
+- **Not done:** purging `test_run.log` and the two 61 MB voice models from git history. `.git` is
+  **116 MB**; the two `bin/voices/*.onnx` files are ~122 MB of it. This is a `git filter-repo`
+  rewrite that force-pushes over a merged `main`, so it needs the owner's explicit go-ahead and a
+  backup clone first. **Since the key is revoked, this is now weight, not exposure — there is no
+  urgency and it must not be done casually.**
 
 ### Step 3 — then follow Implementation Order in `backlog.md`.
 
----
+The next real decision is **when to start the Electron port**. The alternative is to keep taking
+value out of the Godot app first — NAV-100 (notes and reminders) is small, has no dependencies
+beyond NAV-93's store, and carries over to the port unchanged. Put that choice to the owner rather
+than drifting into the port by default.
 
 ## Traps in this codebase
 
