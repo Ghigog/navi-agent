@@ -4,7 +4,7 @@ func get_name() -> String:
 	return "take_crop_screenshot"
 
 func get_description() -> String:
-	return "Captures a zoomed-in cropped screenshot centered around Navi's current position to analyze details next to her."
+	return "Captures a zoomed-in cropped screenshot centered on the user's cursor, frozen at the moment they asked, to analyze what's near it."
 
 func get_schema() -> Dictionary:
 	return {
@@ -30,5 +30,5 @@ func execute(context: Dictionary) -> String:
 		if img:
 			img.resize(512, 512, Image.INTERPOLATE_BILINEAR)
 			context["base64_crop"] = Marshalls.raw_to_base64(img.save_jpg_to_buffer())
-			return "Success: captured crop image centered around Navi."
+			return "Success: captured crop image centered around the user's cursor."
 	return "Failure: window controller or crop failed."
