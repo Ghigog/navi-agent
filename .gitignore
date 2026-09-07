@@ -20,6 +20,8 @@ bin/voices/en_US-ljspeech-high.onnx.json
 # Voice models are fetched by setup_models.sh, not tracked in git
 bin/voices/*.onnx
 
-# Dead scratch output, never intentionally committed
+# Dead scratch output, never intentionally committed. test_run.log leaked a live API key
+# once (NAV-81); the wildcard is so the next file of its shape is caught before it is.
 reconstructed_aiservice_step*.txt
 test_run.log
+*_run.log

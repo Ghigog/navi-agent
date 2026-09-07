@@ -4,6 +4,11 @@ extends Node
 
 signal settings_updated 
 
+## Preloaded rather than reached through the NaviUtils autoload: NaviUtils is registered
+## after SettingsManager, and load_settings() runs in _ready(), so the singleton does not
+## exist yet at the one call site that needs it.
+const NaviUtilsScript := preload("res://scripts/NaviUtils.gd")
+
 var SETTINGS_FILE := "user://settings.json"
 
 ## Active application settings dictionary holding visual and model configuration states.
@@ -206,7 +211,8 @@ func load_settings() -> void:
 		var parse_err := json.parse(json_string)
 		if parse_err == OK:
 			var loaded_data = json.get_data()
-			print("Settings loaded: ", loaded_data) 
+			# Never log this dictionary directly: it carries API keys (NAV-81).
+			print("Settings loaded: ", NaviUtilsScript.redact_secrets(loaded_data))
 			if loaded_data is Dictionary:
 				# Merge loaded fields to retain user customizations while preserving new default keys
 				for key in loaded_data.keys():

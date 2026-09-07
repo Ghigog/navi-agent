@@ -90,3 +90,82 @@ static func markdown_to_bbcode(input_text: String) -> String:
 		result = sb_regex.sub(result, "[b]$1[/b]", true)
 		
 	return result
+
+
+# ---------------------------------------------------------------------------
+# Credential redaction (NAV-81)
+# ---------------------------------------------------------------------------
+#
+# A real OpenAI key reached `test_run.log` because SettingsManager print()-ed the whole
+# settings dictionary on load. Nothing about that call site looked dangerous — the danger
+# was that a secret and a window size were being handled identically.
+#
+# The rule is deliberately blunt: any setting whose *name* contains key, token, secret,
+# password or credential is masked, with no exceptions list. Exceptions are how this class
+# of leak comes back. `hotkey_keycode` and friends get masked too; that is the intended
+# trade, and the cost is a debug line that is less specific about a keycode.
+#
+# _VALUE_SECRET_PATTERN is the backstop for the other direction: a credential parked under
+# an innocuous name still gets masked because the value itself looks like one.
+
+## Setting names matching this are masked regardless of their value.
+const _SECRET_NAME_PATTERN := "(?i)(key|token|secret|password|credential)"
+
+## Values matching this are masked regardless of their name — provider key prefixes and
+## bearer-ish opaque strings.
+const _VALUE_SECRET_PATTERN := "^(sk-|pk-|rk-|xox[abprs]-|ghp_|gho_|github_pat_|AIza|Bearer\\s)"
+
+
+## Returns [param data] with every credential-bearing value replaced by a length-only
+## placeholder, recursing through nested dictionaries and arrays. Empty strings survive
+## intact so a log line can still distinguish "not configured" from "configured".
+##
+## Use this on anything derived from settings before it reaches [method print], a log file,
+## a crash report or a bug-report attachment. Never log a settings dictionary directly.
+static func redact_secrets(data: Variant) -> Variant:
+	if data is Dictionary:
+		var out: Dictionary = {}
+		for k in (data as Dictionary).keys():
+			var value: Variant = (data as Dictionary)[k]
+			if _is_secret_name(str(k)):
+				out[k] = _mask(value)
+			else:
+				out[k] = redact_secrets(value)
+		return out
+
+	if data is Array:
+		var arr: Array = []
+		for item in (data as Array):
+			arr.append(redact_secrets(item))
+		return arr
+
+	if data is String and _looks_like_secret_value(data as String):
+		return _mask(data)
+
+	return data
+
+
+## True when a setting name indicates the value is a credential.
+static func _is_secret_name(name: String) -> bool:
+	var re := RegEx.new()
+	re.compile(_SECRET_NAME_PATTERN)
+	return re.search(name) != null
+
+
+## True when a value looks like a credential irrespective of the name it is stored under.
+static func _looks_like_secret_value(value: String) -> bool:
+	var re := RegEx.new()
+	re.compile(_VALUE_SECRET_PATTERN)
+	return re.search(value) != null
+
+
+## Replaces a secret with a placeholder that reveals its length and nothing else. An empty
+## string stays empty — "no key set" is useful to see and gives nothing away.
+static func _mask(value: Variant) -> Variant:
+	if value is String:
+		if (value as String).is_empty():
+			return ""
+		return "<redacted:%d chars>" % (value as String).length()
+	if value is Dictionary or value is Array:
+		return "<redacted>"
+	return value
