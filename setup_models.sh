@@ -61,6 +61,20 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 4. Download hfc_female Piper Voice ONNX model
+PIPER_HFC_FEMALE_VOICE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx"
+download_file "$PIPER_HFC_FEMALE_VOICE_URL" "$VOICES_DIR/en_US-hfc_female-medium.onnx" "Piper Voice ONNX Model (en_US-hfc_female-medium.onnx)"
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+
+# 5. Download hfc_female Piper Voice config
+PIPER_HFC_FEMALE_CONFIG_URL="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json"
+download_file "$PIPER_HFC_FEMALE_CONFIG_URL" "$VOICES_DIR/en_US-hfc_female-medium.onnx.json" "Piper Voice Config (en_US-hfc_female-medium.onnx.json)"
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+
 echo "Setting execution permissions on local binaries..."
 chmod +x "$BIN_DIR/piper" 2>/dev/null || true
 chmod +x "$BIN_DIR/whisper-cli" 2>/dev/null || true
