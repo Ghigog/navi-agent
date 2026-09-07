@@ -13,9 +13,8 @@ Please review the following design and architectural specifications:
 - [AI Agent Guidelines](ai_agent.md): General architectural conventions, scene structures, styling rules, and GUT coding best practices.
 - [Emotion System Design](emotions.md): Full specification for the Triforce Emotion System — Courage/Wisdom/Power dimensions, Tier 2 composite emotions, Love Meter, prompt injection, and visual feedback.
 - Development Tickets:
-  - [Active / In Progress Tickets](in_progress.md): Tickets currently in development.
-  - [Backlog Tickets](backlog.md): Future tickets scheduled for implementation.
-  - [Completed Tickets](done.md): Log of all completed, cancelled, or reverted tickets.
+  - [Backlog Tickets](backlog.md): Active and planned work, from NAV-81 onward.
+  - [Completed Tickets](done.md): Historical index of completed, cancelled, and reverted tickets.
 
 ---
 
@@ -93,7 +92,7 @@ navi/
 │   └── test_window.gd
 ├── emotions.md                  # Triforce Emotion System design spec
 ├── backlog.md                   # Future feature tickets
-├── done.md                      # Completed ticket log
+├── done.md                      # Completed ticket index
 └── project.godot                # Godot project file
 ```
 

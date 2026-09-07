@@ -20,10 +20,20 @@ var _font_size_cache: Dictionary = {}
 var _ignore_click_until_ready: bool = false
 var _has_shown_initial_guidance: bool = false
 
+## Dependency injection endpoint for retrieving the OS cursor position (overridden in GUT tests).
+var get_cursor_position_func: Callable = Callable(DisplayServer, "mouse_get_position")
+
+## The OS cursor position frozen at the instant the hotkey was last pressed. This, not the
+## fairy's position, anchors "what's this near my cursor?" — the fairy sits at an offset from
+## the cursor and stops following the moment the hotkey fires, so its position by the time a
+## screenshot is requested may be nowhere near what the user meant.
+var _frozen_cursor_pos: Vector2 = Vector2.ZERO
+
 
 func _ready() -> void:
 	# Enforce alpha-transparency rendering in viewport canvas layers
 	get_viewport().transparent_bg = true
+	_frozen_cursor_pos = Vector2(get_cursor_position_func.call())
 
 	# Set up Godot's OS Window parameters via DisplayServer layer
 	var window := get_window()
@@ -173,6 +183,10 @@ func _input(event: InputEvent) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_hotkey_pressed() -> void:
+	# Sample and freeze the cursor now, before follow mode stops or the fairy is dragged —
+	# this is the anchor for "what's this?", not wherever the fairy ends up (NAV-99).
+	_frozen_cursor_pos = Vector2(get_cursor_position_func.call())
+
 	if has_node("/root/AIService"):
 		var ai = get_node("/root/AIService")
 		var warming_up = "is_warming_up" in ai and ai.is_warming_up
@@ -426,35 +440,50 @@ func capture_clean_screenshot() -> Image:
 	return screenshot
 
 
-## Captures a cropped screenshot centered around Navi's current body position.
+## Captures a cropped screenshot centered around the cursor position frozen when the hotkey
+## was last pressed (see [member _frozen_cursor_pos]), not around the fairy.
 func capture_crop_screenshot() -> Image:
 	var img: Image = await capture_clean_screenshot()
 	if not img:
 		return null
-		
-	# Compute pixel coordinates of the fairy on the captured image using absolute positioning on the full screen
-	var window := get_window()
+
 	var screen := DisplayServer.window_get_current_screen()
 	var screen_pos := DisplayServer.screen_get_position(screen)
 	var screen_size := DisplayServer.screen_get_size(screen)
 	if screen_size.x <= 0 or screen_size.y <= 0:
 		screen_pos = Vector2i.ZERO
 		screen_size = Vector2i(1920, 1080)
-		
-	var absolute_fairy_pos := Vector2(window.position) + _fairy.position
-	var rel_x := (absolute_fairy_pos.x - screen_pos.x) / screen_size.x
-	var rel_y := (absolute_fairy_pos.y - screen_pos.y) / screen_size.y
+
+	_show_cursor_sample_marker()
+
+	var crop_rect := _compute_crop_rect(img, _frozen_cursor_pos, screen_pos, screen_size)
+	return img.get_region(crop_rect)
+
+
+## Computes the crop rectangle within [param img] centered on the global screen-space point
+## [param anchor_pos], given the active screen's origin [param screen_pos] and size
+## [param screen_size]. Pulled out of [method capture_crop_screenshot] so the anchoring math is
+## unit-testable without an actual screen capture.
+func _compute_crop_rect(img: Image, anchor_pos: Vector2, screen_pos: Vector2i, screen_size: Vector2i, crop_size: int = 600) -> Rect2i:
+	var rel_x := (anchor_pos.x - screen_pos.x) / screen_size.x
+	var rel_y := (anchor_pos.y - screen_pos.y) / screen_size.y
 	var px_x := int(rel_x * img.get_width())
 	var px_y := int(rel_y * img.get_height())
-	
-	var crop_size := 600
+
 	var crop_x: int = clamp(px_x - crop_size / 2, 0, img.get_width() - crop_size)
 	var crop_y: int = clamp(px_y - crop_size / 2, 0, img.get_height() - crop_size)
 	var rect_w: int = min(crop_size, img.get_width())
 	var rect_h: int = min(crop_size, img.get_height())
-	
-	var crop_rect := Rect2i(crop_x, crop_y, rect_w, rect_h)
-	return img.get_region(crop_rect)
+
+	return Rect2i(crop_x, crop_y, rect_w, rect_h)
+
+
+## Briefly draws a fading ring at the frozen cursor point so the user can see what Navi looked
+## at, and correct her when she looked at the wrong place.
+func _show_cursor_sample_marker() -> void:
+	var marker := CursorSampleMarker.new()
+	marker.position = _frozen_cursor_pos - Vector2(get_window().position)
+	add_child(marker)
 
 
 # ---------------------------------------------------------------------------
