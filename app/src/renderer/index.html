@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Navi</title>
+<style>
+  html,
+  body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    /* The window is mostly transparent aura. Click-through is decided in the main process
+       from the cursor position (see main/click-through.ts), so nothing here takes pointer
+       events — a click-through window cannot receive the keystroke that would undo it. */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas {
+    display: block;
+  }
+</style>
+<canvas id="fairy"></canvas>
+<script type="module" src="./app.js"></script>

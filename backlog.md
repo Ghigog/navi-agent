@@ -67,9 +67,10 @@ clean up; build it correctly once.
 | Order | Ticket | Note |
 |---|---|---|
 | 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. |
-| 6 | Port the shell and agent loop | With **NAV-83** (no substring router), **NAV-84** (no in-band control tags), **NAV-85** (layered prompt assembler) and **NAV-86** (no personality post-processing) baked in from the first line. |
+| 6 | Port the shell and agent loop | 🟡 **In progress** in `app/`. Shell, prompt assembler and agent loop done, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. Emotion engine, chat surface and settings UI still to come. Not yet launched on a real display. |
+| 6a | Re-validate on macOS | **Do this before building further on it.** Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a long window. The ADR already required the re-measurement; the Electron bump from 33 to 44 (security advisories) widened what it covers. |
 | 7 | **NAV-89** Prebuilt native helper | Folds into the new build pipeline. |
-| 8 | **NAV-82** Tests and CI | Rebuilt on the new stack. |
+| 8 | **NAV-82** Tests and CI | Rebuilt on the new stack. `app/` has 62 tests and a typecheck; CI is the missing half. |
 
 **NAV-87** (SSE parser) and **NAV-88** (decompose AIService) close as superseded — not implemented.
 **NAV-98** (dead code) largely closes too: code that is never ported needs no deletion. Check the
@@ -137,7 +138,7 @@ GDScript implementation, because whether they are a refactor or a port depends o
 
 ## Phase 0 — Hygiene (do immediately, platform-independent)
 
-### NAV-81: Purge committed secret and repository bloat — DONE
+### NAV-81: Purge committed secret and repository bloat — MOSTLY DONE (one owner-only item open)
 
 Landed in two passes. Part one (`e5e5397`/`bea56c9`): key revoked by the owner, `redact_secrets()`
 added to `SettingsManager`, `test_run.log` dropped from the working tree and `*.log` gitignored.
@@ -155,8 +156,34 @@ sidecars stay tracked. `setup_models.sh` was extended to fetch `hfc_female` (it 
 only `amy`), verified against a real download before the purge ran. `export_presets.cfg` was not
 addressed — out of scope for this pass.
 
-All acceptance criteria verified: `git log --all -p -- test_run.log` is empty, no blob over 5MB
-in any ref, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"` across all refs is empty, a fresh clone is 11MB.
+Acceptance criteria verified **for branches**: against a normal `git clone`,
+`git log --all -p -- test_run.log` is empty, no blob over 5MB, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"`
+is empty, and the clone is 3.5MB.
+
+**Not fully closed — GitHub's pull-request refs still hold the pre-purge history.** `filter-repo`
+rewrites `refs/heads/*`; it cannot touch `refs/pull/*`, which GitHub maintains server-side as
+immutable snapshots of what each PR pointed at. `refs/pull/1/head` and `refs/pull/2/head` both
+still contain `test_run.log` with the key and both 61MB voice models. The original verification
+missed this because a normal clone does not fetch `refs/pull/*`:
+
+```
+git clone                                        3.5MB   key absent
+git clone --mirror                               115MB   key present
+git clone && git fetch origin refs/pull/2/head   117MB   key present
+```
+
+Anyone with read access to the repository can retrieve it in one fetch.
+
+Severity is low — the key was revoked and not replaced, so this is a dead credential — but the
+repository still carries 115MB and the exposure is real for as long as those refs exist.
+
+**Remaining, and only the owner can do it:** GitHub Support has to drop the stale pull-request
+refs. There is no self-serve way to remove them, and no force-push will do it. See GitHub's
+guidance on removing sensitive data from a repository.
+
+Note for whoever re-runs the `sk-` grep: this branch's history contains
+`test/test_secret_redaction.gd` (since deleted) whose fixture string is `sk-proj-` followed by 44
+zeros. That is a deliberate dummy, not a credential, and it will trip a naive pattern match.
 
 ---
 
