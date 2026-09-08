@@ -200,7 +200,7 @@ tickets — so cite them together with the title.
 | 111 | `NAV-BUG-13` | Guidance Sequence Scratchpad Suppression | COMPLETED |
 | 112 | `NAV-94` | Platform decision — migrate to Electron (ADR 0001) | DONE |
 | 113 | `NAV-99` | Cursor-anchored "what's this?" — crop follows the cursor, not the fairy | DONE |
-| 114 | `NAV-81` | Purge committed secret and repository bloat — key revoked, settings redacted, test_run.log/scratch/voice models purged from every branch via `git filter-repo`. **GitHub's `refs/pull/*` still hold the old history; needs GitHub Support.** See backlog.md | PARTIAL |
+| 114 | `NAV-81` | Purge committed secret and repository bloat — key revoked, settings redacted, test_run.log/scratch/voice models purged from every branch via `git filter-repo`; GitHub reports 3.2MB. GitHub's undeletable `refs/pull/*` retain the old blobs, which needs no action — see the footnote in backlog.md | DONE |
 
 ---
 

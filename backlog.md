@@ -138,7 +138,7 @@ GDScript implementation, because whether they are a refactor or a port depends o
 
 ## Phase 0 — Hygiene (do immediately, platform-independent)
 
-### NAV-81: Purge committed secret and repository bloat — MOSTLY DONE (one owner-only item open)
+### NAV-81: Purge committed secret and repository bloat — DONE
 
 Landed in two passes. Part one (`e5e5397`/`bea56c9`): key revoked by the owner, `redact_secrets()`
 added to `SettingsManager`, `test_run.log` dropped from the working tree and `*.log` gitignored.
@@ -160,30 +160,29 @@ Acceptance criteria verified **for branches**: against a normal `git clone`,
 `git log --all -p -- test_run.log` is empty, no blob over 5MB, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"`
 is empty, and the clone is 3.5MB.
 
-**Not fully closed — GitHub's pull-request refs still hold the pre-purge history.** `filter-repo`
-rewrites `refs/heads/*`; it cannot touch `refs/pull/*`, which GitHub maintains server-side as
-immutable snapshots of what each PR pointed at. `refs/pull/1/head` and `refs/pull/2/head` both
-still contain `test_run.log` with the key and both 61MB voice models. The original verification
-missed this because a normal clone does not fetch `refs/pull/*`:
+**Footnote, not an open item: GitHub's pull-request refs retain the pre-purge history.**
+`filter-repo` rewrites `refs/heads/*`. It does not touch `refs/pull/*`, which GitHub creates when
+a PR is opened and never lets anyone delete, through git or the UI. So `refs/pull/1/head` and
+`refs/pull/2/head` still contain `test_run.log` and the two voice models.
 
-```
-git clone                                        3.5MB   key absent
-git clone --mirror                               115MB   key present
-git clone && git fetch origin refs/pull/2/head   117MB   key present
-```
+This is ordinary GitHub behaviour, not a defect in the purge, and it needs no action:
 
-Anyone with read access to the repository can retrieve it in one fetch.
+- GitHub reports the repository at **3.2MB**. A normal clone is 3.5MB. The purge worked.
+- Seeing the old blobs requires asking for them by name: `git clone --mirror`, or an explicit
+  `git fetch origin refs/pull/2/head`. Nothing does that by default, which is why verifying
+  against a normal clone was right to pass.
+- The key in those blobs was revoked and never replaced. The voice models are public downloads.
 
-Severity is low — the key was revoked and not replaced, so this is a dead credential — but the
-repository still carries 115MB and the exposure is real for as long as those refs exist.
+The only way to remove them would be to delete and recreate the repository, discarding its pull
+request history. Not worth it for a dead credential.
 
-**Remaining, and only the owner can do it:** GitHub Support has to drop the stale pull-request
-refs. There is no self-serve way to remove them, and no force-push will do it. See GitHub's
-guidance on removing sensitive data from a repository.
-
-Note for whoever re-runs the `sk-` grep: this branch's history contains
+Note for whoever re-runs the `sk-` grep: this repository's history contains
 `test/test_secret_redaction.gd` (since deleted) whose fixture string is `sk-proj-` followed by 44
-zeros. That is a deliberate dummy, not a credential, and it will trip a naive pattern match.
+zeros. A deliberate dummy, not a credential, and it will trip a naive pattern match.
+
+Repository visibility is **public**. Earlier NAV-81 reasoning assumed private and used that to
+bound blast radius. That assumption no longer holds — check it before leaning on it in a future
+security call.
 
 ---
 

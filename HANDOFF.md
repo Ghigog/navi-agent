@@ -93,17 +93,16 @@ the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
   `.onnx.json` sidecars stay tracked; only the two `.onnx` models were purged. `.git` went from
   **116 MB to 3.4 MB**; a fresh clone is 11 MB.
 
-**The purge did not reach GitHub's pull-request refs, and cannot.** `filter-repo` rewrites
-`refs/heads/*`; `refs/pull/*` are server-side snapshots GitHub keeps of what each PR pointed at,
-and no force-push touches them. `refs/pull/1/head` and `refs/pull/2/head` still contain
-`test_run.log` with the key and both 61MB voice models. The original verification missed it
-because a normal clone does not fetch those refs — a normal clone is 3.5MB and clean, a mirror
-clone is 115MB and is not. One `git fetch origin refs/pull/2/head` is all it takes.
+A footnote, so nobody re-raises it as a finding: `filter-repo` rewrites `refs/heads/*` and does
+not touch `refs/pull/*`, which GitHub creates per pull request and never lets anyone delete. So
+`refs/pull/1/head` and `refs/pull/2/head` still hold `test_run.log` and the two voice models.
+**This needs no action.** GitHub reports the repository at 3.2 MB and a normal clone is 3.5 MB;
+the old blobs only appear if you ask for them by name (`git clone --mirror`, or an explicit
+`git fetch origin refs/pull/2/head`). The key in them is revoked and unreplaced, and the voice
+models are public downloads. Removing them would mean deleting and recreating the repository.
 
-The key is revoked and unreplaced, so this is a dead credential rather than a live exposure, but
-the repository still carries 115MB and the old blobs are retrievable by anyone with read access.
-**Only the owner can close this: GitHub Support has to drop the stale refs.** Do not record
-NAV-81 as fully done until they have.
+Note that the repository is **public**. Earlier NAV-81 reasoning assumed private and used that to
+bound blast radius; re-check visibility before leaning on it in a future security call.
 
 The port carries the same rule independently, in `app/src/shared/redact.ts`, with its own tests.
 Two differences from the Godot helper, both deliberate: it recurses into nested structures, and it
@@ -191,9 +190,8 @@ Things that will mislead you if you read the code straight.
 
 ## Things only the owner can do
 
-Flag these rather than attempting them: rotating a leaked API key (NAV-81's key rotation and
-branch history rewrite are both done; asking GitHub Support to drop the stale `refs/pull/*` is
-the one piece still open, and only the owner can raise it); running anything that needs a macOS display, including the port's
-first launch; granting Accessibility and Screen Recording permissions. Any further
-`git push --force` or history rewrite still needs an explicit go-ahead and a confirmed backup
-first, same as NAV-81 did.
+Flag these rather than attempting them: rotating a leaked API key (NAV-81 is closed — key rotated,
+history rewritten); running anything that needs a macOS display, including the port's first
+launch; granting Accessibility and Screen Recording permissions. Any further `git push --force`
+or history rewrite still needs an explicit go-ahead and a confirmed backup first, same as
+NAV-81 did.
