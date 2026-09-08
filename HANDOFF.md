@@ -55,7 +55,7 @@ Planning is committed on the branch. Four commits, all `docs:` or the spike.
   **Ticket IDs are identity, not sequence.** Order lives in that section. The old log reused
   sixteen IDs because numbering was doing both jobs; do not repeat that. New tickets continue
   from NAV-102.
-- **`done.md`** — historical index of 111 completed tickets, plus an accuracy audit explaining
+- **`done.md`** — historical index of 114 completed tickets, plus an accuracy audit explaining
   why the full bodies were removed. Bodies remain in git history at `81a2e83`.
 - **`spike/`** — the NAV-94 spike. Throwaway; delete once NAV-94 is recorded.
 - `mission_statement.md`, `emotions.md`, `ai_agent.md` — design docs, still current and worth reading.
@@ -77,20 +77,23 @@ be worked.
 renderer — it is ~100 lines against `FairyVisuals.gd`'s 520 and already does the Triforce emotion
 tint — then delete the rest of the directory.
 
-### Step 2 — current state of NAV-81
+### Step 2 — NAV-81 is done
 
-- **Done** (`8decbf8`): the leaked OpenAI key was **revoked by the owner and not replaced**. The
-  mechanism that leaked it is closed — `SettingsManager.load_settings()` printed the whole settings
-  dictionary on every start, which is how a live key ended up in `test_run.log` and got committed.
-  There is now a `redact_secrets()` helper, the load-time print goes through it, `test_run.log` is
-  deleted and `*.log` is gitignored, and five tests cover the redaction.
-  The `openai_api_key` **setting is deliberately kept** — NAV-92 needs it for the
+- The leaked OpenAI key was **revoked by the owner and not replaced**. The mechanism that leaked
+  it is closed — `SettingsManager.load_settings()` printed the whole settings dictionary on every
+  start, which is how a live key ended up in `test_run.log` and got committed. There is now a
+  `redact_secrets()` helper, the load-time print goes through it, and five tests cover the
+  redaction. The `openai_api_key` **setting is deliberately kept** — NAV-92 needs it for the
   bring-your-own-cloud-key onboarding path.
-- **Not done:** purging `test_run.log` and the two 61 MB voice models from git history. `.git` is
-  **116 MB**; the two `bin/voices/*.onnx` files are ~122 MB of it. This is a `git filter-repo`
-  rewrite that force-pushes over a merged `main`, so it needs the owner's explicit go-ahead and a
-  backup clone first. **Since the key is revoked, this is now weight, not exposure — there is no
-  urgency and it must not be done casually.**
+- History is purged. The owner confirmed a backup clone, `setup_models.sh` was extended to fetch
+  `en_US-hfc_female-medium.onnx` (it previously only fetched `amy`) and the download was verified
+  before anything was rewritten. `git filter-repo` then removed `test_run.log`, the eight
+  `reconstructed_aiservice_step*.txt` scratch files, and both 61MB `.onnx` voice models from every
+  ref (`main`, `claude/navi-purge-large-files-x1de5f`, and `claude/navi-modernization-review-rpw3mq`
+  all had to be rewritten and force-pushed — the third still held the old blobs and would have kept
+  the repo heavy otherwise). `bin/piper`, `bin/hotkey_daemon`, `bin/whisper-cli`, and the
+  `.onnx.json` sidecars stay tracked; only the two `.onnx` models were purged. `.git` went from
+  **116 MB to 3.4 MB**; a fresh clone is 11 MB.
 
 ### Step 3 — then follow Implementation Order in `backlog.md`.
 
@@ -159,7 +162,8 @@ Things that will mislead you if you read the code straight.
 
 ## Things only the owner can do
 
-Flag these rather than attempting them: rotating the leaked API key; running the macOS spike;
-granting Accessibility and Screen Recording permissions; deciding NAV-94; any `git push --force`
-or history rewrite (NAV-81 needs `filter-repo`, which is destructive and should be run by a human
-who has a backup).
+Flag these rather than attempting them: rotating a leaked API key (NAV-81's key rotation and
+history rewrite are both done); running the macOS spike; granting Accessibility and Screen
+Recording permissions; deciding NAV-94 (already decided — see "Decisions already made"). Any
+further `git push --force` or history rewrite still needs an explicit go-ahead and a confirmed
+backup first, same as NAV-81 did.

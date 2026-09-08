@@ -82,7 +82,7 @@ NAV-71 scratchpad and continuation tests.
 
 ## Index
 
-113 entries, in original file order. IDs marked ⚠ are ambiguous — reused across two or more
+114 entries, in original file order. IDs marked ⚠ are ambiguous — reused across two or more
 tickets — so cite them together with the title.
 
 | # | ID | Title | Status |
@@ -200,6 +200,7 @@ tickets — so cite them together with the title.
 | 111 | `NAV-BUG-13` | Guidance Sequence Scratchpad Suppression | COMPLETED |
 | 112 | `NAV-94` | Platform decision — migrate to Electron (ADR 0001) | DONE |
 | 113 | `NAV-99` | Cursor-anchored "what's this?" — crop follows the cursor, not the fairy | DONE |
+| 114 | `NAV-81` | Purge committed secret and repository bloat — key revoked, settings redacted, test_run.log/scratch/voice models purged from all history via `git filter-repo` | DONE |
 
 ---
 

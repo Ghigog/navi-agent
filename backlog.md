@@ -42,7 +42,7 @@ Nothing in this group is wasted by a later migration.
 
 | Order | Ticket | Why here |
 |---|---|---|
-| 1 | **NAV-81** Purge secret and bloat | Credential rotation is not a scheduling question. |
+| 1 | ✅ **NAV-81** Purge secret and bloat — **DONE** (`2d16cc5`, history rewrite force-pushed) | Credential rotation is not a scheduling question. |
 | 2 | ✅ **NAV-99** Cursor-anchored "what's this?" — **DONE** (`a15119d`) | Highest daily value, smallest fix, and it is a bug rather than a feature. The core correction is to sample the cursor in `WindowController._on_hotkey_pressed()` (`:175`) and anchor the crop on that instead of `absolute_fairy_pos` (`:452`). Small in Godot today, and the reasoning ports unchanged. Do not wait for the platform decision to stop aiming at the wrong pixel. |
 | 3 | **NAV-97** Record the identity decision | A writing task, an hour of work, that constrains the design of NAV-91, NAV-95, NAV-96 and NAV-101. Cheapest possible thing to get right before the tickets it governs. |
 
@@ -137,41 +137,26 @@ GDScript implementation, because whether they are a refactor or a port depends o
 
 ## Phase 0 — Hygiene (do immediately, platform-independent)
 
-### NAV-81: Purge committed secret and repository bloat (Backlog)
-**User Story:**
-- **As a:** Maintainer
-- **I want:** No credentials or large binaries tracked in git
-- **So that:** The repository is safe to make public and cheap to clone
+### NAV-81: Purge committed secret and repository bloat — DONE
 
-**Context:**
-`test_run.log` is tracked and contains a real OpenAI API key plus a full settings dump with local
-filesystem paths. It was introduced in commit `ec72554` and is still present at HEAD, so it is in
-history, not just the working tree. Separately, `bin/` holds ~124MB of tracked binaries and voice
-models, `.git` is ~115MB, and eight `reconstructed_aiservice_step*.txt` scratch files are tracked.
-The repository is currently private, which limits blast radius but does not remove it.
+Landed in two passes. Part one (`e5e5397`/`bea56c9`): key revoked by the owner, `redact_secrets()`
+added to `SettingsManager`, `test_run.log` dropped from the working tree and `*.log` gitignored.
+Part two, this session: `git filter-repo` purged `test_run.log`, the eight
+`reconstructed_aiservice_step*.txt` scratch files, and the two 61MB Piper voice models
+(`bin/voices/en_US-amy-medium.onnx`, `en_US-hfc_female-medium.onnx`) from every ref on the remote
+(`main`, `claude/navi-purge-large-files-x1de5f`, `claude/navi-modernization-review-rpw3mq`), then
+force-pushed all three. `.git` went from 116MB to 3.4MB.
 
-**Description:**
-Rotate the exposed key, remove the log and scratch files from history, and stop tracking large
-binaries.
+Scope note: the original requirement to "move `bin/` out of tracked git" was narrowed by the
+owner during execution. `bin/piper` (a shell wrapper), `bin/hotkey_daemon` (64KB, still a fallback
+for `InputManager.gd` until NAV-89), and `bin/whisper-cli` (3.1MB, `setup_models.sh` doesn't know
+how to fetch it) stay tracked. Only the two `.onnx` voice models were purged; their `.onnx.json`
+sidecars stay tracked. `setup_models.sh` was extended to fetch `hfc_female` (it previously fetched
+only `amy`), verified against a real download before the purge ran. `export_presets.cfg` was not
+addressed — out of scope for this pass.
 
-**Requirements:**
-- Rotate the OpenAI key at the provider before anything else. Treat it as compromised.
-- Remove `test_run.log` and `reconstructed_aiservice_step*.txt` from history (`git filter-repo` or
-  BFG). Add both patterns to `.gitignore`.
-- Move `bin/` out of tracked git. Either Git LFS, or drop it entirely and rely on the existing
-  `setup_models.sh` / in-app downloader, which already fetch these assets.
-- Commit `export_presets.cfg` (currently untracked) so builds are reproducible — or record the
-  equivalent build config if the platform changes.
-- Audit `SettingsManager` so no code path ever writes an API key to stdout. The leak originated from
-  `print()` of the whole settings dictionary on load.
-
-**Acceptance Criteria:**
-- [ ] Exposed key rotated and confirmed revoked.
-- [ ] `git log --all -p -- test_run.log` returns nothing.
-- [ ] Fresh clone is under 20MB.
-- [ ] `git grep -iE "sk-[a-zA-Z0-9-]{20,}"` across all refs returns nothing.
-- [ ] Settings logging redacts any key whose name matches `key|token|secret`.
-- [ ] A test asserts the redaction helper masks a representative key string.
+All acceptance criteria verified: `git log --all -p -- test_run.log` is empty, no blob over 5MB
+in any ref, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"` across all refs is empty, a fresh clone is 11MB.
 
 ---
 
