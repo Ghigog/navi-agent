@@ -42,15 +42,15 @@ Nothing in this group is wasted by a later migration.
 
 | Order | Ticket | Why here |
 |---|---|---|
-| 1 | **NAV-81** Purge secret and bloat | Credential rotation is not a scheduling question. |
-| 2 | **NAV-99** Cursor-anchored "what's this?" | Highest daily value, smallest fix, and it is a bug rather than a feature. The core correction is to sample the cursor in `WindowController._on_hotkey_pressed()` (`:175`) and anchor the crop on that instead of `absolute_fairy_pos` (`:452`). Small in Godot today, and the reasoning ports unchanged. Do not wait for the platform decision to stop aiming at the wrong pixel. |
+| 1 | ✅ **NAV-81** Purge secret and bloat — **DONE** (`2d16cc5`, history rewrite force-pushed) | Credential rotation is not a scheduling question. |
+| 2 | ✅ **NAV-99** Cursor-anchored "what's this?" — **DONE** (`a15119d`) | Highest daily value, smallest fix, and it is a bug rather than a feature. The core correction is to sample the cursor in `WindowController._on_hotkey_pressed()` (`:175`) and anchor the crop on that instead of `absolute_fairy_pos` (`:452`). Small in Godot today, and the reasoning ports unchanged. Do not wait for the platform decision to stop aiming at the wrong pixel. |
 | 3 | **NAV-97** Record the identity decision | A writing task, an hour of work, that constrains the design of NAV-91, NAV-95, NAV-96 and NAV-101. Cheapest possible thing to get right before the tickets it governs. |
 
 ### 2. Decision gate — RESOLVED 2026-09-07
 
 | Order | Ticket | Why here |
 |---|---|---|
-| 4 | **NAV-94** Platform decision + overlay spike | ✅ **Done. Verdict: GO — migrate to Electron.** See [ADR 0001](docs/adr/0001-platform-electron.md). **Follow 3a below; 3b is dead.**
+| 4 | ✅ **NAV-94** Platform decision + overlay spike | **Done. Verdict: GO — migrate to Electron.** See [ADR 0001](docs/adr/0001-platform-electron.md). **Follow 3a below; 3b is dead.**
 
 > **Deliberately not before the gate: NAV-82 (tests and CI).** A green suite is genuinely valuable,
 > but the current suite is GUT-on-Godot. Building CI around a stack that may be retired in the next
@@ -138,41 +138,26 @@ GDScript implementation, because whether they are a refactor or a port depends o
 
 ## Phase 0 — Hygiene (do immediately, platform-independent)
 
-### NAV-81: Purge committed secret and repository bloat (Backlog)
-**User Story:**
-- **As a:** Maintainer
-- **I want:** No credentials or large binaries tracked in git
-- **So that:** The repository is safe to make public and cheap to clone
+### NAV-81: Purge committed secret and repository bloat — DONE
 
-**Context:**
-`test_run.log` is tracked and contains a real OpenAI API key plus a full settings dump with local
-filesystem paths. It was introduced in commit `ec72554` and is still present at HEAD, so it is in
-history, not just the working tree. Separately, `bin/` holds ~124MB of tracked binaries and voice
-models, `.git` is ~115MB, and eight `reconstructed_aiservice_step*.txt` scratch files are tracked.
-The repository is currently private, which limits blast radius but does not remove it.
+Landed in two passes. Part one (`e5e5397`/`bea56c9`): key revoked by the owner, `redact_secrets()`
+added to `SettingsManager`, `test_run.log` dropped from the working tree and `*.log` gitignored.
+Part two, this session: `git filter-repo` purged `test_run.log`, the eight
+`reconstructed_aiservice_step*.txt` scratch files, and the two 61MB Piper voice models
+(`bin/voices/en_US-amy-medium.onnx`, `en_US-hfc_female-medium.onnx`) from every ref on the remote
+(`main`, `claude/navi-purge-large-files-x1de5f`, `claude/navi-modernization-review-rpw3mq`), then
+force-pushed all three. `.git` went from 116MB to 3.4MB.
 
-**Description:**
-Rotate the exposed key, remove the log and scratch files from history, and stop tracking large
-binaries.
+Scope note: the original requirement to "move `bin/` out of tracked git" was narrowed by the
+owner during execution. `bin/piper` (a shell wrapper), `bin/hotkey_daemon` (64KB, still a fallback
+for `InputManager.gd` until NAV-89), and `bin/whisper-cli` (3.1MB, `setup_models.sh` doesn't know
+how to fetch it) stay tracked. Only the two `.onnx` voice models were purged; their `.onnx.json`
+sidecars stay tracked. `setup_models.sh` was extended to fetch `hfc_female` (it previously fetched
+only `amy`), verified against a real download before the purge ran. `export_presets.cfg` was not
+addressed — out of scope for this pass.
 
-**Requirements:**
-- Rotate the OpenAI key at the provider before anything else. Treat it as compromised.
-- Remove `test_run.log` and `reconstructed_aiservice_step*.txt` from history (`git filter-repo` or
-  BFG). Add both patterns to `.gitignore`.
-- Move `bin/` out of tracked git. Either Git LFS, or drop it entirely and rely on the existing
-  `setup_models.sh` / in-app downloader, which already fetch these assets.
-- Commit `export_presets.cfg` (currently untracked) so builds are reproducible — or record the
-  equivalent build config if the platform changes.
-- Audit `SettingsManager` so no code path ever writes an API key to stdout. The leak originated from
-  `print()` of the whole settings dictionary on load.
-
-**Acceptance Criteria:**
-- [ ] Exposed key rotated and confirmed revoked.
-- [ ] `git log --all -p -- test_run.log` returns nothing.
-- [ ] Fresh clone is under 20MB.
-- [ ] `git grep -iE "sk-[a-zA-Z0-9-]{20,}"` across all refs returns nothing.
-- [ ] Settings logging redacts any key whose name matches `key|token|secret`.
-- [ ] A test asserts the redaction helper masks a representative key string.
+All acceptance criteria verified: `git log --all -p -- test_run.log` is empty, no blob over 5MB
+in any ref, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"` across all refs is empty, a fresh clone is 11MB.
 
 ---
 
@@ -258,89 +243,11 @@ Also:
 
 ---
 
-## Phase 0.5 — Decision gate (blocks Phases 1-3)
+## Phase 1 — Port constraints (was: modernize the agent loop)
 
-### NAV-94: Platform decision — Godot or rebuild (DECIDED 2026-09-07 → Electron)
-**User Story:**
-- **As a:** Maintainer
-- **I want:** A decided target platform
-- **So that:** The modernization work above is done once, on the right foundation
-
-**Context:**
-Godot does the overlay well: transparent per-pixel borderless always-on-top window, GPU particles,
-tweened motion. That is genuinely good and is roughly 4000 lines of working code.
-
-Against it:
-- Godot cannot perform computer use at all (see NAV-90). Native helpers are required regardless.
-- `scripts/SettingsUI.gd` is 1455 lines of imperative Control construction and is reported as
-  painful to change.
-- HTML mockups (e.g. from a design tool) cannot be brought into a Godot UI without full manual
-  reimplementation, which slows the design-to-code loop considerably.
-- Every remaining hard problem — SSE, tool loops, retries, structured outputs, an accessibility
-  bridge, MCP — has a maintained library in TypeScript and none in GDScript. NAV-87 and NAV-88 exist
-  purely because that infrastructure is being hand-written.
-
-**Constraints now confirmed (2026-09-06):**
-- **Local Ollama is the daily driver**, not a fallback. The core path must work with no network and no
-  cloud account. This rules out any design whose agent loop depends on a hosted SDK, and it makes the
-  accessibility tree (NAV-90) more important, not less: small local models are especially poor at
-  pixel-coordinate reasoning, which is the reported failure mode.
-- **Distribution is intended.** Code signing, notarisation, auto-update, and the first-run permissions
-  flow (NAV-92) are real requirements rather than nice-to-haves. This counts *for* a mainstream app
-  framework with established packaging, and against Godot, whose export pipeline already requires the
-  manual `bin/` copy step documented in the README.
-- **Windows and Linux are wanted eventually.** Not now, but the native helper's interface must be
-  abstract from day one even with only a macOS implementation behind it (see NAV-90).
-
-**DECISION: migrate to Electron + TypeScript.** Recorded in
-[docs/adr/0001-platform-electron.md](docs/adr/0001-platform-electron.md). Both spike halves passed on
-macOS: Risk B at 27.8x render headroom, Risk A all eight checks PASS with idle CPU 2.4-2.6% and peak
-memory 356 MB. Follow **Implementation Order → 3a**. Two constraints the spike surfaced are now
-requirements of the port: click-through must be driven from outside the window, and the idle render
-loop must be throttled to protect the resource budget, which passed without much room.
-
-**Description:**
-Decide, record the decision, and if migrating, sequence the port.
-
-**Requirements:**
-Recommended target if migrating: **Electron + TypeScript**, with a Swift `navi-helper` sidecar
-(NAV-90). Rationale:
-- The Node main process hosts the agent directly. No shell/brain split, and no state living on both
-  sides of a socket.
-- The renderer is HTML, so designed mockups drop straight in and the settings UI stops being a cost.
-- **Ollama is the primary target and must work offline.** Any hosted provider is an optional extra
-  behind the same seam, never a dependency of the core loop. Where a hosted SDK would supply the
-  agent loop, the equivalent for the local path is a small tool-call loop written once against the
-  OpenAI-compatible endpoint Ollama already serves — far less code than the current
-  `AIService.gd`, but still ours.
-- The Swift helper stays a stateless actuator with a narrow API, which is a materially different
-  proposition from splitting the app into two stateful halves.
-- No new language: the team already writes Swift for the daemon and would write TypeScript for
-  everything else.
-
-Honest costs of migrating:
-- `FairyVisuals.gd` (520 lines) must be rebuilt in canvas or WebGL. Achievable, and easier to iterate
-  on visually, but it is real work.
-- Higher idle memory than Godot.
-- Roughly 8000 lines of GDScript retired, replaced by perhaps half that in TypeScript, since much of
-  the current code is transport and agent-loop boilerplate the SDK provides.
-
-Carries over unchanged either way: `mission_statement.md`, `emotions.md`, tool schemas, emotion
-scoring rules, prompt content, the Whisper/Piper binaries and their invocation logic, and the Swift
-hotkey daemon.
-
-**Acceptance Criteria:**
-- [ ] Decision recorded in an ADR in the repository, with the rejected options and why.
-- [ ] If migrating: a spike proves a transparent, always-on-top, click-through overlay window with an
-      animated fairy at acceptable idle CPU, *before* any port work begins.
-- [ ] If migrating: NAV-87 and NAV-88 are closed as superseded rather than implemented.
-- [ ] If staying: NAV-87 and NAV-88 are scheduled, and the settings UI pain is addressed separately.
-
----
-
----
-
-## Phase 1 — Modernize the agent loop (do before the platform migration; these decisions carry over)
+NAV-94 decided in favour of Electron ([ADR 0001](docs/adr/0001-platform-electron.md)), so these are
+no longer refactors of the Godot code. They are **constraints on the port**: build it this way the
+first time rather than porting the current behaviour and cleaning up afterwards.
 
 ### NAV-83: Delete the deterministic prompt router (Backlog)
 **User Story:**
@@ -607,7 +514,7 @@ Compile at build time. The runtime should only launch a signed, prebuilt helper.
 
 ---
 
-## Phase 2 — Computer use (gated on NAV-94)
+## Phase 2 — Computer use
 
 ### NAV-90: Native accessibility and input-synthesis helper (Backlog)
 **User Story:**
@@ -777,7 +684,6 @@ silent failures.
 - [ ] With no provider configured, Navi says so rather than failing silently.
 - [ ] Switching provider later does not require re-running onboarding.
 
-
 ---
 
 ## Phase 3 — Companion depth (the mission statement's unimplemented half)
@@ -851,7 +757,6 @@ User control:
 - [ ] `_calculate_retrieval_relevance` is replaced by real retrieval or removed.
 
 ---
-
 
 ### NAV-95: Model-driven emotion evaluation (Backlog)
 **User Story:**
@@ -986,56 +891,6 @@ character trait rather than a failure mode.
 - [ ] The mood-affects-behaviour property is stated somewhere the user actually reads.
 - [ ] A documented path exists to recover the relationship from its worst state.
 - [ ] Confirmation and ambient defaults cite this decision.
-
----
-
-### NAV-99: Cursor-anchored "what's this?" as the primary interaction (Backlog)
-**User Story:**
-- **As a:** User
-- **I want:** To ask "hey Navi, what's this near my cursor?" and get a correct answer
-- **So that:** I stop screenshotting things and pasting them into a chat window
-
-**Context:**
-This is the single most-wanted interaction, and it is **not what the code currently does.**
-
-`WindowController.capture_crop_screenshot()` (`:430`) centres a 600px crop on **the fairy**, not the
-cursor. The fairy sits at `FollowController.follow_offset = (20, 20)` from the cursor during normal
-following, and stops tracking entirely once the hotkey is pressed or she is dragged — which is
-exactly when the user asks the question. So the crop is anchored to wherever Navi happens to be,
-which by then may be nowhere near what the user meant.
-
-`TakeCropScreenshotSkill` compounds this: it describes itself as capturing "around Navi's current
-position", so even a well-behaved model is being told the wrong anchor. The prompt's spatial-awareness
-block then reinforces it, telling the model that "next to you" means near the fairy.
-
-This is very likely the root cause of the reported unreliability, and it is independent of model
-quality. No amount of better prompting fixes a crop centred on the wrong point.
-
-**Description:**
-Make the cursor the anchor, capture the cursor position at the moment of asking, and give the
-interaction its own fast path.
-
-**Requirements:**
-- Sample and freeze the OS cursor position at the instant the hotkey is pressed, **before** the fairy
-  stops following or is dragged. That frozen point, not the fairy's position, anchors the crop.
-- Add a `look_at_cursor` skill that crops around the frozen cursor point. Correct its description to
-  say cursor, not Navi.
-- Prefer `observe_ui` (NAV-90) first: the accessibility element under the cursor gives the answer as
-  text, with no image, faster and far more reliably than any crop. Fall back to the crop only when
-  the AX tree does not describe what is there (canvas, images, video, games).
-- Update the spatial-awareness prompt block so "this", "here", and "near my cursor" resolve to the
-  cursor anchor. Keep "next to you" meaning the fairy, since that is a genuinely different question.
-- Draw a brief visual confirmation of the sampled point so the user can see what she looked at, and
-  correct her when she is wrong.
-- Consider a dedicated hotkey so the whole interaction is one keystroke with no typing.
-
-**Acceptance Criteria:**
-- [ ] Hovering an unfamiliar icon and asking "what's this?" identifies it correctly.
-- [ ] The answer is unaffected by where the fairy happens to be, verified by dragging her far away
-      first.
-- [ ] For a standard UI control, the answer comes from the AX tree with no screenshot taken.
-- [ ] The sampled point is visibly confirmed to the user.
-- [ ] Tests cover: cursor frozen at press time, fairy position not consulted, AX-before-crop ordering.
 
 ---
 

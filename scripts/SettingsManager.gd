@@ -4,10 +4,13 @@ extends Node
 
 signal settings_updated 
 
-## Preloaded rather than reached through the NaviUtils autoload: NaviUtils is registered
-## after SettingsManager, and load_settings() runs in _ready(), so the singleton does not
-## exist yet at the one call site that needs it.
-const NaviUtilsScript := preload("res://scripts/NaviUtils.gd")
+## Substrings marking a setting whose value must never be printed or logged.
+## Deliberately narrow: a bare "key" would also match hotkey_keycode and make debug
+## output useless. Any new secret setting must be named to match one of these, or
+## end in "_key" — see [method redact_secrets].
+const SECRET_KEY_PATTERNS: Array[String] = [
+	"api_key", "apikey", "token", "secret", "password", "credential"
+]
 
 var SETTINGS_FILE := "user://settings.json"
 
@@ -68,6 +71,28 @@ var skills = [
 	{"tag": "take_crop_screenshot", "description": "Captures a close-up cropped visual around the fairy for precise visual detail."},
 	{"tag": "heavy_thinking", "description": "Invokes advanced reasoning for complex problems."}
 ]
+
+
+## Returns a copy of [param data] with every secret-looking value replaced by a placeholder.
+##
+## Use this for ANY output of the settings dictionary. Printing it raw is what leaked a live
+## API key into `test_run.log`, which was then committed and sat in git history (NAV-81).
+## Empty values are left alone so an unset key is still visibly unset while debugging.
+static func redact_secrets(data: Dictionary) -> Dictionary:
+	var safe := {}
+	for key in data.keys():
+		var key_name := str(key).to_lower()
+		var is_secret := key_name.ends_with("_key")
+		if not is_secret:
+			for pattern in SECRET_KEY_PATTERNS:
+				if key_name.contains(pattern):
+					is_secret = true
+					break
+		if is_secret and str(data[key]) != "":
+			safe[key] = "<redacted>"
+		else:
+			safe[key] = data[key]
+	return safe
 
 
 func _ready() -> void:
@@ -211,8 +236,8 @@ func load_settings() -> void:
 		var parse_err := json.parse(json_string)
 		if parse_err == OK:
 			var loaded_data = json.get_data()
-			# Never log this dictionary directly: it carries API keys (NAV-81).
-			print("Settings loaded: ", NaviUtilsScript.redact_secrets(loaded_data))
+			# NEVER print loaded_data directly — it carries API keys. See redact_secrets().
+			print("SettingsManager: Loaded settings: ", redact_secrets(loaded_data))
 			if loaded_data is Dictionary:
 				# Merge loaded fields to retain user customizations while preserving new default keys
 				for key in loaded_data.keys():

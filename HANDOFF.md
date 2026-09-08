@@ -55,7 +55,7 @@ Planning is merged on `main`. The port is on the branch above, in `app/`.
   **Ticket IDs are identity, not sequence.** Order lives in that section. The old log reused
   sixteen IDs because numbering was doing both jobs; do not repeat that. New tickets continue
   from NAV-102.
-- **`done.md`** — historical index of 111 completed tickets, plus an accuracy audit explaining
+- **`done.md`** — historical index of 114 completed tickets, plus an accuracy audit explaining
   why the full bodies were removed. Bodies remain in git history at `81a2e83`.
 - **`app/`** — the Electron port. Has its own README covering layout, the decisions that will
   look wrong without context, and the Electron install failure mode that will bite you.
@@ -75,13 +75,37 @@ Deleted: `tickets.md` (broken absolute `file://` links), the empty `in_progress.
 `app/README.md` is what was built from it. Follow `backlog.md` → Implementation Order → **3a**;
 the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
 
-### Step 2 — what is done, and what is next
+### Step 2 — NAV-81 is done
 
-**Done in the port** (`app/`, 62 tests, typecheck clean, builds):
+- The leaked OpenAI key was **revoked by the owner and not replaced**. The mechanism that leaked
+  it is closed — `SettingsManager.load_settings()` printed the whole settings dictionary on every
+  start, which is how a live key ended up in `test_run.log` and got committed. There is now a
+  `redact_secrets()` helper, the load-time print goes through it, and five tests cover the
+  redaction. The `openai_api_key` **setting is deliberately kept** — NAV-92 needs it for the
+  bring-your-own-cloud-key onboarding path.
+- History is purged. The owner confirmed a backup clone, `setup_models.sh` was extended to fetch
+  `en_US-hfc_female-medium.onnx` (it previously only fetched `amy`) and the download was verified
+  before anything was rewritten. `git filter-repo` then removed `test_run.log`, the eight
+  `reconstructed_aiservice_step*.txt` scratch files, and both 61MB `.onnx` voice models from every
+  ref (`main`, `claude/navi-purge-large-files-x1de5f`, and `claude/navi-modernization-review-rpw3mq`
+  all had to be rewritten and force-pushed — the third still held the old blobs and would have kept
+  the repo heavy otherwise). `bin/piper`, `bin/hotkey_daemon`, `bin/whisper-cli`, and the
+  `.onnx.json` sidecars stay tracked; only the two `.onnx` models were purged. `.git` went from
+  **116 MB to 3.4 MB**; a fresh clone is 11 MB.
+
+The port carries the same rule independently, in `app/src/shared/redact.ts`, with its own tests.
+Two differences from the Godot helper, both deliberate: it recurses into nested structures, and it
+masks a value that *looks* like a credential whatever its setting is named. The Godot version is
+name-based only, which is sufficient for a flat settings dictionary and keeps `hotkey_keycode`
+readable in debug output.
+
+### Step 3 — the port has started, in `app/`
+
+**Done** (62 tests, typecheck clean, builds):
 
 - NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
 - The Electron shell: overlay window, click-through driven from the main process, throttled
-  render loop, settings with redaction.
+  render loop, settings.
 - The agent loop: one provider seam, native tool calling, no substring router (NAV-83), no
   in-band control tags (NAV-84), personality in the identity layer (NAV-86).
 
@@ -93,21 +117,6 @@ the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
 2. **Port the emotion engine and the chat surface.** The loop has no UI yet beyond the fairy.
 3. **NAV-92** onboarding — parallel, mostly product and copy.
 4. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
-
-### Step 3 — outstanding on NAV-81, and only the owner can do it
-
-The code half is done: settings logging is redacted (`NaviUtils.redact_secrets`, and
-`app/src/shared/redact.ts` in the port), and `test_run.log` plus the `reconstructed_aiservice_*`
-scratch files are untracked and ignored.
-
-**Still outstanding, and needs a human with a backup:**
-
-- The key is still in git history. `git log --all -p -- test_run.log` still returns it. Purging
-  needs `filter-repo` and a force push.
-- Confirm at the provider that the exposed key is actually revoked.
-- `bin/` is still ~124 MB of tracked binaries.
-
----
 
 ## Traps in this codebase
 
@@ -170,7 +179,8 @@ Things that will mislead you if you read the code straight.
 
 ## Things only the owner can do
 
-Flag these rather than attempting them: rotating the leaked API key and confirming it revoked;
-running anything that needs a macOS display; granting Accessibility and Screen Recording
-permissions; any `git push --force` or history rewrite (NAV-81's history purge needs
-`filter-repo`, which is destructive and should be run by a human who has a backup).
+Flag these rather than attempting them: rotating a leaked API key (NAV-81's key rotation and
+history rewrite are both done); running anything that needs a macOS display, including the port's
+first launch; granting Accessibility and Screen Recording permissions. Any further
+`git push --force` or history rewrite still needs an explicit go-ahead and a confirmed backup
+first, same as NAV-81 did.
