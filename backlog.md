@@ -138,7 +138,7 @@ GDScript implementation, because whether they are a refactor or a port depends o
 
 ## Phase 0 — Hygiene (do immediately, platform-independent)
 
-### NAV-81: Purge committed secret and repository bloat — DONE
+### NAV-81: Purge committed secret and repository bloat — MOSTLY DONE (one owner-only item open)
 
 Landed in two passes. Part one (`e5e5397`/`bea56c9`): key revoked by the owner, `redact_secrets()`
 added to `SettingsManager`, `test_run.log` dropped from the working tree and `*.log` gitignored.
@@ -156,8 +156,34 @@ sidecars stay tracked. `setup_models.sh` was extended to fetch `hfc_female` (it 
 only `amy`), verified against a real download before the purge ran. `export_presets.cfg` was not
 addressed — out of scope for this pass.
 
-All acceptance criteria verified: `git log --all -p -- test_run.log` is empty, no blob over 5MB
-in any ref, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"` across all refs is empty, a fresh clone is 11MB.
+Acceptance criteria verified **for branches**: against a normal `git clone`,
+`git log --all -p -- test_run.log` is empty, no blob over 5MB, `git grep -iE "sk-[a-zA-Z0-9-]{20,}"`
+is empty, and the clone is 3.5MB.
+
+**Not fully closed — GitHub's pull-request refs still hold the pre-purge history.** `filter-repo`
+rewrites `refs/heads/*`; it cannot touch `refs/pull/*`, which GitHub maintains server-side as
+immutable snapshots of what each PR pointed at. `refs/pull/1/head` and `refs/pull/2/head` both
+still contain `test_run.log` with the key and both 61MB voice models. The original verification
+missed this because a normal clone does not fetch `refs/pull/*`:
+
+```
+git clone                                        3.5MB   key absent
+git clone --mirror                               115MB   key present
+git clone && git fetch origin refs/pull/2/head   117MB   key present
+```
+
+Anyone with read access to the repository can retrieve it in one fetch.
+
+Severity is low — the key was revoked and not replaced, so this is a dead credential — but the
+repository still carries 115MB and the exposure is real for as long as those refs exist.
+
+**Remaining, and only the owner can do it:** GitHub Support has to drop the stale pull-request
+refs. There is no self-serve way to remove them, and no force-push will do it. See GitHub's
+guidance on removing sensitive data from a repository.
+
+Note for whoever re-runs the `sk-` grep: this branch's history contains
+`test/test_secret_redaction.gd` (since deleted) whose fixture string is `sk-proj-` followed by 44
+zeros. That is a deliberate dummy, not a credential, and it will trip a naive pattern match.
 
 ---
 

@@ -75,7 +75,7 @@ Deleted: `tickets.md` (broken absolute `file://` links), the empty `in_progress.
 `app/README.md` is what was built from it. Follow `backlog.md` → Implementation Order → **3a**;
 the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
 
-### Step 2 — NAV-81 is done
+### Step 2 — NAV-81, and the one piece still open
 
 - The leaked OpenAI key was **revoked by the owner and not replaced**. The mechanism that leaked
   it is closed — `SettingsManager.load_settings()` printed the whole settings dictionary on every
@@ -92,6 +92,18 @@ the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
   the repo heavy otherwise). `bin/piper`, `bin/hotkey_daemon`, `bin/whisper-cli`, and the
   `.onnx.json` sidecars stay tracked; only the two `.onnx` models were purged. `.git` went from
   **116 MB to 3.4 MB**; a fresh clone is 11 MB.
+
+**The purge did not reach GitHub's pull-request refs, and cannot.** `filter-repo` rewrites
+`refs/heads/*`; `refs/pull/*` are server-side snapshots GitHub keeps of what each PR pointed at,
+and no force-push touches them. `refs/pull/1/head` and `refs/pull/2/head` still contain
+`test_run.log` with the key and both 61MB voice models. The original verification missed it
+because a normal clone does not fetch those refs — a normal clone is 3.5MB and clean, a mirror
+clone is 115MB and is not. One `git fetch origin refs/pull/2/head` is all it takes.
+
+The key is revoked and unreplaced, so this is a dead credential rather than a live exposure, but
+the repository still carries 115MB and the old blobs are retrievable by anyone with read access.
+**Only the owner can close this: GitHub Support has to drop the stale refs.** Do not record
+NAV-81 as fully done until they have.
 
 The port carries the same rule independently, in `app/src/shared/redact.ts`, with its own tests.
 Two differences from the Godot helper, both deliberate: it recurses into nested structures, and it
@@ -180,7 +192,8 @@ Things that will mislead you if you read the code straight.
 ## Things only the owner can do
 
 Flag these rather than attempting them: rotating a leaked API key (NAV-81's key rotation and
-history rewrite are both done); running anything that needs a macOS display, including the port's
+branch history rewrite are both done; asking GitHub Support to drop the stale `refs/pull/*` is
+the one piece still open, and only the owner can raise it); running anything that needs a macOS display, including the port's
 first launch; granting Accessibility and Screen Recording permissions. Any further
 `git push --force` or history rewrite still needs an explicit go-ahead and a confirmed backup
 first, same as NAV-81 did.
