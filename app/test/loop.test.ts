@@ -78,3 +78,33 @@ describe('idle throttle (ADR 0001 required mitigation)', () => {
     expect(drawn.length).toBe(before);
   });
 });
+
+describe('setRates', () => {
+  it('takes effect without restarting the loop', () => {
+    // The settings window edits frame rates while the fairy is on screen. A rate that only
+    // applied on the next launch would be a control that appears to do nothing.
+    const drawn: number[] = [];
+    const queue: Array<(t: number) => void> = [];
+    const loop = createLoop({
+      idleFps: 60,
+      activeFps: 60,
+      render: (t) => drawn.push(t),
+      schedule: (cb) => {
+        queue.push(cb);
+      },
+    });
+
+    loop.start();
+    const step = 1000 / 60;
+    for (let t = 0; t <= 1000; t += step) queue.shift()?.(t);
+    const atSixty = drawn.length;
+
+    loop.setRates(10, 60);
+    drawn.length = 0;
+    for (let t = 1000; t <= 2000; t += step) queue.shift()?.(t);
+
+    expect(atSixty).toBeGreaterThanOrEqual(59);
+    expect(drawn.length).toBeLessThanOrEqual(12);
+    expect(drawn.length).toBeGreaterThanOrEqual(9);
+  });
+});

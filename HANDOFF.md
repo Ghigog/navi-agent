@@ -112,7 +112,7 @@ readable in debug output.
 
 ### Step 3 — the port has started, in `app/`
 
-**Done** (100 tests, typecheck clean, builds):
+**Done** (159 tests, typecheck clean, builds):
 
 - NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
 - The Electron shell: overlay window, click-through driven from the main process, throttled
@@ -124,20 +124,32 @@ readable in debug output.
   Pure and synchronous, so it costs nothing on the latency path. `takeTurn` returns the
   `TurnOutcome` for a turn; `src/main/emotion-store.ts` scores and persists it to its own file,
   separate from settings. The prompt's Context layer carries the state with its tone guidance.
+- The chat surface, and with it the wiring that gives `takeTurn` a caller. A second window,
+  because the overlay is click-through and could never be typed into; `src/main/conversation.ts`
+  owns the exchange and imports nothing from Electron, so a whole turn runs under test.
+- Sentiment classification (emotions.md §4.4), in `src/agent/sentiment.ts`, with its prompt in
+  `src/prompt/sentiment.ts`. A second cheap non-streaming call on the pre-reply pass. It never
+  throws and is bounded in time: a mood reading must not cost the user their turn.
+- Settings, and the prompt inspector panel that NAV-85 built `inspector.ts` for. The window is
+  never sent the API key — it is told whether one is set and nothing else (NAV-81) — and
+  `shared/settings.ts` validates every save, because an IPC boundary carrying typed values is
+  where `'banana'` gets in as a provider name.
+
+**With that, the port's surfaces are all built.** Nothing in `app/` is waiting on another part
+of `app/`.
 
 **Next, in order:**
 
-1. **Launch it on macOS.** Nothing in `app/` has run against a real display. Re-run ADR 0001's
-   Risk A checks and re-measure idle CPU and memory over a long window — the ADR requires this
-   anyway, and the Electron version moved from 33 to 44 for security patches.
-2. **The chat surface.** The last missing piece of the port. It is also what connects the agent
-   loop to the main process — nothing calls `takeTurn` or `emotion-store.record()` yet, because
-   there is no way to say anything to her.
-3. **Sentiment classification** (emotions.md §4.4). Scored by the engine, never set: it needs a
-   second cheap model call on the user's message. Until it exists, kindness and hostility do not
-   move the Love Meter.
-4. **NAV-92** onboarding — parallel, mostly product and copy.
-5. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
+1. **Launch it on macOS.** The app has been driven end to end under Xvfb on Linux — all three
+   windows, the IPC, settings round-tripping to disk, a full exchange against a local
+   OpenAI-compatible server — but the overlay behaviour that matters is macOS-specific and has
+   never run there. Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a
+   long window; the ADR requires this anyway, the Electron version moved from 33 to 44 for
+   security patches, and the settings window can now raise the idle frame rate that result
+   depends on.
+2. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of
+   its second half already.
+3. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
 
 ## Traps in this codebase
 

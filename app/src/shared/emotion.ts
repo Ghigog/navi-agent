@@ -196,6 +196,18 @@ export interface TurnOutcome {
   sentiment?: Sentiment;
 
   /**
+   * Set on the post-turn pass of an exchange whose pre-reply pass already applied this
+   * sentiment. The Love Meter adjustment still lands here — that pass owns the relationship —
+   * but the dimension nudges do not run a second time.
+   *
+   * Without it one kind or mean message moves the dimensions twice: emotions.md §4.4 states
+   * each magnitude once, and §4.4 places the dimension update in the pre-evaluation phase.
+   * A dimension the turn exercised is rescored from zero anyway and would not notice; one it
+   * did not exercise carries its pre-reply value forward and would be nudged again on top.
+   */
+  sentimentDimensionsApplied?: boolean;
+
+  /**
    * Set on the pre-reply pass, which shapes the tone of the reply about to be generated.
    *
    * Dimensions and the emotion move; the Love Meter does not. The relationship must change
@@ -227,6 +239,7 @@ export function evaluate(prev: EmotionState, outcome: TurnOutcome = {}): Evaluat
     toolSucceeded = false,
     analysisFailed = false,
     sentiment = 'neutral',
+    sentimentDimensionsApplied = false,
     preEval = false,
   } = outcome;
 
@@ -276,14 +289,19 @@ export function evaluate(prev: EmotionState, outcome: TurnOutcome = {}): Evaluat
   // Sentiment (emotions.md §4.4) moves the dimensions but reaches the Love Meter as its own
   // flat adjustment, not through the contributions — being treated well is not a score for how
   // the turn went.
+  const moveDimensions = !sentimentDimensionsApplied;
   let sentimentLove = 0;
   if (sentiment === 'kind') {
-    courage += 3;
-    wisdom += 2;
+    if (moveDimensions) {
+      courage += 3;
+      wisdom += 2;
+    }
     sentimentLove = 15;
   } else if (sentiment === 'mean') {
-    courage -= 5;
-    power -= 4;
+    if (moveDimensions) {
+      courage -= 5;
+      power -= 4;
+    }
     // Asymmetric, and intentionally so: rapport is slower to build than to break.
     sentimentLove = -40;
   }

@@ -38,18 +38,20 @@ export interface TurnResult extends RunResult {
   outcome: TurnOutcome;
 }
 
-/** The text of the user's own last message, for the parts of scoring that read the prompt. */
-function lastUserText(messages: readonly ChatCompletionMessageParam[]): string {
+/** Position of the user's own last message: the one this turn is answering. */
+function lastUserIndex(messages: readonly ChatCompletionMessageParam[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m?.role !== 'user') continue;
-    if (typeof m.content === 'string') return m.content;
-    // A multimodal turn: the screen capture is not text and does not count towards word count.
-    return m.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join(' ');
+    if (messages[i]?.role === 'user') return i;
   }
-  return '';
+  return -1;
+}
+
+/** Its text, for the parts of scoring that read the prompt. */
+function userText(message: ChatCompletionMessageParam | undefined): string {
+  if (message === undefined || message.role !== 'user') return '';
+  if (typeof message.content === 'string') return message.content;
+  // A multimodal turn: the screen capture is not text and does not count towards word count.
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join(' ');
 }
 
 export async function takeTurn(opts: TurnOptions): Promise<TurnResult> {
@@ -88,9 +90,14 @@ export async function takeTurn(opts: TurnOptions): Promise<TurnResult> {
     ...(opts.signal ? { signal: opts.signal } : {}),
   });
 
-  const prompt = lastUserText(opts.messages);
+  const asked = lastUserIndex(opts.messages);
+  const prompt = userText(opts.messages[asked]);
   const promptWords = prompt.trim() === '' ? 0 : prompt.trim().split(/\s+/).length;
+  // What she had to work with *before* this message. The message is excluded from its own
+  // context on purpose: leave it in and every prompt overlaps its context perfectly, which
+  // scores full Wisdom on every turn including the first, when she in fact knew nothing.
   const history = opts.messages
+    .filter((_, i) => i !== asked)
     .map((m) => (typeof m.content === 'string' ? m.content : ''))
     .filter((c) => c !== '');
   const recalled = [...history, ...(opts.memory ?? [])];

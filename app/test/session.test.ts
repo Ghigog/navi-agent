@@ -101,8 +101,42 @@ describe('takeTurn', () => {
 
     expect(turn.outcome.powerRelevant).toBe(false);
     expect(turn.outcome.courageRelevant).toBe(false);
+    // Nothing to recall from either: this is the first thing anyone has said to her.
+    expect(turn.outcome.wisdomRelevant).toBe(false);
+    expect(evaluate(NEUTRAL, turn.outcome).state).toEqual(NEUTRAL);
+  });
+
+  it('does not count the message as context for itself', async () => {
+    // A prompt overlaps its own text perfectly, so leaving it in what she "recalled" scores
+    // full Wisdom on every turn — including the first, when she knew nothing at all.
+    const { provider } = fakeProvider();
+    const turn = await takeTurn({
+      provider,
+      registry: new ToolRegistry(),
+      settings: settings(),
+      messages: [{ role: 'user', content: 'what did the kestrel do' }],
+    });
+
+    expect(turn.outcome.retrievalRelevance).toBe(0);
+    expect(turn.outcome.memoryEntries).toBe(0);
+  });
+
+  it('scores Wisdom on context she actually had', async () => {
+    const { provider } = fakeProvider();
+    const turn = await takeTurn({
+      provider,
+      registry: new ToolRegistry(),
+      settings: settings(),
+      messages: [
+        { role: 'user', content: 'there is a kestrel outside' },
+        { role: 'assistant', content: 'lovely' },
+        { role: 'user', content: 'what did the kestrel do' },
+      ],
+    });
+
     expect(turn.outcome.wisdomRelevant).toBe(true);
-    expect(evaluate(NEUTRAL, turn.outcome).state.power).toBe(0);
+    expect(turn.outcome.retrievalRelevance).toBeGreaterThan(0);
+    expect(evaluate(NEUTRAL, turn.outcome).state.wisdom).toBeGreaterThan(0);
   });
 
   it('reports a turn that hit the iteration ceiling as a failure, not a success', async () => {
