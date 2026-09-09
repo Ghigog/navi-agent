@@ -67,7 +67,7 @@ clean up; build it correctly once.
 | Order | Ticket | Note |
 |---|---|---|
 | 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. |
-| 6 | Port the shell and agent loop | 🟡 **In progress** in `app/`. Shell, prompt assembler and agent loop done, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. Emotion engine, chat surface and settings UI still to come. Not yet launched on a real display. |
+| 6 | Port the shell and agent loop | 🟡 **In progress** in `app/`. Shell, prompt assembler, agent loop and emotion engine done, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. Chat surface and settings UI still to come, and with them the wiring that gives `takeTurn` a caller. Sentiment classification (emotions.md §4.4) is scored but not yet produced. Not yet launched on a real display. |
 | 6a | Re-validate on macOS | **Do this before building further on it.** Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a long window. The ADR already required the re-measurement; the Electron bump from 33 to 44 (security advisories) widened what it covers. |
 | 7 | **NAV-89** Prebuilt native helper | Folds into the new build pipeline. |
 | 8 | **NAV-82** Tests and CI | Rebuilt on the new stack. `app/` has 62 tests and a typecheck; CI is the missing half. |

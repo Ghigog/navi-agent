@@ -7,6 +7,7 @@
  */
 
 import { identityBody } from './identity.js';
+import { EMOTION_TONE, RELATIONSHIP_TONE } from '../shared/emotion.js';
 import { Layer, type PromptContext, type PromptSection, type ToolSchema } from './types.js';
 import type { EmotionSnapshot } from './types.js';
 
@@ -43,16 +44,27 @@ export function capabilitiesBody(tools: readonly ToolSchema[]): string {
   ].join('\n');
 }
 
-/** Layer 3 — the emotional half of the per-turn context. */
+/**
+ * Layer 3 — the emotional half of the per-turn context.
+ *
+ * The label is always accompanied by its tone guidance. emotions.md §6.2 keeps that table for
+ * a reason: a 3B model handed the bare word "boredom" will either ignore it or perform it,
+ * and neither is what the state means.
+ */
 export function emotionBody(e: EmotionSnapshot): string {
   return [
-    `You are feeling ${e.emotion}.`,
+    `You are feeling ${e.emotion}. ${EMOTION_TONE[e.emotion]}`,
     `  courage ${fmt(e.courage)}  — how well you feel you understand what they want`,
     `  wisdom  ${fmt(e.wisdom)}  — whether you have the context to answer well`,
     `  power   ${fmt(e.power)}  — whether you can actually carry it out`,
     `  love    ${fmt(e.loveScore)} — how this relationship has been going`,
     '',
-    'Let this shape your tone and how much you volunteer. It does not change what is true.',
+    `This person is a ${e.relationshipLevel.replace('_', ' ')} to you. ${RELATIONSHIP_TONE[e.relationshipLevel]}`,
+    '',
+    'Let this shape your tone and how much you volunteer. Do not announce it unprompted, and do',
+    'not perform it — it is how you feel, not a role. It does not change what is true.',
+    'If they ask how you are, answer from this honestly. If they ask why, the three scores above',
+    'are the reason: clarity of intent, context available, ability to act.',
   ].join('\n');
 }
 

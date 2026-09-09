@@ -7,6 +7,8 @@
  * and exactly one function renders it.
  */
 
+import type { EmotionState } from '../shared/emotion.js';
+
 /**
  * Prompt layers, in render order. The numbers are the order.
  *
@@ -33,19 +35,13 @@ export interface PromptSection {
   body: string;
 }
 
-/** Navi's emotional state as it reaches the prompt. See emotions.md. */
-export interface EmotionSnapshot {
-  /** "Do I understand what this person wants?" -10..+10 */
-  courage: number;
-  /** "Do I have the data and context I need?" -10..+10 */
-  wisdom: number;
-  /** "Can I actually carry this out?" -10..+10 */
-  power: number;
-  /** Cumulative relationship health, -1000..+1000. */
-  loveScore: number;
-  /** The Tier 2 composite emotion label derived from the three dimensions. */
-  emotion: string;
-}
+/**
+ * Navi's emotional state as it reaches the prompt.
+ *
+ * The engine that produces it is `src/shared/emotion.ts`; this is an alias rather than a
+ * parallel shape so the two can never drift. See emotions.md.
+ */
+export type EmotionSnapshot = EmotionState;
 
 /** A tool Navi can call. The Capabilities layer is generated from these, never written by hand. */
 export interface ToolSchema {

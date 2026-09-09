@@ -9,6 +9,8 @@ import { app, globalShortcut, type BrowserWindow } from 'electron';
 import { createOverlay } from './overlay.js';
 import { attachClickThrough, type ClickThrough } from './click-through.js';
 import { load } from './settings-store.js';
+import { load as loadEmotion } from './emotion-store.js';
+import { tintFor } from '../shared/emotion.js';
 
 let win: BrowserWindow | null = null;
 let clickThrough: ClickThrough | null = null;
@@ -18,6 +20,13 @@ app.whenReady().then(() => {
 
   win = createOverlay();
   clickThrough = attachClickThrough(win);
+
+  // She wakes up in the state she was left in. Sent once the renderer is listening — before
+  // that the fairy draws in its neutral colour and would keep it.
+  const emotion = loadEmotion();
+  win.webContents.once('did-finish-load', () => {
+    win?.webContents.send('tint', tintFor(emotion));
+  });
 
   // Shift+Cmd+N. The Swift daemon's old default, Shift+Ctrl+Alt+Space, collides with macOS
   // input-source switching and does not reliably register (ADR 0001).

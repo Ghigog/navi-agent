@@ -19,6 +19,7 @@ src/agent/      provider seam, tool registry, agent loop, turn assembly.
 src/main/       Electron main process: overlay window, click-through, settings, hotkey.
 src/renderer/   the fairy canvas and its frame pacing.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it testable.
+                emotion.ts is the whole Triforce engine (emotions.md); settings and redaction live here too.
 ```
 
 ## Things that are decided, and will look wrong if you don't know why
@@ -41,6 +42,19 @@ is a defect. Re-measure over a long window, not 90 seconds.
 
 **Personality is a prompt layer, not a post-process.** The old build string-substituted over
 finished replies, which is why they read as templated (NAV-86).
+
+**An emotion dimension only moves when the turn exercised it.** Ordinary conversation does not
+touch a tool, so it must not score Power as "no tool available" — otherwise Navi decays into
+Oblivion just by being talked to. `TurnOutcome`'s three relevance flags default to false and
+`session.ts` sets them from what actually happened. Deleting them looks like a simplification and
+is a behaviour change.
+
+**A relevant dimension is scored from zero, not adjusted from its last value.** The score is a
+reading of this turn. Accumulation happens in the Love Meter and nowhere else.
+
+**Emotion state is its own file, not part of settings.** Resetting your preferences should not
+wipe the relationship. `coerceState` also re-derives the emotion and relationship labels from
+the scores, so hand-editing `emotion.json` to say `best_friend` does nothing.
 
 **Mood never licenses fabrication.** Navi's emotional state legitimately shapes tone, hedging and
 willingness — that is the product, not a bug. It must never change what she reports as true. The
@@ -80,6 +94,15 @@ printf 'Electron.app/Contents/MacOS/Electron' > node_modules/electron/path.txt
 
 ## Not done yet
 
-The shell builds and the loop is tested, but this has not been launched against a real display —
-that needs macOS. Before trusting the overlay behaviour, re-run ADR 0001's Risk A checks: the
-window options here are carried from a spike measured on Electron 33, and this is 44.
+**The chat surface.** The renderer draws the fairy and nothing else. There is no way to type at
+her, so the agent loop has no caller in the main process yet — `takeTurn` returns the emotion
+outcome ready for `emotion-store.record()`, and nothing calls either. That wiring lands with the
+chat window.
+
+**Sentiment classification.** `TurnOutcome.sentiment` is scored but never set: emotions.md §4.4
+asks for a fast classification call on the user's message, which needs the provider seam wired
+to a second, cheap request. Until then kindness and hostility do not move the Love Meter.
+
+**A launch on a real display.** Nothing here has run against one; that needs macOS. Before
+trusting the overlay behaviour, re-run ADR 0001's Risk A checks — the window options are carried
+from a spike measured on Electron 33, and this is 44.

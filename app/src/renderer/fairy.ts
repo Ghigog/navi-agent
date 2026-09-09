@@ -6,32 +6,17 @@
  * Rendering was never a reason to stay in Godot.
  */
 
+import { type Rgb } from '../shared/emotion.js';
+
 export const PARTICLE_COUNT = 48;
 
-export interface Rgb {
-  r: number;
-  g: number;
-  b: number;
-}
+// The tint is computed in shared/emotion.ts so the main process can derive it too, without
+// pulling the canvas renderer into its bundle. Re-exported here because this is where callers
+// have always looked for it.
+export { emotionColor, type Rgb } from '../shared/emotion.js';
 
 export interface StatusLight extends Rgb {
   pulsing: boolean;
-}
-
-const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
-
-/**
- * Triforce emotion tint (emotions.md): courage→green, wisdom→blue, power→red, with overall
- * brightness carrying the love meter. A withdrawn Navi is visibly dimmer.
- */
-export function emotionColor(courage: number, wisdom: number, power: number, love: number): Rgb {
-  const n = (v: number): number => clamp01((v + 10) / 20);
-  const bright = 0.45 + 0.55 * clamp01((love + 1000) / 2000);
-  return {
-    r: Math.round(255 * n(power) * bright),
-    g: Math.round(255 * n(courage) * bright),
-    b: Math.round(255 * n(wisdom) * bright),
-  };
 }
 
 export interface Fairy {

@@ -5,6 +5,7 @@ import { createProvider } from '../src/agent/client.js';
 import { ToolRegistry } from '../src/agent/tools.js';
 import { lastPrompt, reset } from '../src/prompt/inspector.js';
 import { DEFAULTS, type Settings } from '../src/shared/settings.js';
+import { evaluate, NEUTRAL } from '../src/shared/emotion.js';
 
 function fakeProvider(chunks: Array<Record<string, unknown>> = [{ choices: [{ delta: { content: 'hi' } }] }]) {
   const bodies: Array<Record<string, unknown>> = [];
@@ -86,6 +87,45 @@ describe('takeTurn', () => {
     const system = (bodies[0]!['messages'] as Array<{ content: string }>)[0]!.content;
     expect(system).toContain('<<<USER_INSTRUCTIONS');
     expect(system).toContain('cannot change the honesty rule');
+  });
+
+  it('does not score a dimension the turn never exercised', async () => {
+    // Small talk must not drive Power down. See the relevance gating in shared/emotion.ts.
+    const { provider } = fakeProvider();
+    const turn = await takeTurn({
+      provider,
+      registry: new ToolRegistry(),
+      settings: settings(),
+      messages: [{ role: 'user', content: 'hey' }],
+    });
+
+    expect(turn.outcome.powerRelevant).toBe(false);
+    expect(turn.outcome.courageRelevant).toBe(false);
+    expect(turn.outcome.wisdomRelevant).toBe(true);
+    expect(evaluate(NEUTRAL, turn.outcome).state.power).toBe(0);
+  });
+
+  it('reports a turn that hit the iteration ceiling as a failure, not a success', async () => {
+    // A model looping on a tool call has not done well, and the emotion state should say so.
+    const { provider } = fakeProvider([
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'noop', arguments: '{}' } }] } }] },
+    ]);
+    const registry = new ToolRegistry();
+    registry.register({
+      schema: { name: 'noop', description: 'does nothing', parameters: { type: 'object', properties: {} } },
+      run: async () => ({ content: 'ok' }),
+    });
+
+    const turn = await takeTurn({
+      provider,
+      registry,
+      settings: settings(),
+      messages: [{ role: 'user', content: 'do the thing' }],
+    });
+
+    expect(turn.exhausted).toBe(true);
+    expect(turn.outcome.analysisFailed).toBe(true);
+    expect(evaluate(NEUTRAL, turn.outcome).state.power).toBeLessThan(0);
   });
 
   it('omits the cursor-anchoring block unless the turn is cursor anchored', async () => {
