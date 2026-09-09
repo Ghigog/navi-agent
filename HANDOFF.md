@@ -112,7 +112,7 @@ readable in debug output.
 
 ### Step 3 — the port has started, in `app/`
 
-**Done** (146 tests, typecheck clean, builds):
+**Done** (159 tests, typecheck clean, builds):
 
 - NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
 - The Electron shell: overlay window, click-through driven from the main process, throttled
@@ -130,19 +130,26 @@ readable in debug output.
 - Sentiment classification (emotions.md §4.4), in `src/agent/sentiment.ts`, with its prompt in
   `src/prompt/sentiment.ts`. A second cheap non-streaming call on the pre-reply pass. It never
   throws and is bounded in time: a mood reading must not cost the user their turn.
+- Settings, and the prompt inspector panel that NAV-85 built `inspector.ts` for. The window is
+  never sent the API key — it is told whether one is set and nothing else (NAV-81) — and
+  `shared/settings.ts` validates every save, because an IPC boundary carrying typed values is
+  where `'banana'` gets in as a provider name.
+
+**With that, the port's surfaces are all built.** Nothing in `app/` is waiting on another part
+of `app/`.
 
 **Next, in order:**
 
-1. **Launch it on macOS.** The app has been driven end to end under Xvfb on Linux — both
-   windows, the IPC, a full exchange against a local OpenAI-compatible server — but the overlay
-   behaviour that matters is macOS-specific and has never run there. Re-run ADR 0001's Risk A
-   checks and re-measure idle CPU and memory over a long window; the ADR requires this anyway,
-   and the Electron version moved from 33 to 44 for security patches.
-2. **Settings, and the prompt inspector panel.** The last surface the port is missing.
-   `src/prompt/inspector.ts` records the exact prompt of every request and nothing shows it;
-   settings are a JSON file you edit by hand.
-3. **NAV-92** onboarding — parallel, mostly product and copy.
-4. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
+1. **Launch it on macOS.** The app has been driven end to end under Xvfb on Linux — all three
+   windows, the IPC, settings round-tripping to disk, a full exchange against a local
+   OpenAI-compatible server — but the overlay behaviour that matters is macOS-specific and has
+   never run there. Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a
+   long window; the ADR requires this anyway, the Electron version moved from 33 to 44 for
+   security patches, and the settings window can now raise the idle frame rate that result
+   depends on.
+2. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of
+   its second half already.
+3. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
 
 ## Traps in this codebase
 

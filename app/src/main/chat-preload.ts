@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('naviChat', {
   send: (text: string) => ipcRenderer.send('chat:send', text),
   cancel: () => ipcRenderer.send('chat:cancel'),
   hide: () => ipcRenderer.send('chat:hide'),
+  openSettings: () => ipcRenderer.send('settings:open'),
   onEvent: (fn: (event: unknown) => void) =>
     ipcRenderer.on('chat:event', (_e, event: unknown) => fn(event)),
   onFocus: (fn: () => void) => ipcRenderer.on('chat:focus', () => fn()),

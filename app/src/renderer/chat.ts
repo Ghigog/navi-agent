@@ -18,6 +18,7 @@ declare global {
       send(text: string): void;
       cancel(): void;
       hide(): void;
+      openSettings(): void;
       onEvent(fn: (event: ChatEvent) => void): void;
       onFocus(fn: () => void): void;
     };
@@ -92,6 +93,17 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (busy) window.naviChat?.cancel();
   else window.naviChat?.hide();
+});
+
+document.getElementById('settings')?.addEventListener('click', () => window.naviChat?.openSettings());
+
+// The conventional shortcut, handled here because a frameless overlay app has no menu bar to
+// hang it on.
+document.addEventListener('keydown', (e) => {
+  if (e.key === ',' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    window.naviChat?.openSettings();
+  }
 });
 
 window.naviChat?.onFocus(() => input.focus());

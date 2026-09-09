@@ -5,7 +5,7 @@ the repository root is still the one that runs; this replaces it.
 
 ```
 npm install
-npm test          # 146 tests, all offline
+npm test          # 159 tests, all offline
 npm run typecheck
 npm run build
 npm start         # needs a display; macOS for the overlay behaviour
@@ -16,9 +16,9 @@ npm start         # needs a display; macOS for the overlay behaviour
 ```
 src/prompt/     the system prompt. All prompt text lives here and nowhere else (NAV-85).
 src/agent/      provider seam, tool registry, agent loop, turn assembly.
-src/main/       Electron main process: overlay window, chat window, click-through, settings,
-                hotkey, and conversation.ts — the thing that finally calls takeTurn.
-src/renderer/   the fairy canvas and its frame pacing, and the chat surface.
+src/main/       Electron main process: the three windows, click-through, settings, hotkey, and
+                conversation.ts — the thing that finally calls takeTurn.
+src/renderer/   the fairy canvas and its frame pacing, the chat surface, and settings.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it testable.
                 emotion.ts is the whole Triforce engine (emotions.md); settings and redaction live here too.
 ```
@@ -70,6 +70,18 @@ the one to fail towards.
 **A message is not context for itself.** `session.ts` excludes the message being answered from
 what it counts as recalled. Leave it in and every prompt overlaps its own context perfectly,
 which scores full Wisdom on every turn — including the first, when she knew nothing.
+
+**The settings window is never sent the API key.** It is told whether one is set and nothing
+more (NAV-81 — route nothing derived from settings to a renderer unredacted), so it sends a key
+only when the user types a new one. `applyUpdate` touches only the keys a patch carries, which
+is what makes a save from a window that cannot see the key safe: it cannot erase it. Clearing a
+key is a button, so that it takes an action rather than an absence.
+
+**`shared/settings.ts` validates, the settings window does not.** A save is an IPC boundary
+carrying something a person typed, so `coerce` checks the provider name against the real list
+and bounds the frame rates — `typeof` alone would let `'banana'` through as a provider and
+`9000` through as an idle frame rate, and the second is a way to fail ADR 0001's CPU bar from
+the settings window.
 
 **An emotion dimension only moves when the turn exercised it.** Ordinary conversation does not
 touch a tool, so it must not score Power as "no tool available" — otherwise Navi decays into
@@ -135,10 +147,12 @@ something in it.
 `sentimentModel` in settings takes a small fast model for the §4.4 classification call. Left
 empty it uses whatever model the turn is using, so nothing has to be configured for her to work.
 
-## Not done yet
+The gear in the chat header opens settings, and so does `⌘,`. Fields commit as you leave them;
+there is no Save button. The Prompt tab shows the exact system prompt of the last request,
+broken down by layer, which is what NAV-85 built the inspector for — most settings here end up
+as text in that prompt, and this is where you check that they did.
 
-**Settings, and the prompt inspector panel.** `src/prompt/inspector.ts` records the exact
-prompt of every request and nothing displays it. Settings are a JSON file you edit by hand.
+## Not done yet
 
 **A launch on a real display.** The app has been driven end to end under Xvfb on Linux — both
 windows, the IPC, a full exchange against a local OpenAI-compatible server — but the overlay

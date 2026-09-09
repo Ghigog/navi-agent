@@ -80,6 +80,22 @@
     background: rgba(255, 168, 61, 0.16);
   }
 
+  #settings {
+    -webkit-app-region: no-drag;
+    flex: none;
+    border: 0;
+    border-radius: 6px;
+    padding: 2px 5px;
+    font: inherit;
+    line-height: 1;
+    color: var(--dim, #8b91a4);
+    background: transparent;
+  }
+  #settings:hover {
+    color: #e9e9ef;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
   #transcript {
     flex: 1;
     overflow-y: auto;
@@ -172,6 +188,7 @@
     <div id="dot"></div>
     <div id="mood">…</div>
     <div id="provider">…</div>
+    <button id="settings" type="button" title="Settings (⌘,)" aria-label="Settings">⚙</button>
   </header>
   <div id="transcript"><div id="empty">Say something to her.</div></div>
   <footer>

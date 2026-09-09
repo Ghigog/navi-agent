@@ -66,11 +66,11 @@ clean up; build it correctly once.
 
 | Order | Ticket | Note |
 |---|---|---|
-| 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. |
-| 6 | Port the shell and agent loop | 🟡 **In progress** in `app/`. Shell, prompt assembler, agent loop, emotion engine, chat surface and sentiment classification done, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. `takeTurn` has a caller: `main/conversation.ts` runs the exchange and both emotion passes. Settings and the prompt inspector panel are the surface still to come. Driven end to end under Xvfb; not yet launched on a real display. |
+| 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. The settings window now carries the provider fields it needs, so what is left is first-run copy and the permissions rows. |
+| 6 | Port the shell and agent loop | 🟢 **Surfaces complete** in `app/`. Shell, prompt assembler, agent loop, emotion engine, chat surface, sentiment classification, settings and the prompt inspector panel, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. `takeTurn` has a caller: `main/conversation.ts` runs the exchange and both emotion passes. Driven end to end under Xvfb; **not yet launched on a real display** — 6a is now the blocker. |
 | 6a | Re-validate on macOS | **Do this before building further on it.** Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a long window. The ADR already required the re-measurement; the Electron bump from 33 to 44 (security advisories) widened what it covers. |
 | 7 | **NAV-89** Prebuilt native helper | Folds into the new build pipeline. |
-| 8 | **NAV-82** Tests and CI | Rebuilt on the new stack. `app/` has 146 tests and a typecheck; CI is the missing half. |
+| 8 | **NAV-82** Tests and CI | Rebuilt on the new stack. `app/` has 159 tests and a typecheck; CI is the missing half. |
 
 **NAV-87** (SSE parser) and **NAV-88** (decompose AIService) close as superseded — not implemented.
 **NAV-98** (dead code) largely closes too: code that is never ported needs no deletion. Check the

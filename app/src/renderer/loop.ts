@@ -29,6 +29,11 @@ export interface Loop {
    */
   markActive(ms?: number): void;
   isActive(t: number): boolean;
+  /**
+   * Changes the rates in place, for a settings edit. The idle rate is an ADR 0001 mitigation
+   * rather than a preference, which is why `shared/settings.ts` bounds what can reach here.
+   */
+  setRates(idleFps: number, activeFps: number): void;
 }
 
 export const DEFAULT_ACTIVE_MS = 2000;
@@ -39,13 +44,15 @@ export function createLoop(opts: LoopOptions): Loop {
   let running = false;
   let lastDrawn = 0;
   let activeUntil = 0;
+  let idleFps = opts.idleFps;
+  let activeFps = opts.activeFps;
 
   const isActive = (t: number): boolean => t < activeUntil;
 
   const frame = (t: number): void => {
     if (!running) return;
 
-    const fps = isActive(t) ? opts.activeFps : opts.idleFps;
+    const fps = isActive(t) ? activeFps : idleFps;
     const interval = 1000 / fps;
     const dt = t - lastDrawn;
 
@@ -74,5 +81,9 @@ export function createLoop(opts: LoopOptions): Loop {
       activeUntil = Math.max(activeUntil, performance.now() + ms);
     },
     isActive,
+    setRates(idle, active) {
+      idleFps = idle;
+      activeFps = active;
+    },
   };
 }
