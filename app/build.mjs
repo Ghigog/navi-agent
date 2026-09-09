@@ -9,11 +9,14 @@ const watch = process.argv.includes('--watch');
 const targets = [
   { entryPoints: ['src/main/index.ts'], outfile: 'dist/main/index.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/preload.ts'], outfile: 'dist/preload/index.cjs', platform: 'node', format: 'cjs' },
+  { entryPoints: ['src/main/chat-preload.ts'], outfile: 'dist/preload/chat.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/renderer/app.ts'], outfile: 'dist/renderer/app.js', platform: 'browser', format: 'esm' },
+  { entryPoints: ['src/renderer/chat.ts'], outfile: 'dist/renderer/chat.js', platform: 'browser', format: 'esm' },
 ];
 
 await mkdir('dist/renderer', { recursive: true });
 await cp('src/renderer/index.html', 'dist/renderer/index.html');
+await cp('src/renderer/chat.html', 'dist/renderer/chat.html');
 
 for (const t of targets) {
   const config = { ...t, bundle: true, sourcemap: true, target: 'node20', external: ['electron'] };

@@ -5,7 +5,7 @@ the repository root is still the one that runs; this replaces it.
 
 ```
 npm install
-npm test          # 62 tests, all offline
+npm test          # 146 tests, all offline
 npm run typecheck
 npm run build
 npm start         # needs a display; macOS for the overlay behaviour
@@ -16,8 +16,9 @@ npm start         # needs a display; macOS for the overlay behaviour
 ```
 src/prompt/     the system prompt. All prompt text lives here and nowhere else (NAV-85).
 src/agent/      provider seam, tool registry, agent loop, turn assembly.
-src/main/       Electron main process: overlay window, click-through, settings, hotkey.
-src/renderer/   the fairy canvas and its frame pacing.
+src/main/       Electron main process: overlay window, chat window, click-through, settings,
+                hotkey, and conversation.ts — the thing that finally calls takeTurn.
+src/renderer/   the fairy canvas and its frame pacing, and the chat surface.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it testable.
                 emotion.ts is the whole Triforce engine (emotions.md); settings and redaction live here too.
 ```
@@ -42,6 +43,33 @@ is a defect. Re-measure over a long window, not 90 seconds.
 
 **Personality is a prompt layer, not a post-process.** The old build string-substituted over
 finished replies, which is why they read as templated (NAV-86).
+
+**The chat surface is its own window.** Not a panel inside the overlay: the overlay is
+click-through by default and a click-through window cannot receive a keystroke, so a text input
+inside it could never be typed into. The overlay stays something you see through; the chat
+window is the thing you talk to. Both show the same emotional state, because she is the one
+having the conversation.
+
+**`main/conversation.ts` imports nothing from Electron.** Settings, the provider, the emotion
+store and where events go all arrive as dependencies, which is what lets a whole exchange run
+under test — including `test/integration.test.ts`, which runs one over real HTTP against a
+server it starts itself. `main/index.ts` is wiring and holds no decisions; keep it that way.
+
+**An exchange is scored twice, and that is emotions.md, not a mistake.** The pre-reply pass
+classifies how the message was written and applies it to the dimensions, so the reply is
+generated in the mood the message put her in rather than the one after it. The post-turn pass
+scores what the turn actually did and moves the Love Meter. Sentiment reaches the second pass
+as its Love adjustment only — `sentimentDimensionsApplied` is what stops one message being felt
+twice, and emotions.md §4.4 states each magnitude once.
+
+**Sentiment classification fails towards `neutral` and never throws.** It is a second model
+call in front of every message, so a provider that is down, slow or babbling must cost a mood
+reading and not the user's turn. `neutral` is the label that moves nothing, which is why it is
+the one to fail towards.
+
+**A message is not context for itself.** `session.ts` excludes the message being answered from
+what it counts as recalled. Leave it in and every prompt overlaps its own context perfectly,
+which scores full Wisdom on every turn — including the first, when she knew nothing.
 
 **An emotion dimension only moves when the turn exercised it.** Ordinary conversation does not
 touch a tool, so it must not score Power as "no tool available" — otherwise Navi decays into
@@ -92,17 +120,28 @@ have **no trailing newline** — `index.js` reads it raw and does not trim, so `
 printf 'Electron.app/Contents/MacOS/Electron' > node_modules/electron/path.txt
 ```
 
+## Talking to her
+
+`Shift+Cmd+N` toggles the chat window, and so does clicking her — the main process only lets a
+click reach the overlay while the cursor is over her body, so the transparent aura is not a
+button. Enter sends, Shift+Enter is a newline, and Escape stops a reply in progress or closes
+the window when there is nothing to stop.
+
+The header carries her current emotion and relationship, tinted with the same colour she is,
+and says whether what you type stays on this machine. No tools are registered yet, so she can
+talk and nothing else; the registry is there and the model picks from it when there is
+something in it.
+
+`sentimentModel` in settings takes a small fast model for the §4.4 classification call. Left
+empty it uses whatever model the turn is using, so nothing has to be configured for her to work.
+
 ## Not done yet
 
-**The chat surface.** The renderer draws the fairy and nothing else. There is no way to type at
-her, so the agent loop has no caller in the main process yet — `takeTurn` returns the emotion
-outcome ready for `emotion-store.record()`, and nothing calls either. That wiring lands with the
-chat window.
+**Settings, and the prompt inspector panel.** `src/prompt/inspector.ts` records the exact
+prompt of every request and nothing displays it. Settings are a JSON file you edit by hand.
 
-**Sentiment classification.** `TurnOutcome.sentiment` is scored but never set: emotions.md §4.4
-asks for a fast classification call on the user's message, which needs the provider seam wired
-to a second, cheap request. Until then kindness and hostility do not move the Love Meter.
-
-**A launch on a real display.** Nothing here has run against one; that needs macOS. Before
-trusting the overlay behaviour, re-run ADR 0001's Risk A checks — the window options are carried
-from a spike measured on Electron 33, and this is 44.
+**A launch on a real display.** The app has been driven end to end under Xvfb on Linux — both
+windows, the IPC, a full exchange against a local OpenAI-compatible server — but the overlay
+behaviour that matters is macOS-specific and has never run there. Before trusting it, re-run
+ADR 0001's Risk A checks: the window options are carried from a spike measured on Electron 33,
+and this is 44.

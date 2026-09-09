@@ -12,6 +12,13 @@ export interface Settings {
   openaiApiKey: string;
   openaiModel: string;
 
+  /**
+   * Model for the sentiment classification call (emotions.md §4.4). Empty means "use whatever
+   * model this turn is using" — a separate small one is faster, since it runs before every
+   * reply, but it must not be a second thing to configure before Navi works at all.
+   */
+  sentimentModel: string;
+
   personality: string;
   /** The user's own standing instructions. Renders into prompt Layer 4, fenced. */
   systemPrompt: string;
@@ -31,6 +38,7 @@ export const DEFAULTS: Settings = {
   ollamaModel: 'llama3.2:3b',
   openaiApiKey: '',
   openaiModel: 'gpt-4o-mini',
+  sentimentModel: '',
   personality: '',
   systemPrompt: '',
   hotkey: 'Shift+Command+N',

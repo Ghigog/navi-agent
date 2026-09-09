@@ -313,3 +313,32 @@ describe('retrieval relevance', () => {
     expect(r).toBeCloseTo(2 / 3);
   });
 });
+
+describe('sentimentDimensionsApplied', () => {
+  it('still moves the Love Meter', () => {
+    // The post-turn pass owns the relationship, whichever pass moved the dimensions.
+    const kind = evaluate(NEUTRAL, { sentiment: 'kind', sentimentDimensionsApplied: true });
+    expect(kind.state.loveScore).toBe(15);
+    const mean = evaluate(NEUTRAL, { sentiment: 'mean', sentimentDimensionsApplied: true });
+    expect(mean.state.loveScore).toBe(-40);
+  });
+
+  it('leaves the dimensions alone', () => {
+    const state = evaluate(NEUTRAL, { sentiment: 'mean', sentimentDimensionsApplied: true }).state;
+    expect(state.courage).toBe(NEUTRAL.courage);
+    expect(state.power).toBe(NEUTRAL.power);
+  });
+
+  it('is what stops one message being felt twice', () => {
+    // The pre-reply pass applies the nudge; the post-turn pass must not apply it again to a
+    // dimension the turn did not exercise and so did not rescore from zero.
+    const pre = evaluate(NEUTRAL, { preEval: true, sentiment: 'mean' }).state;
+    expect(pre.courage).toBe(-5);
+
+    const post = evaluate(pre, { sentiment: 'mean', sentimentDimensionsApplied: true }).state;
+    expect(post.courage).toBe(-5);
+
+    const doubled = evaluate(pre, { sentiment: 'mean' }).state;
+    expect(doubled.courage).toBe(-10);
+  });
+});
