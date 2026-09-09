@@ -50,8 +50,17 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
   const size = opts.size ?? 200;
   const rand = opts.random ?? Math.random;
 
+  // Two sizes, and they are not the same number. The backing store is in device pixels, so it
+  // scales with dpr; the element must still lay out at `size` CSS pixels.
+  //
+  // Setting only the first is the bug this comment exists to prevent. A canvas with no CSS size
+  // lays out at its attribute size, so on a Retina display she became a 400px element inside a
+  // 200px window and all you saw was her top-left quarter. It is invisible at dpr 1 — which is
+  // every test, and every headless run — and obvious on the first real display.
   canvas.width = size * dpr;
   canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
   ctx.scale(dpr, dpr);
 
   const cx = size / 2;
