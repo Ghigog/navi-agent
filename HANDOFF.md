@@ -149,7 +149,11 @@ of `app/`.
    depends on.
 2. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of
    its second half already.
-3. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
+3. **NAV-89** prebuilt native helper.
+
+**NAV-82** is done: `.github/workflows/ci.yml` runs `app/`'s typecheck, tests and build on every
+push and pull request. Its Godot half closes as superseded — see the ticket for why fixing tests
+for `AIService.gd` is work the sequencing was designed to avoid.
 
 ## Traps in this codebase
 

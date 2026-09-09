@@ -11,6 +11,11 @@ npm run build
 npm start         # needs a display; macOS for the overlay behaviour
 ```
 
+CI runs the first four on every push and pull request (`.github/workflows/ci.yml`, NAV-82). It
+skips the Electron binary download, because nothing but `npm start` needs it — keep it that way:
+a suite that needs a display, a network or a running Ollama is a suite that goes red for reasons
+that are not about the code.
+
 ## Layout
 
 ```
