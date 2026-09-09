@@ -3,6 +3,7 @@ import { assemble, capabilitiesBody, sections, userBody } from '../src/prompt/bu
 import { estimateTokens } from '../src/prompt/inspector.js';
 import { HONESTY } from '../src/prompt/identity.js';
 import { Layer, type PromptContext, type ToolSchema } from '../src/prompt/types.js';
+import { deriveEmotion, deriveRelationship, type EmotionState } from '../src/shared/emotion.js';
 
 const TOOLS: ToolSchema[] = [
   {
@@ -20,11 +21,23 @@ function ctx(over: Partial<PromptContext> = {}): PromptContext {
   return { personality: 'Annoying', tools: TOOLS, ...over };
 }
 
+/** A valid emotion state from the three scores, so the labels can never be invented here. */
+function mood(courage: number, wisdom: number, power: number, loveScore: number): EmotionState {
+  return {
+    courage,
+    wisdom,
+    power,
+    loveScore,
+    emotion: deriveEmotion(courage, wisdom, power),
+    relationshipLevel: deriveRelationship(loveScore),
+  };
+}
+
 describe('layer ordering', () => {
   it('renders layers in numeric order', () => {
     const layers = sections(
       ctx({
-        emotion: { courage: 3, wisdom: -2, power: 5, loveScore: 120, emotion: 'Determination' },
+        emotion: mood(3, -2, 5, 120),
         userInstructions: 'Always answer in British English.',
       }),
     ).map((s) => s.layer);
@@ -35,8 +48,8 @@ describe('layer ordering', () => {
   it('keeps identity and capabilities first so the cacheable prefix stays stable', () => {
     // Layers 1-2 do not vary per turn; 3-4 do. If a per-turn value leaks into 1-2, every
     // request invalidates the provider's prompt cache.
-    const a = assemble(ctx({ emotion: { courage: 1, wisdom: 1, power: 1, loveScore: 0, emotion: 'Hope' } }));
-    const b = assemble(ctx({ emotion: { courage: -9, wisdom: -9, power: -9, loveScore: -800, emotion: 'Oblivion' } }));
+    const a = assemble(ctx({ emotion: mood(1, 1, 1, 0) }));
+    const b = assemble(ctx({ emotion: mood(-9, -9, -9, -800) }));
 
     const prefix = (s: string) => s.slice(0, s.indexOf('## Right now'));
     expect(prefix(a)).toBe(prefix(b));
@@ -75,10 +88,31 @@ describe('layer 4 is fenced and subordinate', () => {
   });
 });
 
+describe('the emotion layer', () => {
+  it('carries tone guidance with the label, not the label alone', () => {
+    // A small model handed the bare word "boredom" either ignores it or performs it.
+    const bored = assemble(ctx({ emotion: mood(5, 5, -5, 0) }));
+    expect(bored).toContain('You are feeling boredom.');
+    expect(bored).toContain('restless undercurrent');
+  });
+
+  it('states the relationship level and how it should read', () => {
+    const close = assemble(ctx({ emotion: mood(5, 5, 5, 800) }));
+    expect(close).toContain('best friend');
+    expect(close).toContain('Light teasing is fine.');
+  });
+
+  it('tells her to answer honestly about how she feels rather than deny having feelings', () => {
+    const anywhere = assemble(ctx({ emotion: mood(-5, -5, -5, -700) }));
+    expect(anywhere).toContain('Never say that you have no emotions');
+    expect(anywhere).toContain('If they ask how you are, answer from this honestly.');
+  });
+});
+
 describe('the honesty rule outranks mood', () => {
   it('always states that mood cannot change what is true', () => {
     const miserable = assemble(
-      ctx({ emotion: { courage: -10, wisdom: -10, power: -10, loveScore: -1000, emotion: 'Oblivion' } }),
+      ctx({ emotion: mood(-10, -10, -10, -1000) }),
     );
     expect(miserable).toContain(HONESTY);
     expect(miserable).toContain('It does not change what is true.');

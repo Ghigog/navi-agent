@@ -1,6 +1,6 @@
 /**
  * Renderer entry. Draws the fairy and nothing else for now — the chat surface and settings
- * come with the agent loop.
+ * are still to come.
  */
 
 import { createFairy, emotionColor } from './fairy.js';
@@ -19,7 +19,8 @@ declare global {
 const canvas = document.getElementById('fairy') as HTMLCanvasElement;
 const fairy = createFairy(canvas, { size: 200 });
 
-// Neutral resting state until the emotion engine is ported.
+// Neutral until the main process sends her real state, which it does as soon as this window
+// finishes loading. Drawing nothing until then would show an empty screen on every launch.
 fairy.setTint(emotionColor(0, 0, 0, 0));
 
 const loop = createLoop({

@@ -112,22 +112,32 @@ readable in debug output.
 
 ### Step 3 — the port has started, in `app/`
 
-**Done** (62 tests, typecheck clean, builds):
+**Done** (100 tests, typecheck clean, builds):
 
 - NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
 - The Electron shell: overlay window, click-through driven from the main process, throttled
   render loop, settings.
 - The agent loop: one provider seam, native tool calling, no substring router (NAV-83), no
   in-band control tags (NAV-84), personality in the identity layer (NAV-86).
+- The emotion engine, in `src/shared/emotion.ts`: the three dimensions, the eight composite
+  emotions, the Love Meter and its relationship bands, retrieval relevance, and the fairy tint.
+  Pure and synchronous, so it costs nothing on the latency path. `takeTurn` returns the
+  `TurnOutcome` for a turn; `src/main/emotion-store.ts` scores and persists it to its own file,
+  separate from settings. The prompt's Context layer carries the state with its tone guidance.
 
 **Next, in order:**
 
 1. **Launch it on macOS.** Nothing in `app/` has run against a real display. Re-run ADR 0001's
    Risk A checks and re-measure idle CPU and memory over a long window — the ADR requires this
    anyway, and the Electron version moved from 33 to 44 for security patches.
-2. **Port the emotion engine and the chat surface.** The loop has no UI yet beyond the fairy.
-3. **NAV-92** onboarding — parallel, mostly product and copy.
-4. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
+2. **The chat surface.** The last missing piece of the port. It is also what connects the agent
+   loop to the main process — nothing calls `takeTurn` or `emotion-store.record()` yet, because
+   there is no way to say anything to her.
+3. **Sentiment classification** (emotions.md §4.4). Scored by the engine, never set: it needs a
+   second cheap model call on the user's message. Until it exists, kindness and hostility do not
+   move the Love Meter.
+4. **NAV-92** onboarding — parallel, mostly product and copy.
+5. **NAV-89** prebuilt native helper, then **NAV-82** tests and CI on the new stack.
 
 ## Traps in this codebase
 
