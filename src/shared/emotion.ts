@@ -68,6 +68,17 @@ export const LOVE_MIN = -1000;
 export const LOVE_MAX = 1000;
 
 /**
+ * The most the Love Meter may move in one exchange (NAV-95).
+ *
+ * The relationship bands are 400 points wide at their narrowest, so this makes it structurally
+ * impossible for a single message to change what she calls you. That property was already true
+ * of the numbers below by arithmetic; stating it as a clamp makes it survive somebody tuning
+ * one of them. A relationship that can be won or lost in one sentence is not a relationship —
+ * it is a switch.
+ */
+export const MAX_LOVE_DELTA = 120;
+
+/**
  * The resting state of a Navi who has never been spoken to.
  *
  * Neutral zeroes read as High on all three channels, which is Serenity — a fresh Navi is calm,
@@ -312,7 +323,9 @@ export function evaluate(prev: EmotionState, outcome: TurnOutcome = {}): Evaluat
   wisdom = clamp(wisdom, DIMENSION_MIN, DIMENSION_MAX);
   power = clamp(power, DIMENSION_MIN, DIMENSION_MAX);
 
-  const promptScore = preEval ? 0 : Math.round(courageScore + wisdomScore + powerScore) + sentimentLove;
+  const raw = preEval ? 0 : Math.round(courageScore + wisdomScore + powerScore) + sentimentLove;
+  // Bounded per exchange before it is bounded overall, so one message cannot cross a band.
+  const promptScore = clamp(raw, -MAX_LOVE_DELTA, MAX_LOVE_DELTA);
   const loveScore = clamp(prev.loveScore + promptScore, LOVE_MIN, LOVE_MAX);
 
   const state: EmotionState = {

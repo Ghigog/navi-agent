@@ -596,7 +596,7 @@ work ADR 0001's CPU bar exists to keep out. The wait is clamped and chained, bec
 `setTimeout` overflows past ~24.8 days and would fire a reminder for next month immediately —
 and re-reading the clock on each hop means a laptop that slept through the moment catches up.
 
-### NAV-95: Model-driven emotion evaluation (Backlog)
+### NAV-95: Model-driven emotion evaluation (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi's emotional reactions to track what I actually said
@@ -627,12 +627,39 @@ Replace keyword scoring with model-driven appraisal, keeping the existing state 
 - Remove `_classify_user_sentiment` and the sentiment keyword tables.
 
 **Acceptance Criteria:**
-- [ ] Sarcastic praise does not read as positive.
-- [ ] Sincere thanks raises the Love Meter.
-- [ ] A blunt but non-hostile technical question is not scored as mean.
-- [ ] Works correctly with `llama3.2:3b` configured, with no structured-output support available.
-- [ ] A malformed appraisal falls back to rules without a visible error.
-- [ ] Existing `test_emotion_engine` coverage still passes against the fallback path.
+- [x] Sarcastic praise does not read as positive. The classifier is told, in as many words, that
+      praise wrapped around a complaint about the reader is mean. Pinned as far as it can be
+      without a live model: the instruction is in the prompt and a test asserts it stays there.
+- [x] Sincere thanks raises the Love Meter — the `kind` path, which predates this ticket and is
+      unchanged.
+- [x] A blunt but non-hostile technical question is not scored as mean, and is not scored as
+      vague either. Both are stated in the prompt and pinned.
+- [x] Works correctly with `llama3.2:3b` configured, with no structured-output support
+      available. This is why the answer is two bare words rather than JSON.
+- [x] A malformed appraisal falls back to rules without a visible error. Each axis is parsed
+      independently and each has a default that moves nothing, so a failed reading is
+      indistinguishable downstream from a polite, clear message.
+- [x] Existing emotion coverage still passes against the fallback path — 39 tests, including the
+      new clamp.
+
+**What actually changed, since most of this ticket was already true.** `agent/sentiment.ts` was
+already the cheap constrained follow-up call the ticket asks for, and the keyword tables went
+with the Godot app (NAV-105). Three things were not:
+
+1. **`intentClear` was hardcoded `true`.** `session.ts` said so, with a comment naming this
+   ticket as the seam that would fill it in. Courage is "how well you feel you understand what
+   they want" and it has been scoring a constant since the port began, which is why she has
+   never once felt lost. The appraisal now reads a second axis and it reaches Courage.
+2. **Sarcasm was invisible.** The classifier judged words rather than what they do to the
+   reader; it is now told the difference, with examples.
+3. **The per-turn clamp was true by arithmetic and not by construction.** `MAX_LOVE_DELTA` makes
+   it structural, so it survives somebody tuning one of the numbers above it.
+
+**Two words, not JSON, and parsed independently.** Structured output is the obvious way to ask a
+model for two things and is exactly what a local 3B model cannot be relied on to produce. Each
+axis is read on its own, so a model that manages only "kind" gets the default clarity rather
+than nothing at all — and two labels on one axis is a model thinking out loud, which falls back
+like anything else unrecognised.
 
 ### NAV-101: Confidence stat and the approval loop (Backlog)
 **User Story:**

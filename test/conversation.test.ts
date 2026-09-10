@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type OpenAI from 'openai';
 import { createConversation, explain, MAX_HISTORY, type ChatEvent } from '../src/main/conversation.js';
 import { ToolRegistry } from '../src/agent/tools.js';
+import { NO_READING } from '../src/agent/sentiment.js';
 import { DEFAULTS, type Settings } from '../src/shared/settings.js';
 import {
   coerceState,
@@ -68,6 +69,7 @@ function setup(
     replies?: string[];
     settings?: Partial<Settings>;
     sentiment?: Sentiment;
+    clarity?: 'clear' | 'vague';
     fail?: boolean;
     hang?: boolean;
     state?: EmotionState;
@@ -87,7 +89,7 @@ function setup(
     registry: new ToolRegistry(),
     emotion: emotion.store,
     emit: (e) => events.push(e),
-    classify: async () => opts.sentiment ?? 'neutral',
+    classify: async () => ({ sentiment: opts.sentiment ?? 'neutral', clarity: opts.clarity ?? 'clear' }),
   });
 
   return { conversation, events, bodies, emotion };
@@ -298,7 +300,7 @@ describe('freezing the turn (NAV-99)', () => {
       onSend: () => order.push('freeze'),
       classify: async () => {
         order.push('classify');
-        return 'neutral';
+        return { sentiment: 'neutral', clarity: 'clear' };
       },
     });
 
@@ -317,7 +319,7 @@ describe('freezing the turn (NAV-99)', () => {
       emotion: emotion.store,
       emit: () => {},
       onSend: () => frozen++,
-      classify: async () => 'neutral',
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
     });
 
     await conversation.send('   ');
@@ -378,7 +380,7 @@ describe('memory (NAV-93)', () => {
       emotion: emotion.store,
       memory: memory.store,
       emit: () => {},
-      classify: async () => 'neutral',
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
     });
     return { conversation, bodies };
   }
@@ -414,7 +416,7 @@ describe('memory (NAV-93)', () => {
       emotion: emotion.store,
       memory: memory.store,
       emit: () => {},
-      classify: async () => 'neutral',
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
     });
 
     await conversation.send('anything');
@@ -460,5 +462,43 @@ describe('memory (NAV-93)', () => {
     await conversation.send('hi');
     await expect(conversation.endSession()).resolves.toBeUndefined();
     expect(kinds(events)).toContain('done');
+  });
+});
+
+describe('the appraisal reaches the turn (NAV-95)', () => {
+  it('scores a message she did not understand as one she did not understand', async () => {
+    const { conversation, emotion } = setup({ clarity: 'vague' });
+    await conversation.send('fix it');
+
+    const post = emotion.scored.find((o) => o.preEval !== true);
+    expect(post?.intentClear).toBe(false);
+  });
+
+  it('scores a clear one as clear', async () => {
+    const { conversation, emotion } = setup({ clarity: 'clear' });
+    await conversation.send('what does this error mean?');
+
+    const post = emotion.scored.find((o) => o.preEval !== true);
+    expect(post?.intentClear).toBe(true);
+  });
+
+  it('treats no reading as clear, so a failed appraisal changes nothing', async () => {
+    // The rule engine is the primary path and this is an enhancement on it: a malformed
+    // appraisal has to be indistinguishable from a turn where the request made sense.
+    const { provider } = fakeProvider(['hello']);
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      emit: () => {},
+      classify: async () => NO_READING,
+    });
+
+    await conversation.send('anything');
+    const post = emotion.scored.find((o) => o.preEval !== true);
+    expect(post?.intentClear).toBe(true);
+    expect(post?.sentiment).toBe('neutral');
   });
 });

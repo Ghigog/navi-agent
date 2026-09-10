@@ -21,7 +21,7 @@
 
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { takeTurn } from '../agent/session.js';
-import { classifySentiment } from '../agent/sentiment.js';
+import { appraise, NO_READING, type Appraisal } from '../agent/sentiment.js';
 import { summariseSession } from '../agent/summary.js';
 import type { Provider } from '../agent/client.js';
 import type { ToolRegistry } from '../agent/tools.js';
@@ -104,8 +104,8 @@ export interface ConversationDeps {
    * through `send`, and every turn therefore gets its sample.
    */
   onSend?(): void;
-  /** Injectable so a test can fix the sentiment without also faking a second model call. */
-  classify?: typeof classifySentiment;
+  /** Injectable so a test can fix the appraisal without also faking a second model call. */
+  classify?: typeof appraise;
 }
 
 export interface Conversation {
@@ -143,7 +143,7 @@ export function explain(err: unknown, settings: Settings): string {
 }
 
 export function createConversation(deps: ConversationDeps): Conversation {
-  const classify = deps.classify ?? classifySentiment;
+  const classify = deps.classify ?? appraise;
   const messages: ChatCompletionMessageParam[] = [];
   let inFlight: AbortController | null = null;
 
@@ -241,12 +241,14 @@ export function createConversation(deps: ConversationDeps): Conversation {
       let streamed = '';
 
       try {
-        const sentiment: Sentiment = await classify({
+        const appraisal: Appraisal = await classify({
           client: provider.client,
           model: settings.sentimentModel === '' ? provider.model : settings.sentimentModel,
           message: asked,
           signal: controller.signal,
         });
+
+        const { sentiment } = appraisal;
 
         // Pre-reply pass: she feels it before she answers, and the tint changes now rather
         // than after the reply lands.
@@ -280,6 +282,10 @@ export function createConversation(deps: ConversationDeps): Conversation {
 
         const post = deps.emotion.record({
           ...result.outcome,
+          // NAV-95: Courage scores on whether she understood what was wanted, and until now
+          // `session.ts` handed it a hardcoded true. The appraisal is where a real reading comes
+          // from — and when there was no reading, `clear` is the value that changes nothing.
+          intentClear: appraisal.clarity === 'clear',
           sentiment,
           sentimentDimensionsApplied: true,
         });

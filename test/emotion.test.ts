@@ -6,6 +6,7 @@ import {
   deriveRelationship,
   emotionColor,
   evaluate,
+  MAX_LOVE_DELTA,
   NEUTRAL,
   retrievalRelevance,
   tintFor,
@@ -340,5 +341,63 @@ describe('sentimentDimensionsApplied', () => {
 
     const doubled = evaluate(pre, { sentiment: 'mean' }).state;
     expect(doubled.courage).toBe(-10);
+  });
+});
+
+describe('the per-turn clamp (NAV-95)', () => {
+  it('cannot change what she calls you in a single message', () => {
+    // A relationship that can be won or lost in one sentence is not a relationship, it is a
+    // switch. The narrowest band is 400 wide, so a clamp at MAX_LOVE_DELTA makes that
+    // structural rather than a happy accident of the numbers above.
+    for (const start of [-1000, -600, -200, 0, 200, 600, 1000]) {
+      const before: EmotionState = {
+        ...NEUTRAL,
+        loveScore: start,
+        relationshipLevel: deriveRelationship(start),
+      };
+
+      for (const sentiment of ['kind', 'mean', 'neutral'] as const) {
+        const outcome: TurnOutcome = {
+          sentiment,
+          courageRelevant: true,
+          wisdomRelevant: true,
+          powerRelevant: true,
+          intentClear: sentiment !== 'mean',
+          toolsAvailable: true,
+          toolSucceeded: sentiment === 'kind',
+          analysisFailed: sentiment === 'mean',
+          promptWords: 200,
+          memoryEntries: 10,
+          retrievalRelevance: 1,
+          responseText: 'a reply',
+        };
+
+        const after = evaluate(before, outcome).state;
+        expect(Math.abs(after.loveScore - start)).toBeLessThanOrEqual(MAX_LOVE_DELTA);
+      }
+    }
+  });
+
+  it('still lets the relationship move over several exchanges', () => {
+    // Clamped, not frozen: the point is that it takes more than one message, not that it takes
+    // forever.
+    let state: EmotionState = { ...NEUTRAL };
+    for (let i = 0; i < 30; i++) {
+      state = evaluate(state, { sentiment: 'mean', courageRelevant: true, intentClear: false }).state;
+    }
+    expect(state.relationshipLevel).not.toBe(NEUTRAL.relationshipLevel);
+  });
+});
+
+describe('clarity reaches Courage (NAV-95)', () => {
+  it('scores a message she did not understand differently from one she did', () => {
+    const base: TurnOutcome = { courageRelevant: true, promptWords: 100, responseText: 'a reply' };
+
+    const clear = evaluate(NEUTRAL, { ...base, intentClear: true }).state;
+    const vague = evaluate(NEUTRAL, { ...base, intentClear: false }).state;
+
+    // Courage is "how well you feel you understand what they want". Until NAV-95 it scored a
+    // constant, which is why she had never once felt lost.
+    expect(clear.courage).toBeGreaterThan(vague.courage);
   });
 });
