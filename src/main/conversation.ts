@@ -57,7 +57,13 @@ export type ChatEvent =
    * listening happens before there is a turn to belong to. It lives in this union because this
    * is the chat window's protocol, and the chat window is where it is shown.
    */
-  | { type: 'listening'; on: boolean };
+  | { type: 'listening'; on: boolean }
+  /**
+   * A reminder came due (NAV-100). Emitted by the main process, from a timer, with no turn
+   * anywhere near it — which is the point: a reminder that only fired while you were already
+   * talking to her would not be worth setting.
+   */
+  | { type: 'reminder'; text: string };
 
 /** The slice of `main/emotion-store.ts` this needs. Narrowed so tests can stand it up in place. */
 export interface EmotionStore {

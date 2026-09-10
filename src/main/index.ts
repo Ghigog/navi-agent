@@ -28,6 +28,10 @@ import { load, save } from './settings-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
 import { load as loadMemory, reset as resetMemory, save as saveMemory } from './memory-store.js';
 import { createMemoryTools } from '../agent/recall.js';
+import { createNoteTools } from '../agent/notes.js';
+import { load as loadNotes, save as saveNotes } from './notes-store.js';
+import { createReminders, type Reminders } from './reminders.js';
+import { addNote, addReminder, deleteNote, searchNotes, upcoming } from '../shared/notes.js';
 import { forget, markUsed, prefer, recall, recordEpisode, remember } from '../shared/memory.js';
 import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
@@ -50,6 +54,7 @@ let speaker: Speaker | null = null;
 // Declared out here because the chat window's close handler ends the session, and the window is
 // built before the conversation that owns one.
 let conversation: Conversation | null = null;
+let reminders: Reminders | null = null;
 
 app.whenReady().then(() => {
   const current = load();
@@ -104,6 +109,47 @@ app.whenReady().then(() => {
       saveMemory(recordEpisode(loadMemory(), text));
     },
   };
+
+  /**
+   * Notes and reminders (NAV-100). A separate store from memory, because these are the user's
+   * own words and must never be consolidated or decayed away.
+   */
+  reminders = createReminders({
+    read: loadNotes,
+    write: (next) => saveNotes(next),
+    fire: (due) => {
+      for (const note of due) {
+        // Shown in the chat, and the window is opened for it: a reminder nobody sees is not a
+        // reminder. She says it aloud too when voice is on, which is the case it is for.
+        chat?.send('chat:event', { type: 'reminder', text: note.text });
+        if (load().voiceOutput) {
+          speaker?.push(`You asked me to remind you: ${note.text}. `);
+          void speaker?.finish();
+        }
+      }
+      if (win) chat?.show(win);
+      win?.webContents.send('summoned');
+    },
+  });
+
+  for (const tool of createNoteTools({
+    save: (text, tags) => {
+      const result = addNote(loadNotes(), text, tags);
+      saveNotes(result.store);
+      return result.note;
+    },
+    remind: (text, due) => {
+      const result = addReminder(loadNotes(), text, due);
+      saveNotes(result.store);
+      // A reminder set for sooner than the one the timer is waiting on has to move it.
+      reminders?.refresh();
+      return result.note;
+    },
+    search: (query) => searchNotes(loadNotes(), query),
+    upcoming: () => upcoming(loadNotes()),
+  })) {
+    registry.register(tool);
+  }
 
   for (const tool of createMemoryTools({
     remember: (text) => {
@@ -348,6 +394,17 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('memory:reset', () => resetMemory());
 
+  /**
+   * Notes in the viewer alongside memory (NAV-100). No reset: these are the user's own words,
+   * so they go one at a time and deliberately, never with a single button.
+   */
+  ipcMain.handle('notes:get', () => loadNotes());
+  ipcMain.handle('notes:delete', (_e, id: unknown) => {
+    if (typeof id === 'string') saveNotes(deleteNote(loadNotes(), id));
+    reminders?.refresh();
+    return loadNotes();
+  });
+
   ipcMain.handle('prompt:last', () => lastPrompt());
   ipcMain.handle('emotion:get', () => describe(loadEmotion()));
   ipcMain.handle('emotion:reset', () => {
@@ -380,6 +437,9 @@ app.whenReady().then(() => {
     });
   }
 
+  // Sweeps anything that came due while the app was closed, then arms for the next one.
+  reminders.start();
+
   // The overlay is the app. It has no frame and cannot be closed by hand, but if it ever goes
   // away the hidden windows must not keep the process alive with nothing on screen.
   win.on('closed', () => app.quit());
@@ -393,6 +453,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  reminders?.stop();
   speaker?.stop();
   clickThrough?.stop();
   follow?.stop();

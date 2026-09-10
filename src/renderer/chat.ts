@@ -164,6 +164,10 @@ window.naviChat?.onEvent((event) => {
       setBusy(false);
       break;
 
+    case 'reminder':
+      bubble('note', `⏰ ${event.text}`);
+      break;
+
     case 'listening':
       // Shown rather than assumed. A recording nobody can see running is a recording nobody
       // knows how to stop.

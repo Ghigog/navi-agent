@@ -536,7 +536,7 @@ Layer 3. A model that had to *decide* to look something up would have to already
 there, which is the wrong way round, and on a 3B model it costs a round trip before an answer
 that should have been immediate. Writing *is* a tool: `remember` and `note_preference`.
 
-### NAV-100: Notes and reminders (Backlog)
+### NAV-100: Notes and reminders (Done)
 **User Story:**
 - **As a:** User
 - **I want:** To tell Navi to note something down or remind me later
@@ -567,11 +567,34 @@ Two skills over one local store, plus delivery.
   confirmation flow. Writing to her own store is not acting on the user's machine.
 
 **Acceptance Criteria:**
-- [ ] "Note that the SSE parser is the flaky one" is saved and later found by search.
-- [ ] "Remind me in 20 minutes to check the build" fires on time with Navi unfocused.
-- [ ] A reminder set before a restart still fires after it.
-- [ ] An ambiguous time produces a clarifying question, not a guess.
-- [ ] Notes survive a memory-consolidation pass untouched.
+- [x] "Note that the SSE parser is the flaky one" is saved and later found by search — the test
+      is written with that exact sentence.
+- [x] "Remind me in 20 minutes to check the build" fires on time with Navi unfocused. Nothing in
+      `main/reminders.ts` depends on a window holding the keyboard; it is a timer and a callback.
+- [x] A reminder set before a restart still fires after it. The store is on disk and `start()`
+      sweeps it at launch, so one that came due while the app was closed arrives late rather
+      than never.
+- [x] An ambiguous time produces a clarifying question, not a guess. `shared/when.ts` refuses
+      "later", "soon", "in a bit" and anything it cannot read, and the tool returns that as an
+      error telling the model to ask.
+- [x] Notes survive a memory-consolidation pass untouched — they are a different store, which is
+      the reason, and the test says so at a thousand notes.
+
+**Its own file, not a table in the memory store.** The ticket asked for the same database, and
+NAV-93 did not build one (see there for why). The separation turned out to be the more important
+half of that requirement anyway: memory is inferred and is consolidated and decayed; notes are
+the user's own words and must never be touched by a schedule. Two files make that a property of
+the design rather than a rule someone has to remember.
+
+**The time is resolved at write, not at fire.** That is what keeps a 3B model out of date
+arithmetic at the moment the answer has to be right with nobody watching. The model's only job
+is to pass on the words the user used, and Navi says the resolved time back — resolving early is
+only a safeguard if the user hears it while they can still correct it.
+
+**One timer, armed for the next reminder, not a poll.** A permanent interval is exactly the idle
+work ADR 0001's CPU bar exists to keep out. The wait is clamped and chained, because
+`setTimeout` overflows past ~24.8 days and would fire a reminder for next month immediately —
+and re-reading the clock on each hop means a laptop that slept through the moment catches up.
 
 ### NAV-95: Model-driven emotion evaluation (Backlog)
 **User Story:**

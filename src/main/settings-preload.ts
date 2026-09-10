@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('naviSettings', {
   memoryForget: (id: string) => ipcRenderer.invoke('memory:forget', id),
   memoryRemember: (text: string) => ipcRenderer.invoke('memory:remember', text),
   memoryReset: () => ipcRenderer.invoke('memory:reset'),
+  /** Notes and reminders (NAV-100), shown in the same viewer and deleted one at a time. */
+  notes: () => ipcRenderer.invoke('notes:get'),
+  noteDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
   emotion: () => ipcRenderer.invoke('emotion:get'),
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */

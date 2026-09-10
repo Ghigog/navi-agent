@@ -16,6 +16,8 @@
  */
 
 import { factTokens, FACT_BUDGET, MAX_EPISODES, type Memory } from '../shared/memory.js';
+import { upcoming, type Notes } from '../shared/notes.js';
+import { describeWhen } from '../shared/when.js';
 
 import type { PromptRecord } from '../prompt/inspector.js';
 import type { SettingsView } from '../shared/settings.js';
@@ -34,6 +36,8 @@ declare global {
       memoryForget(id: string): Promise<Memory>;
       memoryRemember(text: string): Promise<Memory>;
       memoryReset(): Promise<Memory>;
+      notes(): Promise<Notes>;
+      noteDelete(id: string): Promise<Notes>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
@@ -283,7 +287,11 @@ function memoryGroup(title: string, items: Array<{ id?: string; text: string; at
       remove.className = 'plain';
       remove.textContent = 'Forget';
       remove.addEventListener('click', async () => {
-        renderMemory(await window.naviSettings?.memoryForget(item.id!));
+        // A note id is prefixed; memory ids are not. One button, two stores, and the id says
+        // which — rather than a flag threaded through every caller.
+        if (item.id!.startsWith('n')) await window.naviSettings?.noteDelete(item.id!);
+        else await window.naviSettings?.memoryForget(item.id!);
+        await loadMemory();
         flashSaved();
       });
       row.append(remove);
@@ -295,9 +303,10 @@ function memoryGroup(title: string, items: Array<{ id?: string; text: string; at
   return group;
 }
 
-function renderMemory(memory: Memory | undefined): void {
+/** Returns whether it put anything on screen, so the empty state can be decided once. */
+function renderMemory(memory: Memory | undefined): boolean {
   memoryBody.textContent = '';
-  if (!memory) return;
+  if (!memory) return false;
 
   const preferences = [
     ...memory.relationship.likes.map((text) => ({ text: `liked: ${text}` })),
@@ -305,12 +314,10 @@ function renderMemory(memory: Memory | undefined): void {
   ];
 
   if (memory.facts.length === 0 && memory.episodes.length === 0 && preferences.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'empty';
-    empty.textContent = 'She does not know anything about you yet. Tell her something, or ask her to remember.';
-    memoryBody.append(empty);
     memoryBudget.textContent = '';
-    return;
+    // Not the empty state yet: notes are a different store, and having none of one is not
+    // having none of the other.
+    return false;
   }
 
   if (preferences.length > 0) memoryBody.append(memoryGroup('What you like', preferences));
@@ -326,17 +333,55 @@ function renderMemory(memory: Memory | undefined): void {
   memoryBudget.textContent =
     `~${factTokens(memory.facts)} of ${FACT_BUDGET} tokens of facts · ` +
     `${memory.episodes.length} sessions, at most ${MAX_EPISODES} recalled per message`;
+  return true;
+}
+
+/**
+ * The user's own notes, in the same viewer.
+ *
+ * Rendered separately from memory rather than merged into it, because the difference is the
+ * point: memory is what she inferred and is consolidated and decayed; these are what the user
+ * wrote and are never touched by a schedule. There is no "forget everything" here for the same
+ * reason — they go one at a time and deliberately.
+ */
+function renderNotes(store: Notes | undefined): boolean {
+  if (!store || store.notes.length === 0) return false;
+
+  const now = Date.now();
+  const pending = new Set(upcoming(store, now).map((n) => n.id));
+  const items = [...store.notes]
+    .sort((a, b) => b.at - a.at)
+    .map((note) => ({
+      id: note.id,
+      text:
+        note.due === undefined
+          ? note.text
+          : `${note.text} — ${pending.has(note.id) ? describeWhen(note.due, now) : 'done'}`,
+      at: note.at,
+    }));
+
+  memoryBody.append(memoryGroup('Your notes', items));
+  return true;
 }
 
 async function loadMemory(): Promise<void> {
-  renderMemory(await window.naviSettings?.memory());
+  const hasMemory = renderMemory(await window.naviSettings?.memory());
+  const hasNotes = renderNotes(await window.naviSettings?.notes());
+
+  if (!hasMemory && !hasNotes) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'She does not know anything about you yet. Tell her something, or ask her to remember.';
+    memoryBody.append(empty);
+  }
 }
 
 $('memory-save').addEventListener('click', async () => {
   const text = memoryAdd.value.trim();
   if (text === '') return;
   memoryAdd.value = '';
-  renderMemory(await window.naviSettings?.memoryRemember(text));
+  await window.naviSettings?.memoryRemember(text);
+  await loadMemory();
   flashSaved();
 });
 
@@ -356,7 +401,8 @@ memoryReset.addEventListener('click', async (e) => {
     memoryReset.textContent = 'Really forget everything?';
     return;
   }
-  renderMemory(await window.naviSettings?.memoryReset());
+  await window.naviSettings?.memoryReset();
+  await loadMemory();
   disarmMemory();
   flashSaved();
 });
