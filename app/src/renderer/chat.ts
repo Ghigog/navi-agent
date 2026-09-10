@@ -10,6 +10,7 @@
  */
 
 import type { ChatEvent } from '../main/conversation.js';
+import { createRecorder } from './mic.js';
 
 declare global {
   interface Window {
@@ -21,6 +22,10 @@ declare global {
       openSettings(): void;
       onEvent(fn: (event: ChatEvent) => void): void;
       onFocus(fn: () => void): void;
+      onListen(fn: (on: boolean) => void): void;
+      onTranscript(fn: (text: string) => void): void;
+      audio(wav: Uint8Array | null): void;
+      voiceError(message: string): void;
     };
   }
 }
@@ -158,7 +163,36 @@ window.naviChat?.onEvent((event) => {
       reply = null;
       setBusy(false);
       break;
+
+    case 'listening':
+      // Shown rather than assumed. A recording nobody can see running is a recording nobody
+      // knows how to stop.
+      status.textContent = event.on ? 'listening…' : '';
+      dot.classList.toggle('listening', event.on);
+      break;
   }
+});
+
+/**
+ * The talk key (NAV-104).
+ *
+ * The main process decides when to listen — it owns the global shortcut — and this window does
+ * the listening, because the microphone is only reachable from a renderer. A failure here shows
+ * up in the transcript and stops there: not being able to hear must never cost a turn she could
+ * still have had by keyboard.
+ */
+const recorder = createRecorder((message) => window.naviChat?.voiceError(message));
+
+// A spoken message is the user's message. It appears in the transcript the same way a typed
+// one does; the difference is only how it got here.
+window.naviChat?.onTranscript((text) => bubble('user', text));
+
+window.naviChat?.onListen((on) => {
+  if (on) {
+    void recorder.start();
+    return;
+  }
+  void recorder.stop().then((wav) => window.naviChat?.audio(wav));
 });
 
 window.naviChat?.ready();

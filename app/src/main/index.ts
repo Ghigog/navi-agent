@@ -11,6 +11,9 @@
  */
 
 import { app, clipboard, globalShortcut, ipcMain, screen, type BrowserWindow } from 'electron';
+import { unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createOverlay } from './overlay.js';
 import { createChatWindow, type ChatWindow } from './chat-window.js';
 import { createSettingsWindow, type SettingsWindow } from './settings-window.js';
@@ -24,6 +27,8 @@ import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
 import { createScreenTools } from '../agent/screen.js';
 import { createScreenPort } from './screen.js';
+import { createSpeaker, createTranscriber, type Speaker } from './voice.js';
+import { createPlayer, createRunner, speakerPaths, whisperPaths } from './exec.js';
 import { lastPrompt } from '../prompt/inspector.js';
 import { describe, tintFor } from '../shared/emotion.js';
 import { view, type Settings } from '../shared/settings.js';
@@ -34,6 +39,7 @@ let settings: SettingsWindow | null = null;
 let clickThrough: ClickThrough | null = null;
 let cursor: CursorSource | null = null;
 let follow: Follow | null = null;
+let speaker: Speaker | null = null;
 
 app.whenReady().then(() => {
   const current = load();
@@ -64,6 +70,26 @@ app.whenReady().then(() => {
   });
   for (const tool of screenTools.tools) registry.register(tool);
 
+  /**
+   * Voice (NAV-104).
+   *
+   * The speaker is rebuilt on a settings change rather than reading settings per sentence: the
+   * voice model is a file path resolved once, and swapping voices mid-reply would be a stranger
+   * thing to do than finishing the sentence in the old one.
+   */
+  const runner = createRunner();
+  const play = createPlayer(runner);
+  const buildSpeaker = (s: Settings): Speaker =>
+    createSpeaker({
+      runner,
+      paths: speakerPaths(s.voiceName),
+      play,
+      cleanup: (file) => unlink(file).catch(() => undefined),
+      onError: (message) => chat?.send('chat:event', { type: 'error', message }),
+      speed: s.voiceSpeed,
+    });
+  speaker = buildSpeaker(current);
+
   const conversation = createConversation({
     settings: load,
     createProvider,
@@ -74,6 +100,19 @@ app.whenReady().then(() => {
     onSend: () => screenTools.freeze(),
     emit: (event) => {
       chat?.send('chat:event', event);
+
+      // She speaks a sentence at a time as it finishes, rather than waiting for the reply and
+      // then reading it out — which would undo the point of streaming the text.
+      if (load().voiceOutput) {
+        if (event.type === 'start') speaker?.stop();
+        if (event.type === 'delta') speaker?.push(event.text);
+        if (event.type === 'done') {
+          if (event.cancelled) speaker?.stop();
+          else void speaker?.finish();
+        }
+        if (event.type === 'error') speaker?.stop();
+      }
+
       // The fairy shows the same state the chat window does — she is the one having the
       // conversation, and the chat window is only where the words are.
       if (event.type === 'emotion') win?.webContents.send('tint', event.tint);
@@ -91,6 +130,8 @@ app.whenReady().then(() => {
    * nothing with no idea why.
    */
   const registerHotkey = (accelerator: string): boolean => {
+    // Clears the talk key too, which is why every caller re-registers it afterwards. One
+    // `unregisterAll` is simpler than tracking which accelerator was registered last.
     globalShortcut.unregisterAll();
     const ok = globalShortcut.register(accelerator, () => {
       win?.webContents.send('summoned');
@@ -107,7 +148,34 @@ app.whenReady().then(() => {
     cursor?.setRate(s.idleFps);
   };
 
+  /**
+   * The talk key (NAV-104).
+   *
+   * Press to start, press again to stop, because `globalShortcut` reports presses and never
+   * releases — a held key would start a recording nothing could end. It has to be a global
+   * shortcut for the same reason the summon key is one: the overlay is click-through and never
+   * holds the keyboard.
+   *
+   * The chat window does the recording and hands back WAV bytes; see `renderer/mic.ts`.
+   */
+  let listening = false;
+  const setListening = (on: boolean): void => {
+    listening = on;
+    chat?.send('voice:listen', on);
+    chat?.send('chat:event', { type: 'listening', on });
+    // She should look like she is paying attention, not like she is thinking.
+    win?.webContents.send('busy', on);
+  };
+
+  const registerVoiceHotkey = (settings: Settings): boolean => {
+    if (!settings.voiceInput) return true;
+    const ok = globalShortcut.register(settings.voiceHotkey, () => setListening(!listening));
+    if (!ok) console.warn(`could not register talk key ${settings.voiceHotkey} — another app owns it`);
+    return ok;
+  };
+
   registerHotkey(current.hotkey);
+  registerVoiceHotkey(current);
 
   // She wakes up in the state she was left in, at the frame rates that were configured. Sent
   // once the renderer is listening — before that the fairy draws in its neutral colour at the
@@ -129,6 +197,45 @@ app.whenReady().then(() => {
     if (win) chat?.show(win);
   });
 
+  /**
+   * A finished recording. Transcribed locally, then sent as an ordinary turn — so everything
+   * downstream, the cursor freeze included, behaves exactly as it does for typing.
+   */
+  ipcMain.on('voice:audio', async (_e, wav: unknown) => {
+    setListening(false);
+    if (!(wav instanceof Uint8Array) || wav.byteLength === 0) return;
+
+    const file = join(tmpdir(), `navi-take-${Date.now()}.wav`);
+    try {
+      await writeFile(file, wav);
+      const s = load();
+      const transcriber = createTranscriber({ runner, ...whisperPaths(s.speechModel) });
+      const { text, error } = await transcriber.transcribe(file);
+
+      if (error !== undefined) {
+        chat?.send('chat:event', { type: 'error', message: error });
+        return;
+      }
+      if (text === '') {
+        chat?.send('chat:event', { type: 'error', message: 'Navi did not catch that.' });
+        return;
+      }
+
+      // Shown as the user's own message, because that is what it is — the chat window renders
+      // typed messages itself and never sees the ones that arrive this way.
+      chat?.send('voice:transcript', text);
+      if (win) chat?.show(win);
+      void conversation.send(text);
+    } finally {
+      await unlink(file).catch(() => undefined);
+    }
+  });
+
+  ipcMain.on('voice:error', (_e, message: unknown) => {
+    setListening(false);
+    if (typeof message === 'string') chat?.send('chat:event', { type: 'error', message });
+  });
+
   ipcMain.on('settings:open', () => settings?.show());
   ipcMain.on('settings:close', () => settings?.hide());
 
@@ -137,9 +244,12 @@ app.whenReady().then(() => {
     const next = save(patch);
     // Everything that reads a setting once rather than per turn has to be told it changed.
     const hotkeyRegistered = registerHotkey(next.hotkey);
+    const voiceHotkeyRegistered = registerVoiceHotkey(next);
     sendRates(next);
+    speaker?.stop();
+    speaker = buildSpeaker(next);
     conversation.describeState();
-    return { view: view(next), hotkeyRegistered };
+    return { view: view(next), hotkeyRegistered, voiceHotkeyRegistered };
   });
 
   ipcMain.handle('prompt:last', () => lastPrompt());
@@ -161,6 +271,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  speaker?.stop();
   clickThrough?.stop();
   follow?.stop();
   cursor?.stop();

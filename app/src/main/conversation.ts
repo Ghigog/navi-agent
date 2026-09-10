@@ -50,7 +50,13 @@ export type ChatEvent =
   | { type: 'tool'; name: string; state: 'start' | 'ok' | 'fail' }
   | { type: 'done'; text: string; cancelled: boolean }
   | { type: 'error'; message: string }
-  | { type: 'emotion'; emotion: string; relationship: string; tint: Rgb };
+  | { type: 'emotion'; emotion: string; relationship: string; tint: Rgb }
+  /**
+   * The talk key went down or up (NAV-104). Emitted by the main process rather than by a turn:
+   * listening happens before there is a turn to belong to. It lives in this union because this
+   * is the chat window's protocol, and the chat window is where it is shown.
+   */
+  | { type: 'listening'; on: boolean };
 
 /** The slice of `main/emotion-store.ts` this needs. Narrowed so tests can stand it up in place. */
 export interface EmotionStore {

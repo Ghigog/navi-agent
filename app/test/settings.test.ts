@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { applyUpdate, coerce, DEFAULTS, FPS_MAX, FPS_MIN, view } from '../src/shared/settings.js';
+import {
+  applyUpdate,
+  coerce,
+  DEFAULTS,
+  FPS_MAX,
+  FPS_MIN,
+  SPEED_MAX,
+  SPEED_MIN,
+  view,
+} from '../src/shared/settings.js';
 
 describe('coerce', () => {
   it('returns defaults for junk', () => {
@@ -106,5 +115,33 @@ describe('view', () => {
     const settings = { ...DEFAULTS, openaiApiKey: 'sk-secret' };
     view(settings);
     expect(settings.openaiApiKey).toBe('sk-secret');
+  });
+});
+
+describe('voice settings (NAV-104)', () => {
+  it('starts silent, in both directions', () => {
+    // Neither speaking nor listening on first launch. Both need a binary the user may not have,
+    // and a companion whose first act is to talk out loud has made a decision that was theirs.
+    expect(DEFAULTS.voiceOutput).toBe(false);
+    expect(DEFAULTS.voiceInput).toBe(false);
+  });
+
+  it('keeps the speech rate inside a range worth listening to', () => {
+    expect(coerce({ voiceSpeed: 12 }).voiceSpeed).toBe(SPEED_MAX);
+    expect(coerce({ voiceSpeed: 0.01 }).voiceSpeed).toBe(SPEED_MIN);
+    // A zero would divide into piper's length_scale, which is where the clamp actually earns
+    // its keep rather than merely being tidy.
+    expect(coerce({ voiceSpeed: 0 }).voiceSpeed).toBe(SPEED_MIN);
+    expect(coerce({ voiceSpeed: -2 }).voiceSpeed).toBe(SPEED_MIN);
+  });
+
+  it('keeps a rate the user actually chose', () => {
+    expect(coerce({ voiceSpeed: 1.4 }).voiceSpeed).toBeCloseTo(1.4, 6);
+  });
+
+  it('does not carry NAV-98\'s thinking-model keys across', () => {
+    const stored = coerce({ local_thinking_model: 'x', cloud_thinking_model: 'y' });
+    expect(Object.keys(stored)).not.toContain('local_thinking_model');
+    expect(Object.keys(stored)).not.toContain('cloud_thinking_model');
   });
 });

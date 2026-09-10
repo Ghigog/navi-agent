@@ -18,4 +18,19 @@ contextBridge.exposeInMainWorld('naviChat', {
   onEvent: (fn: (event: unknown) => void) =>
     ipcRenderer.on('chat:event', (_e, event: unknown) => fn(event)),
   onFocus: (fn: () => void) => ipcRenderer.on('chat:focus', () => fn()),
+
+  /**
+   * Voice (NAV-104). The microphone lives in this window because `getUserMedia` does; the main
+   * process owns the talk key, because a global shortcut is the only key a click-through
+   * overlay can be reached by.
+   */
+  onListen: (fn: (on: boolean) => void) =>
+    ipcRenderer.on('voice:listen', (_e, on: boolean) => fn(on)),
+  /** A finished take, as WAV bytes. Null when there was not enough of one to bother with. */
+  audio: (wav: Uint8Array | null) => ipcRenderer.send('voice:audio', wav),
+  /** Something went wrong with the microphone. Shown in the transcript, never thrown. */
+  voiceError: (message: string) => ipcRenderer.send('voice:error', message),
+  /** What she heard. Rendered as the user's own message, because that is what it is. */
+  onTranscript: (fn: (text: string) => void) =>
+    ipcRenderer.on('voice:transcript', (_e, text: string) => fn(text)),
 });

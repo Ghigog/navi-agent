@@ -22,7 +22,11 @@ declare global {
   interface Window {
     naviSettings?: {
       get(): Promise<SettingsView>;
-      save(patch: Record<string, unknown>): Promise<{ view: SettingsView; hotkeyRegistered: boolean }>;
+      save(patch: Record<string, unknown>): Promise<{
+        view: SettingsView;
+        hotkeyRegistered: boolean;
+        voiceHotkeyRegistered: boolean;
+      }>;
       lastPrompt(): Promise<PromptRecord | null>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
@@ -67,7 +71,10 @@ function render(view: SettingsView): void {
 
   for (const el of bound) {
     const key = el.dataset['setting'] as keyof typeof s;
-    el.value = String(s[key]);
+    // A checkbox carries its value in `checked`; writing a boolean into `value` would put the
+    // string "false" in the box and read back as truthy.
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = Boolean(s[key]);
+    else el.value = String(s[key]);
   }
 
   for (const button of document.querySelectorAll<HTMLButtonElement>('#provider button')) {
@@ -93,17 +100,27 @@ async function save(patch: Record<string, unknown>): Promise<void> {
   const result = await window.naviSettings?.save(patch);
   if (!result) return;
   render(result.view);
-  // The hotkey is the one setting that can be rejected by something outside Navi.
-  warning.textContent = result.hotkeyRegistered
-    ? ''
-    : `Another app owns ${result.view.settings.hotkey}. Clicking her still opens the chat.`;
+  // The hotkeys are the settings that can be rejected by something outside Navi. An accelerator
+  // another app already owns fails silently, and the user is left pressing a key that does
+  // nothing with no idea why.
+  const s = result.view.settings;
+  warning.textContent = !result.hotkeyRegistered
+    ? `Another app owns ${s.hotkey}. Clicking her still opens the chat.`
+    : !result.voiceHotkeyRegistered
+      ? `Another app owns ${s.voiceHotkey}. Pick a different talk key.`
+      : '';
   flashSaved();
 }
 
 for (const el of bound) {
   el.addEventListener('change', () => {
     const key = el.dataset['setting'] as string;
-    const value = el instanceof HTMLInputElement && el.type === 'number' ? Number(el.value) : el.value;
+    const value =
+      el instanceof HTMLInputElement && el.type === 'checkbox'
+        ? el.checked
+        : el instanceof HTMLInputElement && el.type === 'number'
+          ? Number(el.value)
+          : el.value;
     void save({ [key]: value });
   });
 }

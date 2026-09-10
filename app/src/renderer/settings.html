@@ -360,6 +360,61 @@
         </div>
       </div>
     </section>
+
+    <section>
+      <h2>Voice</h2>
+      <div class="field">
+        <label for="voiceOutput">She speaks</label>
+        <div class="row">
+          <input type="checkbox" id="voiceOutput" data-setting="voiceOutput" />
+          <span class="note" style="margin: 0">read replies aloud, a sentence at a time</span>
+        </div>
+        <p class="note">
+          Uses <code>piper</code> from <code>bin/</code>, entirely offline. If it is not installed
+          she stays quiet and says so once, in the chat — it never costs you the reply.
+        </p>
+      </div>
+      <div class="field">
+        <label for="voiceName">Voice</label>
+        <input type="text" id="voiceName" data-setting="voiceName" spellcheck="false" />
+        <p class="note">
+          The name of a voice in <code>bin/voices</code>, without the <code>.onnx</code>.
+          <code>setup_models.sh</code> fetches <code>en_US-amy-medium</code> and
+          <code>en_US-hfc_female-medium</code>.
+        </p>
+      </div>
+      <div class="field">
+        <label for="voiceSpeed">Speed</label>
+        <div class="row">
+          <input type="number" id="voiceSpeed" data-setting="voiceSpeed" min="0.5" max="2" step="0.1" />
+          <span class="note" style="margin: 0">1 is the voice's own pace</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="voiceInput">You speak</label>
+        <div class="row">
+          <input type="checkbox" id="voiceInput" data-setting="voiceInput" />
+          <span class="note" style="margin: 0">talk to her with a key</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="voiceHotkey">Talk key</label>
+        <input type="text" id="voiceHotkey" data-setting="voiceHotkey" spellcheck="false" />
+        <p class="note">
+          Press once to start listening, again to stop. It is not hold-to-talk: a global shortcut
+          reports key presses and never releases, so a held key would start a recording nothing
+          could end.
+        </p>
+      </div>
+      <div class="field">
+        <label for="speechModel">Hearing model</label>
+        <input type="text" id="speechModel" data-setting="speechModel" spellcheck="false" />
+        <p class="note">
+          A whisper.cpp model in <code>bin/</code>. <code>setup_models.sh</code> fetches
+          <code>ggml-base.en.bin</code>.
+        </p>
+      </div>
+    </section>
   </div>
 
   <div id="panel-prompt" hidden>
