@@ -16,7 +16,14 @@ declare const __dirname: string;
 const here = __dirname;
 
 export const SIZE = 200;
-/** The fairy sits down-right of the cursor, as she did in the Godot build. */
+/**
+ * Where she appears relative to the cursor, down-right of it as in the Godot build.
+ *
+ * This is a launch position and nothing more: **cursor following is not ported** (NAV-102).
+ * `FollowController.gd` lerps her towards the cursor every frame and also flies her to a
+ * coordinate for pointing; neither exists here yet, so she is placed once and stays put. The
+ * name is aspirational — do not read it as evidence that following works.
+ */
 export const FOLLOW_OFFSET = { x: 20, y: 20 };
 
 export function createOverlay(): BrowserWindow {

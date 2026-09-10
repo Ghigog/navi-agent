@@ -1,6 +1,7 @@
 # Navi modernization — handoff
 
-Written 2026-09-06. Updated 2026-09-07 on branch `claude/navi-modernization-review-xsaqgo`.
+Written 2026-09-06. Updated 2026-09-10, after the port's surfaces landed and the app ran on
+macOS for the first time.
 
 Navi is a desktop AI companion, written in Godot 4 and being rebuilt on Electron + TypeScript
 (ADR 0001). **The port has started and lives in `app/`.** The Godot app in the repository root
@@ -110,7 +111,7 @@ masks a value that *looks* like a credential whatever its setting is named. The 
 name-based only, which is sufficient for a flat settings dictionary and keeps `hotkey_keycode`
 readable in debug output.
 
-### Step 3 — the port has started, in `app/`
+### Step 3 — the port, in `app/`
 
 **Done** (159 tests, typecheck clean, builds):
 
@@ -135,25 +136,54 @@ readable in debug output.
   `shared/settings.ts` validates every save, because an IPC boundary carrying typed values is
   where `'banana'` gets in as a provider name.
 
-**With that, the port's surfaces are all built.** Nothing in `app/` is waiting on another part
-of `app/`.
+- CI, in `.github/workflows/ci.yml` (NAV-82): typecheck, tests and build on every push and pull
+  request. Its Godot half closes as superseded — see the ticket for why fixing tests for
+  `AIService.gd` is work the sequencing was designed to avoid.
 
-**Next, in order:**
+### The state of it, stated plainly
 
-1. **Launch it on macOS.** The app has been driven end to end under Xvfb on Linux — all three
-   windows, the IPC, settings round-tripping to disk, a full exchange against a local
-   OpenAI-compatible server — but the overlay behaviour that matters is macOS-specific and has
-   never run there. Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a
-   long window; the ADR requires this anyway, the Electron version moved from 33 to 44 for
-   security patches, and the settings window can now raise the idle frame rate that result
-   depends on.
-2. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of
-   its second half already.
-3. **NAV-89** prebuilt native helper.
+**The port has surfaces and no capabilities.** She runs on macOS, she looks right, she holds a
+conversation, she has moods that persist. She cannot see your screen, cannot follow your cursor,
+cannot point at anything and cannot speak. `main/index.ts` creates a `ToolRegistry` and registers
+nothing in it.
 
-**NAV-82** is done: `.github/workflows/ci.yml` runs `app/`'s typecheck, tests and build on every
-push and pull request. Its Godot half closes as superseded — see the ticket for why fixing tests
-for `AIService.gd` is work the sequencing was designed to avoid.
+That is not a bug list, it is the honest shape of the work: everything hard about the *platform*
+is done and everything the product actually does is still in GDScript. Do not read "the port is
+nearly finished" into the fact that the windows all work.
+
+### What to build next, in order
+
+1. **NAV-103 — the screen-capture tools.** This is the product. The owner's description leads
+   with "what's this near my cursor?", and it does not work. The prompt half of NAV-99's cursor
+   anchoring is already in `prompt/builder.ts`, gated on a `cursorAnchored` flag that nothing
+   sets; setting it is part of the ticket. Read NAV-99 before writing the crop code — anchoring
+   on the fairy instead of the cursor is the bug it exists to have fixed.
+2. **NAV-102 — cursor following.** Small, visible, and it carries the flight primitive NAV-103's
+   `point_to` will want. Watch the idle CPU: it is a per-frame window move on top of ADR 0001's
+   weakest measurement.
+3. **NAV-104 — voice.** The binaries and voice models are still tracked and `setup_models.sh`
+   still fetches them.
+4. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of its
+   second half already.
+5. **NAV-89** prebuilt native helper.
+
+### Still owed on macOS, by a human
+
+She launches, and the first launch immediately found something the entire automated suite could
+not: the fairy canvas laid out at its backing-store size, so on a Retina display only her
+top-left quarter drew. dpr 1 is every test and every headless run, and at dpr 1 the bug does not
+exist. Fixed in `app/test/fairy.test.ts`'s commit — but treat it as the argument for doing the
+rest of ADR 0001's Risk A list by hand rather than assuming:
+
+- background genuinely transparent
+- click-through toggling both ways as the cursor crosses her
+- the global shortcut firing while another app has focus
+- idle CPU and memory re-measured over a long window, not 90 seconds
+
+The last one has moved since the ADR: the idle throttle it required is now in and should have
+roughly halved the CPU figure, so the bar is no longer 5% — anything not clearly under the
+spike's 2.4-2.6% is a regression. Check the settings window says 30fps before measuring, since
+it can now raise that.
 
 ## Traps in this codebase
 
@@ -194,9 +224,17 @@ Things that will mislead you if you read the code straight.
    only feeds Godot's own queue. A native helper is required on any platform. This is settled;
    do not go looking for a Godot-native solution.
 
-8. **The test suite has one failing test** in `test/test_ai_service.gd` and emits a lot of
-   `Stack underflow! (Engine Bug)` noise. There is no CI. NAV-82 is deliberately sequenced
-   *after* NAV-94 so CI is not built around a stack that may be retired.
+8. **The Godot test suite has one failing test** in `test/test_ai_service.gd` and emits a lot of
+   `Stack underflow! (Engine Bug)` noise. It still does; NAV-82 closed that half as superseded
+   rather than fixed, because `AIService.gd` is replaced rather than repaired. CI covers `app/`.
+
+Two in `app/`, which otherwise reads cleanly:
+
+9. **`FOLLOW_OFFSET` in `overlay.ts` reads as if following works.** It does not: she is placed
+   once at launch and never moves. NAV-102.
+
+10. **The `ToolRegistry` is empty and looks deliberate.** It is — for now — but it means every
+    capability the product is about is absent while the code around it looks finished. NAV-103.
 
 ---
 
@@ -217,7 +255,15 @@ Things that will mislead you if you read the code straight.
 ## Things only the owner can do
 
 Flag these rather than attempting them: rotating a leaked API key (NAV-81 is closed — key rotated,
-history rewritten); running anything that needs a macOS display, including the port's first
-launch; granting Accessibility and Screen Recording permissions. Any further `git push --force`
-or history rewrite still needs an explicit go-ahead and a confirmed backup first, same as
-NAV-81 did.
+history rewritten); anything that needs a real macOS display; granting Accessibility and Screen
+Recording permissions. Any further `git push --force` or history rewrite still needs an explicit
+go-ahead and a confirmed backup first, same as NAV-81 did.
+
+The port's first launch is done — see "Still owed on macOS" above for what a human still has to
+check by eye, and why the HiDPI bug found on that launch is the reason to check rather than
+assume. NAV-103 will need Screen Recording granted before it can be tested at all.
+
+Worth knowing about the automation gap, since it will keep mattering: Xvfb on Linux verifies
+plumbing — windows, IPC, a full exchange, settings reaching disk — and it runs at dpr 1 with no
+compositor, no transparency and no Spaces. Everything ADR 0001's Risk A list covers is precisely
+what it cannot see.
