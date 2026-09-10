@@ -69,8 +69,11 @@ clean up; build it correctly once.
 | 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. The settings window now carries the provider fields it needs, so what is left is first-run copy and the permissions rows. |
 | 6 | Port the shell and agent loop | 🟢 **Surfaces complete** in `app/`. Shell, prompt assembler, agent loop, emotion engine, chat surface, sentiment classification, settings and the prompt inspector panel, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. `takeTurn` has a caller: `main/conversation.ts` runs the exchange and both emotion passes. Driven end to end under Xvfb; **not yet launched on a real display** — 6a is now the blocker. |
 | 6a | Re-validate on macOS | **Do this before building further on it.** Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a long window. The ADR already required the re-measurement; the Electron bump from 33 to 44 (security advisories) widened what it covers. |
+| 6b | **NAV-102** Cursor following | The port has surfaces and no capabilities. These three are not new features — they are the existing product arriving on the new stack, which is why they sit above everything else. |
+| 6c | **NAV-103** Screen-capture tools | **The product.** "What's this near my cursor?" does not work: the tool registry is empty. Carries NAV-99's cursor anchoring across. |
+| 6d | **NAV-104** Voice in and out | Last of the three; a Navi who cannot see is broken, one who cannot speak is quiet. |
 | 7 | **NAV-89** Prebuilt native helper | Folds into the new build pipeline. |
-| 8 | ✅ **NAV-82** Tests and CI | **Done.** `.github/workflows/ci.yml` runs `app/`'s typecheck, 159 tests and build on push and PR. The Godot half closes as superseded — see the ticket. |
+| 8 | ✅ **NAV-82** Tests and CI | **Done.** `.github/workflows/ci.yml` runs `app/`'s typecheck, tests and build on push and PR. The Godot half closes as superseded — see the ticket. |
 
 **NAV-87** (SSE parser) and **NAV-88** (decompose AIService) close as superseded — not implemented.
 **NAV-98** (dead code) largely closes too: code that is never ported needs no deletion. Check the
@@ -722,6 +725,129 @@ silent failures.
 - [ ] With screen recording denied, a visual question yields an honest refusal, not a guess.
 - [ ] With no provider configured, Navi says so rather than failing silently.
 - [ ] Switching provider later does not require re-running onboarding.
+
+---
+
+## Phase 1b — Port the capabilities
+
+The port rebuilt the shell, the agent loop, the prompt, the emotion engine and the three windows.
+It did not port a single one of the Godot build's capabilities. She can hold a conversation and
+do nothing else, which is why these are numbered before the Phase 2 and 3 work: they are not new
+features, they are the existing product arriving on the new stack.
+
+### NAV-102: Port cursor following and flight (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** Navi to follow my cursor around the desktop
+- **So that:** She is a companion at hand rather than a window parked where she launched
+
+**Context:**
+`scripts/FollowController.gd` (205 lines) lerps her towards the cursor at `lerp_speed 6.0` with
+a `(20, 20)` offset, and also carries `fly_to_screen_coordinate()` and `navigate_sequence()` —
+the motion that pointing is built on.
+
+None of it is ported. `app/src/main/overlay.ts` positions her once at launch from
+`screen.getCursorScreenPoint()` and nothing moves her again. `FOLLOW_OFFSET` survives as a
+launch offset, which reads as if following works; the comment there now says otherwise.
+
+**Description:**
+Move the overlay window towards the cursor from the main process, and expose the flight
+primitive that NAV-103's `point_to` needs.
+
+**Requirements:**
+- Follow from the main process, not the renderer: the window position is main's to own, and
+  `click-through.ts` already polls the cursor there at 100ms. Consider whether one loop should
+  do both rather than two polls disagreeing about where the cursor is.
+- Keep the easing. Snapping her to the cursor is a different and worse product.
+- Respect the idle throttle. This is a per-frame window move on top of ADR 0001's weakest
+  result; measure idle CPU before and after and treat a regression as a defect.
+- She must not follow while the chat window is open and being typed into, or she walks off with
+  the panel anchored to her.
+- A `fly_to(x, y)` primitive that suspends following, animates to a coordinate, and restores.
+
+**Acceptance Criteria:**
+- [ ] She follows the cursor with easing, at the same offset as the Godot build.
+- [ ] Idle CPU is re-measured over a long window and has not regressed past ADR 0001's numbers.
+- [ ] Following pauses while the chat window has focus.
+- [ ] The placement maths is pure and tested, as `chatBounds` is — the window call is not.
+
+---
+
+### NAV-103: Port the screen-capture tools (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** To ask "what's this near my cursor?" and get an answer about what is actually there
+- **So that:** Navi is useful for the thing she exists to do
+
+**Context:**
+This is the product. The owner's own description in HANDOFF.md leads with it: *"Instead of
+screenshotting something weird and sending it to Claude, I should be able to say 'hey Navi,
+what's this near my cursor?'"*
+
+`app/src/main/index.ts` creates an empty `ToolRegistry` and registers nothing. The Godot build
+has `ScreenCaptureService.gd` plus `TakeScreenshotSkill.gd` and `TakeCropScreenshotSkill.gd`.
+
+**NAV-99 is the part that must not be lost in translation.** Its fix was to anchor the crop on
+where the cursor was *when the user asked*, not on the fairy's own body — the Godot build did
+the latter, which is most of why "what's this?" answered about the wrong thing. The port already
+carries the prompt half: `CURSOR_ANCHORING` in `app/src/prompt/builder.ts`, gated on the
+`cursorAnchored` flag that `takeTurn` accepts and nothing currently sets. Setting it is part of
+this ticket.
+
+**Description:**
+Register a screen-capture tool and a cursor-anchored crop tool, and wire the multimodal turn.
+
+**Requirements:**
+- Capture via Electron's `desktopCapturer`; no native helper needed for reading pixels.
+- Sample the cursor at the moment the user sends, not when the tool runs. A crop centred on
+  where the cursor drifted to is NAV-99 all over again.
+- Pass the image as a multimodal message part. `session.ts`'s `userText` already skips non-text
+  parts when counting prompt words, so that path is ready.
+- Set `cursorAnchored` on the turn so Layer 3 explains the crop to the model.
+- Screen content is untrusted input. The identity layer already says so (NAV-91); check the
+  wording still reads correctly once a capture can actually reach her.
+- macOS Screen Recording permission has to be requested and its absence handled with a real
+  message, not a silent empty capture.
+
+**Acceptance Criteria:**
+- [ ] `point_to`-free capture works: she can describe what is on screen.
+- [ ] The crop is centred on the cursor position at send time, verified with a marker.
+- [ ] A denied Screen Recording permission produces a clear message, not a blank image.
+- [ ] `powerRelevant` goes true on a capture turn, so the emotion engine sees the tool run.
+
+---
+
+### NAV-104: Port voice in and out (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** To talk to Navi and hear her answer
+- **So that:** She is a presence rather than another chat box
+
+**Context:**
+`scripts/STTService.gd` and `scripts/TTSService.gd` drive `bin/whisper-cli` and `bin/piper`,
+both still tracked. `setup_models.sh` fetches the two Piper voices. Nothing in `app/` touches
+any of it.
+
+Sequenced after NAV-102 and NAV-103 because it is the least load-bearing of the three: a Navi
+who cannot see the screen is broken, a Navi who cannot speak is quiet.
+
+**Description:**
+Port speech-to-text and text-to-speech onto the Electron stack.
+
+**Requirements:**
+- Keep the existing binaries and voice models rather than adding a cloud dependency; ADR 0001's
+  offline-first rule covers this too.
+- Streaming TTS, or at least sentence-at-a-time. Waiting for a finished reply before she starts
+  speaking undoes the point of streaming the text.
+- Push-to-talk needs a key that works while the overlay is click-through — same constraint as
+  the summon hotkey, so a global shortcut, not an in-window binding.
+- Check `enable_push_to_talk` and the thinking-model key survive into the new settings layer;
+  NAV-98 flagged both as items to carry across.
+
+**Acceptance Criteria:**
+- [ ] Speaking to her produces a turn; her reply is spoken.
+- [ ] It works with no network beyond localhost.
+- [ ] Audio failures degrade to text rather than killing the turn, as sentiment classification does.
 
 ---
 

@@ -165,8 +165,27 @@ as text in that prompt, and this is where you check that they did.
 
 ## Not done yet
 
-**A launch on a real display.** The app has been driven end to end under Xvfb on Linux — both
-windows, the IPC, a full exchange against a local OpenAI-compatible server — but the overlay
-behaviour that matters is macOS-specific and has never run there. Before trusting it, re-run
-ADR 0001's Risk A checks: the window options are carried from a spike measured on Electron 33,
-and this is 44.
+The surfaces are built. The capabilities are not — that is the honest summary, and the section
+below is the detail.
+
+**She has no tools.** `main/index.ts` creates an empty `ToolRegistry` and registers nothing, so
+she can hold a conversation and do nothing else. The Godot build's five skills — screenshot,
+cursor-anchored crop screenshot, point-to, session summary, heavy-thinking model swap — are all
+unported. The first two are the ones the product is actually about: "hey Navi, what's this near
+my cursor?" does not work yet (NAV-103).
+
+**She does not follow the cursor.** `FollowController.gd` lerps her towards it every frame and
+flies her to a coordinate for pointing. Neither is ported: `createOverlay` places her once at
+launch and she stays there. `FOLLOW_OFFSET` is a launch offset despite its name (NAV-102).
+
+**She has no voice.** `STTService.gd` and `TTSService.gd` drive `bin/whisper-cli` and
+`bin/piper`, which are still tracked in the repository. Nothing in `app/` touches them
+(NAV-104).
+
+**A launch on a real display, properly.** She now runs on macOS, and the first launch found a
+bug the whole automated suite could not: the canvas laid out at its backing-store size, so on a
+Retina display only her top-left quarter was visible. Every test and every headless run is
+dpr 1, where that is invisible. What still has not been done is the rest of ADR 0001's Risk A
+list — background genuinely transparent, click-through toggling both ways, the global shortcut
+firing while unfocused — and the idle CPU and memory re-measurement over a long window. Treat
+that HiDPI bug as the argument for doing them by hand rather than assuming.
