@@ -18,6 +18,17 @@ export interface ToolResult {
   content: string;
   /** Present when the tool produced an image, e.g. a screen capture. */
   imageBase64?: string;
+  /** MIME type of `imageBase64`. Defaults to image/jpeg, which is what the captures are. */
+  imageMime?: string;
+  /**
+   * True when the image is the cursor-anchored crop (NAV-99).
+   *
+   * It reaches the prompt rather than staying here: the agent loop turns it into the
+   * `cursorAnchored` flag, and Layer 3 then explains to the model what the crop is centred on.
+   * Without that the model reads "this" as "near the fairy", which is the bug NAV-99 exists to
+   * have fixed.
+   */
+  cursorAnchored?: boolean;
   isError?: boolean;
 }
 

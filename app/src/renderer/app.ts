@@ -18,6 +18,7 @@ declare global {
       onTint(fn: (c: { r: number; g: number; b: number }) => void): void;
       onBusy(fn: (busy: boolean) => void): void;
       onRates(fn: (r: { idle: number; active: number }) => void): void;
+      onPoint(fn: (relative: { x: number; y: number } | null) => void): void;
       requestChat(): void;
     };
   }
@@ -52,6 +53,11 @@ window.navi?.onBusy((busy) => {
   loop.markActive();
 });
 window.navi?.onRates((r) => loop.setRates(r.idle, r.active));
+// A flight is the most motion she ever makes, and the arrow has to keep up with it.
+window.navi?.onPoint((relative) => {
+  fairy.setPointer(relative);
+  loop.markActive();
+});
 // A cursor arriving over the fairy is motion worth spending frames on.
 window.navi?.onClickThrough((on) => {
   if (!on) loop.markActive();

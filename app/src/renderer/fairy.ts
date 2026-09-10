@@ -10,6 +10,9 @@ import { type Rgb } from '../shared/emotion.js';
 
 export const PARTICLE_COUNT = 48;
 
+/** How far out from her centre the pointing arrow sits — just past the aura, still in-window. */
+export const POINTER_TIP = 58;
+
 // The tint is computed in shared/emotion.ts so the main process can derive it too, without
 // pulling the canvas renderer into its bundle. Re-exported here because this is where callers
 // have always looked for it.
@@ -23,6 +26,12 @@ export interface Fairy {
   draw(t: number, dt: number): void;
   setTint(c: Rgb): void;
   setStatusLight(c: StatusLight | null): void;
+  /**
+   * Where she is pointing, relative to the centre of this window, or null when she is not
+   * (NAV-103). The main process does the subtraction — see `main/follow.ts`'s `onFlight` — so
+   * this never needs to know where its own window is on screen, which it cannot find out.
+   */
+  setPointer(relative: { x: number; y: number } | null): void;
   readonly particleCount: number;
 }
 
@@ -76,6 +85,7 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
 
   let tint: Rgb = opts.tint ?? { r: 102, g: 178, b: 255 };
   let statusLight: StatusLight | null = null;
+  let pointer: { x: number; y: number } | null = null;
 
   function draw(t: number, dt: number): void {
     ctx!.clearRect(0, 0, size, size);
@@ -136,6 +146,29 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
     ctx!.arc(cx, cy, 9 * breathe, 0, Math.PI * 2);
     ctx!.fill();
 
+    // The pointing arrow (NAV-103). Drawn on the far edge of her aura, aimed the way she is
+    // travelling, and fading out as she arrives — an arrow at the destination points at itself.
+    if (pointer) {
+      const distance = Math.hypot(pointer.x, pointer.y);
+      const strength = Math.min(1, distance / 120);
+      if (strength > 0.02) {
+        const angle = Math.atan2(pointer.y, pointer.x);
+        ctx!.save();
+        ctx!.translate(cx, cy);
+        ctx!.rotate(angle);
+        ctx!.globalAlpha = strength;
+        ctx!.fillStyle = `rgba(${r},${g},${b},0.9)`;
+        ctx!.beginPath();
+        ctx!.moveTo(POINTER_TIP, 0);
+        ctx!.lineTo(POINTER_TIP - 11, -6.5);
+        ctx!.lineTo(POINTER_TIP - 8, 0);
+        ctx!.lineTo(POINTER_TIP - 11, 6.5);
+        ctx!.closePath();
+        ctx!.fill();
+        ctx!.restore();
+      }
+    }
+
     // Status light above the core (amber = tool running, purple = thinking)
     if (statusLight) {
       const pulse = statusLight.pulsing ? 0.5 + Math.abs(Math.sin(t * 0.006)) * 0.5 : 1;
@@ -153,6 +186,9 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
     },
     setStatusLight: (c) => {
       statusLight = c;
+    },
+    setPointer: (relative) => {
+      pointer = relative;
     },
     get particleCount() {
       return particles.length;

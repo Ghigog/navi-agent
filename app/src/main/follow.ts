@@ -45,6 +45,16 @@ export interface FollowOptions {
   cursor: CursorSource;
   offset?: Point;
   speed?: number;
+  /**
+   * Called while she is flying, with the target expressed relative to the centre of her window,
+   * and once with `null` when the flight ends (NAV-103).
+   *
+   * This exists because of a real gap: the renderer draws in window coordinates and is never
+   * told where its window is on screen, so it cannot work out which way "over there" is. Rather
+   * than teaching the renderer about screen space, the main process — which already knows both
+   * numbers, on the tick that moves her — does the subtraction and sends the answer.
+   */
+  onFlight?: (relative: Point | null) => void;
 }
 
 export interface Follow {
@@ -66,7 +76,10 @@ export interface Follow {
 }
 
 interface Flight {
+  /** Where the *window* is going: the target, offset so her body lands on it. */
   target: Point;
+  /** Where she is pointing at, in screen coordinates. What the user actually cares about. */
+  destination: Point;
   hold: number;
   startedAt: number | null;
   arrivedAt: number | null;
@@ -92,7 +105,10 @@ export function createFollow(opts: FollowOptions): Follow {
   const land = (): void => {
     const done = flight;
     flight = null;
-    done?.resolve();
+    if (done) {
+      opts.onFlight?.(null);
+      done.resolve();
+    }
   };
 
   const tick = (cursorPoint: Point, t: number): void => {
@@ -128,9 +144,18 @@ export function createFollow(opts: FollowOptions): Follow {
       applied = { x, y };
     }
 
-    if (flight !== null && settled(pos, flight.target)) {
-      if (flight.arrivedAt === null) flight.arrivedAt = t;
-      if (t - flight.arrivedAt >= flight.hold) land();
+    if (flight !== null) {
+      // Her body, not her window's corner: the window is 200px of mostly transparent aura, and
+      // an arrow drawn from its corner points from nowhere the user can see.
+      opts.onFlight?.({
+        x: flight.destination.x - (pos.x + bounds.width / 2),
+        y: flight.destination.y - (pos.y + bounds.height / 2),
+      });
+
+      if (settled(pos, flight.target)) {
+        if (flight.arrivedAt === null) flight.arrivedAt = t;
+        if (t - flight.arrivedAt >= flight.hold) land();
+      }
     }
   };
 
@@ -151,6 +176,7 @@ export function createFollow(opts: FollowOptions): Follow {
       return new Promise<void>((resolve) => {
         flight = {
           target: centreOn(point, bounds),
+          destination: { ...point },
           hold: flyOpts?.hold ?? DEFAULT_HOLD_MS,
           startedAt: null,
           arrivedAt: null,

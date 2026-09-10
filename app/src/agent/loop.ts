@@ -20,7 +20,7 @@
 
 import type OpenAI from 'openai';
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
-import type { ToolRegistry } from './tools.js';
+import type { ToolRegistry, ToolResult } from './tools.js';
 import type { ToolSchema } from '../prompt/types.js';
 
 export interface AgentEvents {
@@ -31,10 +31,28 @@ export interface AgentEvents {
   onToolEnd?(name: string, ok: boolean): void;
 }
 
+/**
+ * What a turn has learned about itself part-way through, and which the system prompt may need
+ * to be re-rendered for. Only one flag so far; see `systemPrompt` below for why it exists.
+ */
+export interface TurnFlags {
+  /** A cursor-anchored crop has entered the conversation this turn (NAV-99). */
+  cursorAnchored: boolean;
+}
+
 export interface RunOptions {
   client: OpenAI;
   model: string;
-  systemPrompt: string;
+  /**
+   * The system prompt, or a function of the turn's flags.
+   *
+   * A function because a screen capture arrives *during* a turn, not before it: the model asks
+   * for the crop, and only then is there a crop to explain. A fixed string would either carry
+   * NAV-99's anchoring note on every turn, including the ones with no image in them, or never
+   * carry it at all. When the flags change the system message is re-rendered in place, so the
+   * next request carries the explanation alongside the image it is about.
+   */
+  systemPrompt: string | ((flags: TurnFlags) => string);
   messages: ChatCompletionMessageParam[];
   registry: ToolRegistry;
   events?: AgentEvents;
@@ -83,12 +101,46 @@ export function parseToolArgs(raw: string): { ok: true; args: Record<string, unk
   }
 }
 
+/**
+ * Turns a tool result that produced an image into a message the model can actually see.
+ *
+ * It goes in as a *user* message rather than as the tool result, because the chat-completions
+ * schema has no place for an image on a `role: "tool"` message — Ollama and OpenAI both ignore
+ * one. The text part names the tool that produced it, so a turn that captured twice is not
+ * ambiguous about which image is which, and says out loud that this is a picture rather than
+ * the user talking: the user role is the trusted one, and a screenshot is not.
+ *
+ * Deliberately not added to the caller's history: `conversation.ts` keeps the transcript, and a
+ * screen capture is true about the moment it was taken and misleading five turns later. The
+ * identity layer already tells her to trust a current capture over her memory of one; keeping
+ * stale images out of the context is the same rule, enforced rather than asked for.
+ */
+export function imageMessage(name: string, result: ToolResult): ChatCompletionMessageParam {
+  const mime = result.imageMime ?? 'image/jpeg';
+  return {
+    role: 'user',
+    content: [
+      // Labelled as a capture rather than left bare, because it arrives in the *user* role and
+      // must not read as the user speaking. Anything written on the screen is then screen
+      // content, which Layer 1 has already told her is information and never instruction
+      // (NAV-91).
+      { type: 'text', text: `Screen capture from ${name}. This is a picture of the screen, not something the user typed.` },
+      { type: 'image_url', image_url: { url: `data:${mime};base64,${result.imageBase64 ?? ''}` } },
+    ],
+  };
+}
+
 export async function run(opts: RunOptions): Promise<RunResult> {
   const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const tools = toOpenAITools(opts.registry.schemas());
 
+  const renderSystem =
+    typeof opts.systemPrompt === 'function' ? opts.systemPrompt : (): string => opts.systemPrompt as string;
+
+  const flags: TurnFlags = { cursorAnchored: false };
+
   const messages: ChatCompletionMessageParam[] = [
-    { role: 'system', content: opts.systemPrompt },
+    { role: 'system', content: renderSystem(flags) },
     ...opts.messages,
   ];
 
@@ -165,6 +217,15 @@ export async function run(opts: RunOptions): Promise<RunResult> {
       opts.events?.onToolEnd?.(call.name, result.isError !== true);
 
       messages.push({ role: 'tool', tool_call_id: call.id, content: result.content });
+
+      if (result.imageBase64 !== undefined && result.imageBase64 !== '') {
+        if (result.cursorAnchored === true && !flags.cursorAnchored) {
+          flags.cursorAnchored = true;
+          // In place, so the explanation and the image reach the model in the same request.
+          messages[0] = { role: 'system', content: renderSystem(flags) };
+        }
+        messages.push(imageMessage(call.name, result));
+      }
     }
   }
 

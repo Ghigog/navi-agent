@@ -277,3 +277,50 @@ describe('explain', () => {
     expect(explain(new Error('401 Incorrect API key'), settings)).toBe('401 Incorrect API key');
   });
 });
+
+describe('freezing the turn (NAV-99)', () => {
+  it('takes the cursor sample before anything can await', async () => {
+    // The ordering is the whole point. A sample taken after the classifier round-trip is a
+    // sample of wherever the user's hand has wandered to in the meantime.
+    const order: string[] = [];
+    const { provider } = fakeProvider(['hi']);
+    const emotion = fakeStore();
+
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => {
+        order.push('provider');
+        return provider;
+      },
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      emit: () => {},
+      onSend: () => order.push('freeze'),
+      classify: async () => {
+        order.push('classify');
+        return 'neutral';
+      },
+    });
+
+    await conversation.send('what is this?');
+    expect(order).toEqual(['freeze', 'provider', 'classify']);
+  });
+
+  it('does not freeze on a message that is not a turn', async () => {
+    let frozen = 0;
+    const { provider } = fakeProvider(['hi']);
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      emit: () => {},
+      onSend: () => frozen++,
+      classify: async () => 'neutral',
+    });
+
+    await conversation.send('   ');
+    expect(frozen).toBe(0);
+  });
+});

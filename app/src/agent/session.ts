@@ -11,7 +11,7 @@ import { assemble, sections } from '../prompt/builder.js';
 import { record } from '../prompt/inspector.js';
 import type { EmotionSnapshot } from '../prompt/types.js';
 import { retrievalRelevance, type TurnOutcome } from '../shared/emotion.js';
-import { run, type AgentEvents, type RunResult } from './loop.js';
+import { run, type AgentEvents, type RunResult, type TurnFlags } from './loop.js';
 import type { Provider } from './client.js';
 import type { ToolRegistry } from './tools.js';
 import type { Settings } from '../shared/settings.js';
@@ -22,7 +22,12 @@ export interface TurnOptions {
   settings: Settings;
   messages: ChatCompletionMessageParam[];
   emotion?: EmotionSnapshot;
-  /** Set when this turn carries a cursor-anchored crop (NAV-99). */
+  /**
+   * Set when this turn is known to carry a cursor-anchored crop before it starts (NAV-99).
+   *
+   * Usually it is not known: the crop arrives when the model asks for it, part-way through, and
+   * the loop raises the flag then. This is the seam for a caller that captures up front.
+   */
   cursorAnchored?: boolean;
   memory?: readonly string[];
   events?: AgentEvents;
@@ -64,10 +69,22 @@ export async function takeTurn(opts: TurnOptions): Promise<TurnResult> {
     ...(opts.settings.systemPrompt ? { userInstructions: opts.settings.systemPrompt } : {}),
   };
 
-  const systemPrompt = assemble(ctx);
-  // Recorded before the request, so a request that fails or hangs still leaves an inspectable
-  // prompt behind. A prompt you can only see on success is no use when debugging a failure.
-  record(systemPrompt, sections(ctx));
+  /**
+   * Renders the prompt for the turn as it currently stands, and records it for the inspector.
+   *
+   * Called once before the first request and again whenever the loop learns something the
+   * prompt depends on — today, that a cursor-anchored crop has entered the conversation. The
+   * recording happens on every render rather than only the first, so the inspector shows the
+   * prompt that was actually in force when she answered, which is the one with the anchoring
+   * note in it. Recording *before* the request is the older rule and still holds: a request
+   * that hangs or fails must still leave an inspectable prompt behind.
+   */
+  const render = (flags: TurnFlags): string => {
+    const turnCtx = flags.cursorAnchored ? { ...ctx, cursorAnchored: true as const } : ctx;
+    const prompt = assemble(turnCtx);
+    record(prompt, sections(turnCtx));
+    return prompt;
+  };
 
   let toolsRan = 0;
   let toolsFailed = 0;
@@ -83,7 +100,7 @@ export async function takeTurn(opts: TurnOptions): Promise<TurnResult> {
   const result = await run({
     client: opts.provider.client,
     model: opts.provider.model,
-    systemPrompt,
+    systemPrompt: render,
     messages: opts.messages,
     registry: opts.registry,
     events,

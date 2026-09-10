@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import type OpenAI from 'openai';
 import { takeTurn } from '../src/agent/session.js';
 import { createProvider } from '../src/agent/client.js';
-import { ToolRegistry } from '../src/agent/tools.js';
+import { ToolRegistry, type Tool } from '../src/agent/tools.js';
 import { lastPrompt, reset } from '../src/prompt/inspector.js';
 import { DEFAULTS, type Settings } from '../src/shared/settings.js';
 import { evaluate, NEUTRAL } from '../src/shared/emotion.js';
@@ -160,6 +160,49 @@ describe('takeTurn', () => {
     expect(turn.exhausted).toBe(true);
     expect(turn.outcome.analysisFailed).toBe(true);
     expect(evaluate(NEUTRAL, turn.outcome).state.power).toBeLessThan(0);
+  });
+
+  it('scores a capture turn as one where she acted (NAV-103)', async () => {
+    // powerRelevant is what lets the emotion engine move Power at all — emotions.md §4.1 gates
+    // each dimension on the turn having actually exercised it. A capture is her doing something
+    // in the world, and it should count as such.
+    const capture: Tool = {
+      schema: {
+        name: 'look_near_cursor',
+        description: 'Look near the cursor.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+      run: async () => ({ content: 'captured.', imageBase64: 'AAAA', cursorAnchored: true }),
+    };
+    const registry = new ToolRegistry();
+    registry.register(capture);
+
+    // Two round trips: ask for the picture, then answer about it.
+    const turns: Array<Array<Record<string, unknown>>> = [
+      [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'look_near_cursor', arguments: '{}' } }] } }] }],
+      [{ choices: [{ delta: { content: 'a terminal' } }] }],
+    ];
+    let n = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async () => {
+            const chunks = turns[n++] ?? [];
+            return (async function* () {
+              for (const c of chunks) yield c;
+            })();
+          },
+        },
+      },
+    };
+    const provider = { client: client as unknown as OpenAI, model: 'm', remote: false };
+
+    const turn = await takeTurn({ provider, registry, settings: settings(), messages: [] });
+
+    expect(turn.outcome.powerRelevant).toBe(true);
+    expect(turn.outcome.toolSucceeded).toBe(true);
+    // And the crop explained itself to the model, without the caller having to know in advance.
+    expect(lastPrompt()?.prompt).toContain('not on you');
   });
 
   it('omits the cursor-anchoring block unless the turn is cursor anchored', async () => {

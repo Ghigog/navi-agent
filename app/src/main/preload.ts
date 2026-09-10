@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld('navi', {
   /** Frame rates from settings, sent on load and whenever they are edited. */
   onRates: (fn: (r: { idle: number; active: number }) => void) =>
     ipcRenderer.on('rates', (_e, r) => fn(r)),
+  /**
+   * Where she is pointing, relative to the centre of this window, or null when she is not
+   * (NAV-103). Sent from the main process because the renderer cannot find out where its own
+   * window is on screen.
+   */
+  onPoint: (fn: (relative: { x: number; y: number } | null) => void) =>
+    ipcRenderer.on('point', (_e, relative) => fn(relative)),
   /** Clicking her opens the chat window. The hotkey should not be the only way in. */
   requestChat: () => ipcRenderer.send('chat:open'),
 });

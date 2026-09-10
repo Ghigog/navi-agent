@@ -64,6 +64,15 @@ export interface ConversationDeps {
   registry: ToolRegistry;
   emotion: EmotionStore;
   emit(event: ChatEvent): void;
+  /**
+   * Called the instant a message is accepted, before anything async happens.
+   *
+   * This is where the turn's view of the world outside the conversation is frozen — today, the
+   * cursor sample the screen tools crop around (NAV-99). It lives here rather than in the IPC
+   * handler so that it cannot be forgotten by a second caller: every route into a turn goes
+   * through `send`, and every turn therefore gets its sample.
+   */
+  onSend?(): void;
   /** Injectable so a test can fix the sentiment without also faking a second model call. */
   classify?: typeof classifySentiment;
 }
@@ -137,6 +146,10 @@ export function createConversation(deps: ConversationDeps): Conversation {
       // A second message while she is still answering is dropped rather than queued: the chat
       // window disables its input while a turn runs, so reaching here means something odd.
       if (asked === '' || inFlight !== null) return;
+
+      // Before the provider, before the classifier, before anything that can await: the whole
+      // point of the sample is that it is of the moment they asked.
+      deps.onSend?.();
 
       const settings = deps.settings();
 

@@ -205,3 +205,89 @@ describe('helpers', () => {
     expect(tool).toMatchObject({ type: 'function', function: { name: 'capture_near_cursor' } });
   });
 });
+
+describe('an image from a tool (NAV-103)', () => {
+  const imageTool = (result: { content: string; imageBase64?: string; cursorAnchored?: boolean }): Tool => ({
+    schema: {
+      name: 'look_near_cursor',
+      description: 'Look at the area around the cursor.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+    run: async () => result,
+  });
+
+  /** The parts of a multimodal user message, which is how an image reaches the model. */
+  function imageParts(body: Record<string, unknown>) {
+    const messages = body['messages'] as Array<{ role: string; content: unknown }>;
+    const last = messages.filter((m) => m.role === 'user' && Array.isArray(m.content)).at(-1);
+    return (last?.content ?? []) as Array<Record<string, unknown>>;
+  }
+
+  it('reaches the model as a user message part, since a tool message cannot carry one', async () => {
+    const { client, calls } = fakeClient([
+      toolCallChunks('look_near_cursor', '{}'),
+      textChunks('a terminal'),
+    ]);
+    const registry = registryWith(imageTool({ content: 'captured.', imageBase64: 'AAAA' }));
+
+    const result = await run({ ...base, client, registry });
+
+    expect(result.text).toBe('a terminal');
+    const parts = imageParts(calls[1]!);
+    // Named, and marked as a picture rather than as the user speaking (NAV-91).
+    expect(parts[0]).toEqual({
+      type: 'text',
+      text: 'Screen capture from look_near_cursor. This is a picture of the screen, not something the user typed.',
+    });
+    expect(parts[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/jpeg;base64,AAAA' },
+    });
+  });
+
+  it('sends no image part for a tool that returned only text', async () => {
+    const { client, calls } = fakeClient([toolCallChunks('capture_near_cursor', '{"reason":"x"}'), textChunks('ok')]);
+    await run({ ...base, client, registry: registryWith(echoTool()) });
+    expect(imageParts(calls[1]!)).toHaveLength(0);
+  });
+
+  it('re-renders the system prompt once a cursor-anchored crop arrives (NAV-99)', async () => {
+    const { client, calls } = fakeClient([
+      toolCallChunks('look_near_cursor', '{}'),
+      textChunks('a terminal'),
+    ]);
+    const registry = registryWith(imageTool({ content: 'captured.', imageBase64: 'AAAA', cursorAnchored: true }));
+
+    const rendered: boolean[] = [];
+    await run({
+      ...base,
+      client,
+      registry,
+      systemPrompt: (flags) => {
+        rendered.push(flags.cursorAnchored);
+        return flags.cursorAnchored ? 'sys + anchored' : 'sys';
+      },
+    });
+
+    // Rendered once up front with no crop in sight, and again when one arrived — so the
+    // explanation and the image reach the model in the same request.
+    expect(rendered).toEqual([false, true]);
+    const system = (calls[1]!['messages'] as Array<{ role: string; content: string }>)[0];
+    expect(system).toEqual({ role: 'system', content: 'sys + anchored' });
+  });
+
+  it('leaves the prompt alone for an unanchored capture', async () => {
+    const { client, calls } = fakeClient([toolCallChunks('look_near_cursor', '{}'), textChunks('ok')]);
+    const registry = registryWith(imageTool({ content: 'captured.', imageBase64: 'AAAA' }));
+
+    await run({
+      ...base,
+      client,
+      registry,
+      systemPrompt: (flags) => (flags.cursorAnchored ? 'sys + anchored' : 'sys'),
+    });
+
+    const system = (calls[1]!['messages'] as Array<{ role: string; content: string }>)[0];
+    expect(system?.content).toBe('sys');
+  });
+});

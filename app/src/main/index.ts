@@ -22,6 +22,8 @@ import { load, save } from './settings-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
 import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
+import { createScreenTools } from '../agent/screen.js';
+import { createScreenPort } from './screen.js';
 import { lastPrompt } from '../prompt/inspector.js';
 import { describe, tintFor } from '../shared/emotion.js';
 import { view, type Settings } from '../shared/settings.js';
@@ -41,19 +43,35 @@ app.whenReady().then(() => {
   // would sample it at two rates and disagree about where it is (NAV-102).
   cursor = createCursorSource({ read: () => screen.getCursorScreenPoint(), fps: current.idleFps });
   clickThrough = attachClickThrough(win, cursor);
-  follow = createFollow({ window: win, cursor });
+  follow = createFollow({
+    window: win,
+    cursor,
+    // The renderer draws the pointing arrow but cannot know which way to aim it; this is the
+    // one place that knows both her window's position and where she is going (NAV-103).
+    onFlight: (relative) => win?.webContents.send('point', relative),
+  });
   chat = createChatWindow({ onVisibility: (open) => follow?.setPaused('chat', open) });
   settings = createSettingsWindow();
 
-  // Empty for now. Tools reach the model as native schemas and the model picks; nothing here
-  // or anywhere else inspects the user's text to choose one (NAV-83).
+  // Tools reach the model as native schemas and the model picks; nothing here or anywhere else
+  // inspects the user's text to choose one (NAV-83).
   const registry = new ToolRegistry();
+  const screenTools = createScreenTools({
+    screen: createScreenPort(),
+    cursor: () => cursor?.current() ?? screen.getCursorScreenPoint(),
+    // Never rejects — a pointing gesture that goes wrong costs the gesture, not the turn.
+    point: async (target) => follow?.flyTo(target),
+  });
+  for (const tool of screenTools.tools) registry.register(tool);
 
   const conversation = createConversation({
     settings: load,
     createProvider,
     registry,
     emotion: { load: loadEmotion, record: recordEmotion },
+    // NAV-99: the crop is centred on where the cursor was when they asked, not on where it has
+    // drifted to by the time the model gets round to asking for a picture.
+    onSend: () => screenTools.freeze(),
     emit: (event) => {
       chat?.send('chat:event', event);
       // The fairy shows the same state the chat window does — she is the one having the

@@ -224,3 +224,55 @@ describe('createFollow', () => {
     expect(w.at()).toEqual({ x: 0, y: 0 });
   });
 });
+
+describe('the pointing arrow (NAV-103)', () => {
+  it('reports the target relative to her body while she flies, and null when she lands', async () => {
+    const cursor = fakeCursor({ x: 0, y: 0 });
+    const win = fakeWindow({ x: 0, y: 0 });
+    const seen: Array<{ x: number; y: number } | null> = [];
+
+    const follow = createFollow({
+      window: win.win,
+      cursor: cursor.source,
+      onFlight: (relative) => seen.push(relative),
+    });
+
+    const target = { x: 900, y: 600 };
+    const flight = follow.flyTo(target, { hold: 0 });
+    // Two ticks: the first establishes the clock (dt is zero and nothing moves), the second is
+    // the first frame of the flight.
+    cursor.tick(2);
+
+    // First report: she has barely moved, so the arrow points most of the way across the screen.
+    const first = seen[0];
+    expect(first).not.toBeNull();
+    expect(first!.x).toBeGreaterThan(0);
+    expect(first!.y).toBeGreaterThan(0);
+
+    cursor.tick(240);
+    await flight;
+
+    // The last thing the renderer is told is that there is nothing to point at any more.
+    expect(seen.at(-1)).toBeNull();
+
+    // And on the way, the arrow shrank towards her: she arrived at the thing it pointed to.
+    const nonNull = seen.filter((s): s is { x: number; y: number } => s !== null);
+    const shortest = nonNull.at(-1)!;
+    expect(Math.hypot(shortest.x, shortest.y)).toBeLessThan(Math.hypot(first!.x, first!.y));
+
+    follow.stop();
+  });
+
+  it('says nothing while she is merely following', () => {
+    const cursor = fakeCursor({ x: 0, y: 0 });
+    const win = fakeWindow({ x: 0, y: 0 });
+    const seen: unknown[] = [];
+
+    const follow = createFollow({ window: win.win, cursor: cursor.source, onFlight: (r) => seen.push(r) });
+    cursor.moveTo({ x: 400, y: 400 });
+    cursor.tick(20);
+
+    expect(seen).toHaveLength(0);
+    follow.stop();
+  });
+});
