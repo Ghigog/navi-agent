@@ -1,29 +1,23 @@
-# Godot 4+ specific ignores
-.godot/
-/android/
-.aider*
+# Node
+node_modules/
+dist/
 
 # Local scratch and test outputs
 scratch/
 *.wav
 *.wav.import
 .DS_Store
-addons/.DS_Store
 bin/.DS_Store
 bin/voices/.DS_Store
+.aider*
 
-# Exclude specific files exceeding GitHub's 100MB limit
+# Voice and speech models are fetched by setup_models.sh, not tracked in git. The two .onnx
+# voices were also the reason .git was 116MB before NAV-81 rewrote history.
 bin/ggml-base.en.bin
-bin/voices/en_US-ljspeech-high.onnx
+bin/voices/*.onnx
 bin/voices/en_US-ljspeech-high.onnx.json
 
-# Voice models are fetched by setup_models.sh, not tracked in git
-bin/voices/*.onnx
-
-# Dead scratch output, never intentionally committed
-reconstructed_aiservice_step*.txt
-
-# Never commit run logs — SettingsManager used to print the whole settings
-# dictionary, which put a live API key into a committed log (NAV-81).
+# Never commit run logs — the Godot SettingsManager used to print the whole settings dictionary,
+# which put a live API key into a committed log (NAV-81). The rule outlived the app.
 test_run.log
 *.log

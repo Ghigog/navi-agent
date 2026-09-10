@@ -1,10 +1,8 @@
-# CI for the Electron port (NAV-82).
+# CI (NAV-82).
 #
-# NAV-82 was written against the Godot suite and deliberately sequenced after the platform
-# decision, so that CI would not be built around a stack that might be retired. NAV-94 retired
-# it: the root Godot app still runs, but nothing new is written against it and its suite keeps
-# the one failing test and the engine-error noise NAV-82 catalogued. This covers `app/`, which
-# is where the work is.
+# One suite, because there is one app. NAV-82 was written against the Godot suite and
+# deliberately sequenced after the platform decision, so CI would not be built around a stack
+# that might be retired; NAV-94 chose the replacement and NAV-105 deleted the original.
 #
 # The whole suite is offline — no display, no network, no model. That is a property worth
 # keeping: a check that needs Ollama running is a check that goes red for reasons that are not
@@ -28,11 +26,8 @@ concurrency:
 
 jobs:
   app:
-    name: app (typecheck, tests, build)
+    name: typecheck, tests, build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +36,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install
         run: npm ci
@@ -49,7 +44,7 @@ jobs:
           # The `electron` package's postinstall downloads a ~150MB binary that nothing here
           # uses: the tests are Electron-free by design and the build marks electron external.
           # Skipping it removes a slow, network-dependent step and the partial-download failure
-          # mode documented in app/README.md.
+          # mode documented in README.md.
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
       - name: Typecheck

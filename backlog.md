@@ -37,25 +37,25 @@ IDs precisely because numbering was doing double duty as sequence.
 
 Work top to bottom. Anything marked **parallel** can run alongside the item above it.
 
-### 1. Finish the port's capabilities
+### 1. Finish the port's capabilities — **done**
 
-The port has surfaces and, since NAV-102, one capability. These are not new features — they are the
-existing product arriving on the new stack, which is why nothing else outranks them.
+These were not new features. They were the existing product arriving on the new stack, which is why
+nothing else outranked them.
 
-| Order | Ticket | Why here |
+| Order | Ticket | Outcome |
 |---|---|---|
-| 1 | **NAV-103** Screen-capture tools | **The product.** The owner's description leads with "what's this near my cursor?" and it does not work: the `ToolRegistry` is empty. Carries NAV-99's cursor anchoring across, and gives `flyTo` its first caller. |
-| 2 | **NAV-104** Voice in and out | A Navi who cannot see is broken; one who cannot speak is quiet. Absorbs the two items worth keeping from NAV-98. |
-| 3 | **NAV-92** Onboarding | *Parallel with 1-2.* Mostly product and copy, and the settings window is most of its second half already. Its permissions checklist only becomes real once NAV-103 needs Screen Recording, so start the copy now and wire the rows then. |
-| 4 | **NAV-97** Companion-first identity | *Parallel.* Half of it is already in the port — the honesty-outranks-mood rule is in the identity layer with tests on it. What is left is `mission_statement.md`, and telling the **user** she has moods, which is a paragraph inside NAV-92's onboarding copy. Finish it there rather than as its own pass. |
+| 1 | **NAV-103** Screen-capture tools | **Done.** Three tools, NAV-99's anchoring carried across as a structural property rather than a comment, and `flyTo` has its caller. |
+| 2 | **NAV-104** Voice in and out | **Done.** Piper and whisper, sentence-at-a-time, degrading to text on every failure. Absorbed NAV-98's two live items. |
+| 3 | **NAV-92** Onboarding | **Done.** Both provider paths as equals, and a permission checklist that polls. |
+| 4 | **NAV-97** Companion-first identity | **Done.** Recorded in `mission_statement.md`, pinned by `test/identity.test.ts`, and told to the user in her own voice during first run. |
 
-### 2. End the migration
+### 2. End the migration — **done**
 
-| Order | Ticket | Why here |
+| Order | Ticket | Outcome |
 |---|---|---|
-| 5 | **NAV-105** Retire the Godot app | The root project is still the one that runs. Every ticket below has to be asked "on which app?" until this lands, and answering it twice is how a port stays half-finished for a year. Do it the moment 1-4 give parity. |
+| 5 | **NAV-105** Retire the Godot app | **Done.** The Godot project is deleted, the port moved to the repository root, and there is one README. The parity behind it is code-level and test-level; the hand check on macOS is still owed. |
 
-### 3. Companion depth
+### 3. Companion depth — next
 
 What the owner described wanting, in roughly the order the description names it. None of it needs
 computer use.
@@ -101,13 +101,25 @@ it is how "what's this near my cursor?" stays broken for another six months.
 - **NAV-98** — closed. Every line it names is in code the port does not carry; its two live items
   moved into NAV-104.
 
-### What a human still owes, before 1 gets far
+### What a human still owes
 
-Re-run ADR 0001's Risk A list by hand on macOS: transparency, click-through toggling both ways,
-the global shortcut firing while another app has focus, and idle CPU and memory re-measured over a
-long window with following on. Xvfb runs at dpr 1 with no compositor and no Spaces, which is
-precisely the set it cannot see — the HiDPI bug on the first real launch is the proof. NAV-103
-cannot be tested at all until Screen Recording is granted.
+Sections 1 and 2 are complete in code and in tests, and untried on a real machine. Nothing below
+is a known defect; all of it is a check no headless environment can perform.
+
+- ADR 0001's Risk A list, by hand on macOS: transparency, click-through toggling both ways, the
+  global shortcut firing while another app has focus, and idle CPU and memory re-measured over a
+  long window **with following and the cursor poll running**. Xvfb runs at dpr 1 with no
+  compositor and no Spaces, which is precisely the set it cannot see — the HiDPI bug on the first
+  real launch is the proof.
+- Grant Screen Recording, then ask her "what's this?" with the cursor over something specific.
+  The arithmetic and the freeze ordering are pinned by tests; whether the crop lands on the right
+  thing is an eye test.
+- `point_to`: whether she flies to roughly where she says, and whether the arrow points the right
+  way on the way there.
+- Voice, end to end: `./setup_models.sh`, `./install_piper.sh`, then turn both halves on and see
+  whether she sounds like anything and hears anything.
+- First run on a clean account, both provider paths, and whether each permission deep link opens
+  the pane it claims to.
 
 ---
 
@@ -370,7 +382,7 @@ The Godot app in the repository root is still the one that runs. Until that stop
 every ticket below has to be asked "on which app?" — and the honest answer, twice, is the more
 expensive one.
 
-### NAV-105: Retire the Godot app (Backlog)
+### NAV-105: Retire the Godot app (Done)
 **User Story:**
 - **As a:** Maintainer
 - **I want:** One Navi, not two
@@ -380,8 +392,8 @@ expensive one.
 There is no ticket for the migration actually finishing, which is how a port stays half-done for a
 long time. The Electron app in `app/` is not a rewrite that might land; it is the app, and the Godot
 project in the repository root is the one still running. Both being present is the reason
-`ai_agent.md` and `app/README.md` document two sets of conventions, and the reason NAV-98 exists at
-all.
+`ai_agent.md` and `app/README.md` documented two sets of conventions, and the reason NAV-98 existed
+at all.
 
 This ticket is the end of the migration, not a cleanup after it. Sequence it the moment the port has
 parity — NAV-103 and NAV-104 — and a first run somebody else could complete, NAV-92.
@@ -406,12 +418,28 @@ Delete the Godot project once the port has parity, and cut the docs down to one 
   around what remains rather than leaving warnings about a file that no longer exists.
 
 **Acceptance Criteria:**
-- [ ] `npm start` in `app/` is the only way to run Navi, and the README says so.
-- [ ] No `.gd`, `.tscn` or `.godot` file remains in the repository.
-- [ ] CI runs one suite, not two, and the Godot job is gone.
-- [ ] A reader who has never seen the repository can tell what the app is and how to run it from
-      the top-level README alone.
-- [ ] The parity checks are recorded in the deletion commit, by name, with their results.
+- [x] `npm start` is the only way to run Navi, and the README says so. `app/` moved to the
+      repository root rather than staying a subdirectory, because after the deletion the root
+      held nothing else.
+- [x] No `.gd`, `.tscn` or `.godot` file remains in the repository.
+- [x] CI runs one suite, not two. It already did — NAV-82 closed the Godot half as superseded —
+      so what changed is the `working-directory` and a comment that described two apps.
+- [x] A reader who has never seen the repository can tell what the app is and how to run it from
+      the top-level README alone. It is now the only README, with `app/README.md` folded into it.
+- [x] The parity checks are recorded in the deletion commit, by name, with their results.
+
+**`bin/` and `setup_models.sh` stay.** NAV-104 uses both binaries and both voice models, which is
+exactly the check this ticket asked for before deleting them.
+
+**`ai_agent.md` is gone rather than folded.** Static typing in GDScript, PascalCase scene names
+and the GUT test invocation are all specific to an engine that is no longer here; there was
+nothing in it that survived the app it described.
+
+**The parity claim is honest about its limits.** It is code-level and test-level — 280 tests, all
+offline — and not the hand check on macOS this ticket asked for first, which nothing in this
+environment can perform. See the deletion commit and `HANDOFF.md` for exactly what a human still
+has to try, and note that the Godot app remains in git history if any of it turns out to be
+wrong.
 
 ---
 
@@ -1079,7 +1107,7 @@ CI runs `app/`'s typecheck, tests and build on every push to `main` and on every
       failing assertion exits `npm test` non-zero, which is what turns the job red.
 - [x] The install skips the Electron binary download. Nothing in the suite uses it — the tests
       are Electron-free by design and the build marks electron external — and skipping it drops
-      ~150MB of network per run along with the partial-download failure mode in `app/README.md`.
+      ~150MB of network per run along with the partial-download failure mode in `README.md`.
 
 **The Godot half, superseded by NAV-94:**
 The original ticket also asked to fix the one failing assertion in `test/test_ai_service.gd` and
