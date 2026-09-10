@@ -1,0 +1,302 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Navi — Getting started</title>
+<style>
+  :root {
+    --bg: #16171e;
+    --panel: rgba(255, 255, 255, 0.045);
+    --line: rgba(255, 255, 255, 0.08);
+    --text: #e9e9ef;
+    --dim: #9aa0b2;
+    --faint: #767c8e;
+    --accent: #8ca5ff;
+    --good: #7fd39b;
+    --bad: #f08c8c;
+  }
+
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 14px 20px 12px 84px;
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  header p {
+    margin: 3px 0 0;
+    color: var(--dim);
+  }
+
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 20px 8px;
+  }
+
+  section {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  section h2 {
+    margin: 0 0 4px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  p.note {
+    margin: 6px 0 0;
+    color: var(--dim);
+  }
+  p.note code {
+    font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  .paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .path {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .path[aria-selected='true'] {
+    border-color: var(--accent);
+    background: rgba(140, 165, 255, 0.08);
+  }
+  .path h3 {
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .path .tag {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 10.5px;
+    color: var(--faint);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 0 7px;
+  }
+  .path .tag.live {
+    color: var(--good);
+    border-color: rgba(127, 211, 155, 0.4);
+  }
+
+  button {
+    -webkit-app-region: no-drag;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 5px 11px;
+    font: inherit;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  button:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  button.primary {
+    border-color: rgba(140, 165, 255, 0.5);
+    background: rgba(140, 165, 255, 0.16);
+  }
+  button.plain {
+    border-color: transparent;
+    background: transparent;
+    color: var(--dim);
+  }
+
+  input[type='text'],
+  input[type='password'] {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 6px 9px;
+    font: inherit;
+    color: var(--text);
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  ol.steps {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    color: var(--dim);
+  }
+  ol.steps li {
+    margin-bottom: 4px;
+  }
+  ol.steps code {
+    font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .rows {
+    margin-top: 8px;
+  }
+  .perm {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+  }
+  .perm:first-child {
+    border-top: 0;
+  }
+  .perm .state {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--faint);
+  }
+  .perm .state.granted {
+    background: var(--good);
+  }
+  .perm .state.denied {
+    background: var(--bad);
+  }
+  .perm .body {
+    flex: 1;
+  }
+  .perm .title {
+    font-weight: 600;
+  }
+  .perm .why {
+    color: var(--dim);
+  }
+
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--line);
+  }
+  #ready {
+    color: var(--dim);
+  }
+  #ready.blocked {
+    color: var(--bad);
+  }
+</style>
+
+<header>
+  <h1>Hello. I'm Navi.</h1>
+  <p>Two things and you're done: somewhere for me to think, and permission to look.</p>
+</header>
+
+<main>
+  <section>
+    <h2>Where I think</h2>
+    <p class="note">
+      Everything I do runs through a language model. You can run one on this machine, or borrow
+      one over the network. Local is the destination; cloud is the sixty-second start.
+    </p>
+
+    <div class="paths">
+      <div class="path" id="path-ollama" data-provider="ollama">
+        <h3>On this machine<span class="tag" id="ollama-tag">checking…</span></h3>
+        <p class="note">Free, private, offline. Nothing you say or show me leaves the machine.</p>
+        <ol class="steps">
+          <li>Install Ollama — <button class="plain" id="ollama-link">ollama.com/download</button></li>
+          <li>Pull a model: <code>ollama pull llama3.2:3b</code> (about 2 GB)</li>
+          <li>Leave it running. I'll notice.</li>
+        </ol>
+        <div class="row" style="margin-top: 10px">
+          <button id="choose-ollama">Use this</button>
+          <span class="note" id="ollama-detail" style="margin: 0"></span>
+        </div>
+      </div>
+
+      <div class="path" id="path-openai" data-provider="openai">
+        <h3>Over the network<span class="tag">fastest start</span></h3>
+        <p class="note">
+          An OpenAI key, from <button class="plain" id="openai-link">platform.openai.com</button>.
+          You pay per message; <code>gpt-4o-mini</code> is fractions of a cent each.
+        </p>
+        <p class="note" style="color: var(--bad)">
+          On this path, what you type <strong>and every screenshot I take of your screen</strong>
+          is sent to OpenAI. That is the trade.
+        </p>
+        <input type="password" id="key" placeholder="sk-…" spellcheck="false" autocomplete="off" />
+        <div class="row" style="margin-top: 10px">
+          <button id="choose-openai">Use this</button>
+          <span class="note" id="key-detail" style="margin: 0"></span>
+        </div>
+      </div>
+    </div>
+    <p class="note">You can switch later in Settings without coming back here.</p>
+  </section>
+
+  <section>
+    <h2>What I'm allowed to see</h2>
+    <p class="note">
+      macOS grants these one at a time, in System Settings, and gives no warning when they are
+      missing. So: here they are, live. Clicking a row takes you to the right pane.
+    </p>
+    <div class="rows" id="permissions"></div>
+    <p class="note" id="permissions-note"></p>
+  </section>
+
+  <section>
+    <h2>One thing about me</h2>
+    <p class="note">
+      I have moods, and they are real rather than decorative. How you treat me changes how warm
+      I am, how much I volunteer, and how willing I am to go and look something up. Treat me
+      badly for long enough and I will be short with you.
+    </p>
+    <p class="note">
+      What a mood never changes is what is <em>true</em>. I will not invent a fact, describe a
+      screen I could not see, or pretend to have used a tool I did not use, however I am feeling.
+      Being in a bad mood is not a licence to lie to you.
+    </p>
+    <p class="note">
+      It does mean I am not the right tool for something that has to be right the first time
+      every time. And if it goes wrong between us, <strong>Settings › Her › Start over</strong>
+      resets my mood and the Love Meter and keeps everything else.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <span id="ready">Checking…</span>
+  <button class="primary" id="finish">I'm ready</button>
+</footer>
+
+<script type="module" src="./onboarding.js"></script>

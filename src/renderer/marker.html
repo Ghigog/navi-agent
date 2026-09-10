@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Navi</title>
+<style>
+  html,
+  body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  canvas {
+    display: block;
+  }
+</style>
+<canvas id="ring"></canvas>
+<script>
+  // Deliberately inline and preload-free. This window exists for 600ms, draws one fading ring
+  // and is destroyed; giving it an IPC surface would be more machinery than the feature is.
+  const canvas = document.getElementById('ring');
+  const size = 80;
+  const dpr = window.devicePixelRatio || 1;
+
+  // The same two sizes the fairy canvas needs, and for the same reason: set only the backing
+  // store and on a Retina display this lays out at 160px inside an 80px window.
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const RADIUS = 18;
+  const FADE_MS = 600;
+  const started = performance.now();
+
+  function frame(now) {
+    const alpha = Math.max(0, 1 - (now - started) / FADE_MS);
+    ctx.clearRect(0, 0, size, size);
+    if (alpha <= 0) return;
+
+    // Amber, as in the Godot original: the same colour as the status light that means she is
+    // working, because this is what she was working on.
+    ctx.strokeStyle = 'rgba(255, 191, 0, ' + alpha.toFixed(3) + ')';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    // Grows a little as it fades, so it reads as a ripple rather than a dot going out.
+    ctx.arc(size / 2, size / 2, RADIUS + (1 - alpha) * 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+</script>

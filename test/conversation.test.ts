@@ -1,0 +1,635 @@
+import { describe, expect, it } from 'vitest';
+import type OpenAI from 'openai';
+import { createConversation, explain, MAX_HISTORY, type ChatEvent } from '../src/main/conversation.js';
+import { ToolRegistry, type Tool } from '../src/agent/tools.js';
+import { NO_READING } from '../src/agent/sentiment.js';
+import { DEFAULTS, type Settings } from '../src/shared/settings.js';
+import {
+  coerceState,
+  evaluate,
+  NEUTRAL,
+  type EmotionState,
+  type Sentiment,
+  type TurnOutcome,
+} from '../src/shared/emotion.js';
+
+/** A streaming client. Each element is one turn's worth of content. */
+function fakeProvider(replies: string[] = ['hello'], opts: { fail?: boolean; hang?: boolean } = {}) {
+  const bodies: Array<Record<string, unknown>> = [];
+  let turn = 0;
+  const client = {
+    chat: {
+      completions: {
+        create: async (body: Record<string, unknown>, req?: { signal?: AbortSignal }) => {
+          bodies.push(body);
+          if (opts.fail) throw new Error('fetch failed');
+          const content = replies[turn++] ?? '';
+          if (opts.hang) {
+            return (async function* () {
+              yield { choices: [{ delta: { content } }] };
+              await new Promise((_r, reject) => {
+                // A real client rejects an already-aborted request rather than waiting for an
+                // abort event that has been and gone.
+                if (req?.signal?.aborted) reject(new Error('aborted'));
+                req?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+              });
+            })();
+          }
+          return (async function* () {
+            yield { choices: [{ delta: { content } }] };
+          })();
+        },
+      },
+    },
+  };
+  return { provider: { client: client as unknown as OpenAI, model: 'm', remote: false }, bodies };
+}
+
+/** The real engine over an in-memory state, which is all `main/emotion-store.ts` adds to it. */
+function fakeStore(initial: EmotionState = { ...NEUTRAL }) {
+  let state = initial;
+  const scored: TurnOutcome[] = [];
+  return {
+    scored,
+    current: () => state,
+    store: {
+      load: () => state,
+      record: (outcome: TurnOutcome) => {
+        scored.push(outcome);
+        const result = evaluate(state, outcome);
+        state = result.state;
+        return result;
+      },
+    },
+  };
+}
+
+function setup(
+  opts: {
+    replies?: string[];
+    settings?: Partial<Settings>;
+    sentiment?: Sentiment;
+    clarity?: 'clear' | 'vague';
+    fail?: boolean;
+    hang?: boolean;
+    state?: EmotionState;
+  } = {},
+) {
+  const { provider, bodies } = fakeProvider(opts.replies ?? ['hello'], {
+    ...(opts.fail === undefined ? {} : { fail: opts.fail }),
+    ...(opts.hang === undefined ? {} : { hang: opts.hang }),
+  });
+  const emotion = fakeStore(opts.state ?? { ...NEUTRAL });
+  const events: ChatEvent[] = [];
+  const settings: Settings = { ...DEFAULTS, ...opts.settings };
+
+  const conversation = createConversation({
+    settings: () => settings,
+    createProvider: () => provider,
+    registry: new ToolRegistry(),
+    emotion: emotion.store,
+    emit: (e) => events.push(e),
+    classify: async () => ({ sentiment: opts.sentiment ?? 'neutral', clarity: opts.clarity ?? 'clear' }),
+  });
+
+  return { conversation, events, bodies, emotion };
+}
+
+const kinds = (events: ChatEvent[]): string[] => events.map((e) => e.type);
+
+describe('createConversation', () => {
+  it('sends the message and streams the reply back', async () => {
+    const { conversation, events, bodies } = setup({ replies: ['hi there'] });
+    await conversation.send('hello');
+
+    const sent = bodies[0]?.['messages'] as Array<{ role: string; content: string }>;
+    expect(sent.at(-1)).toEqual({ role: 'user', content: 'hello' });
+    expect(events.filter((e) => e.type === 'delta').map((e) => e.text).join('')).toBe('hi there');
+    expect(kinds(events)).toContain('done');
+  });
+
+  it('keeps the exchange in history for the next turn', async () => {
+    const { conversation, bodies } = setup({ replies: ['first', 'second'] });
+    await conversation.send('one');
+    await conversation.send('two');
+
+    const second = bodies[1]?.['messages'] as Array<{ role: string; content: string }>;
+    // system, then the whole exchange so far.
+    expect(second.slice(1)).toEqual([
+      { role: 'user', content: 'one' },
+      { role: 'assistant', content: 'first' },
+      { role: 'user', content: 'two' },
+    ]);
+  });
+
+  it('bounds history rather than growing it forever', async () => {
+    const { conversation } = setup({ replies: Array.from({ length: 40 }, (_, i) => `r${i}`) });
+    for (let i = 0; i < 30; i++) await conversation.send(`m${i}`);
+
+    expect(conversation.history().length).toBeLessThanOrEqual(MAX_HISTORY);
+    // A history that opens on a reply is a reply to a message the model cannot see.
+    expect(conversation.history()[0]?.role).toBe('user');
+  });
+
+  it('ignores an empty message', async () => {
+    const { conversation, events } = setup();
+    await conversation.send('   ');
+    expect(events).toHaveLength(0);
+  });
+
+  it('reports a provider failure and does not keep the message', async () => {
+    const { conversation, events } = setup({ fail: true });
+    await conversation.send('hello');
+
+    expect(kinds(events)).toEqual(['start', 'emotion', 'error']);
+    // Keeping it would send it twice on the retry.
+    expect(conversation.history()).toHaveLength(0);
+  });
+
+  it('keeps what she managed to say when a turn is cancelled', async () => {
+    const { conversation, events } = setup({ replies: ['half a th'], hang: true });
+    const running = conversation.send('hello');
+    await new Promise((r) => setTimeout(r, 10));
+    conversation.cancel();
+    await running;
+
+    const done = events.find((e) => e.type === 'done');
+    expect(done).toMatchObject({ cancelled: true, text: 'half a th' });
+    // What is in history is what is on screen.
+    expect(conversation.history()).toEqual([
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'half a th' },
+    ]);
+  });
+
+  it('does not score a cancelled turn', async () => {
+    const { conversation, emotion } = setup({ replies: ['x'], hang: true });
+    const running = conversation.send('hello');
+    await new Promise((r) => setTimeout(r, 10));
+    conversation.cancel();
+    await running;
+
+    // Only the pre-reply pass ran. An interrupted turn is not a reading of how she did.
+    expect(emotion.scored).toHaveLength(1);
+    expect(emotion.scored[0]?.preEval).toBe(true);
+  });
+
+  it('drops a second message sent while one is in flight', async () => {
+    const { conversation } = setup({ replies: ['x'], hang: true });
+    const running = conversation.send('first');
+    await conversation.send('second');
+    conversation.cancel();
+    await running;
+
+    expect(conversation.history().map((m) => m.content)).not.toContain('second');
+  });
+
+  it('announces the provider and the mood when the window opens', async () => {
+    const { conversation, events } = setup({ settings: { provider: 'ollama', ollamaModel: 'llama3.2:3b' } });
+    conversation.describeState();
+
+    expect(events[0]).toEqual({ type: 'provider', model: 'llama3.2:3b', remote: false });
+    expect(events[1]).toMatchObject({ type: 'emotion', emotion: 'serenity' });
+  });
+
+  it('says so when the request leaves the machine', async () => {
+    const { conversation, events } = setup({
+      settings: { provider: 'openai', openaiApiKey: 'k', openaiModel: 'gpt-4o-mini' },
+    });
+    conversation.describeState();
+    expect(events[0]).toEqual({ type: 'provider', model: 'gpt-4o-mini', remote: true });
+  });
+});
+
+describe('the two emotion passes (emotions.md §4.4)', () => {
+  it('feels the message before answering it, and moves the meter after', async () => {
+    const { conversation, emotion, events } = setup({ sentiment: 'kind' });
+    await conversation.send('you are wonderful');
+
+    expect(emotion.scored[0]).toMatchObject({ preEval: true, sentiment: 'kind' });
+    expect(emotion.scored[1]).toMatchObject({ sentiment: 'kind', sentimentDimensionsApplied: true });
+    // The tint reaches the UI before the reply as well as after it.
+    const order = kinds(events);
+    expect(order.indexOf('emotion')).toBeLessThan(order.indexOf('done'));
+  });
+
+  it('generates the reply in the mood the message put her in', async () => {
+    const { conversation, bodies } = setup({ sentiment: 'mean' });
+    await conversation.send('you are useless');
+
+    // Courage -5 and Power -4 read as Low/High/Low: sadness. If the prompt still said serenity,
+    // the pre-reply pass would be shaping the turn after this one instead of this one.
+    const system = (bodies[0]?.['messages'] as Array<{ content: string }>)[0]?.content ?? '';
+    expect(system).toContain('You are feeling sadness');
+  });
+
+  it('counts a kind message once, not once per pass', async () => {
+    const { conversation, emotion } = setup({ sentiment: 'kind' });
+    await conversation.send('thank you');
+
+    // emotions.md §4.4 states courage +3 and the Love Meter +15 for a kind message, each once.
+    expect(emotion.current().courage).toBe(3);
+    expect(emotion.current().wisdom).toBe(2);
+    expect(emotion.current().loveScore).toBe(15);
+  });
+
+  it('counts a mean message once, not once per pass', async () => {
+    const { conversation, emotion } = setup({ sentiment: 'mean' });
+    await conversation.send('you are useless');
+
+    expect(emotion.current().courage).toBe(-5);
+    expect(emotion.current().power).toBe(-4);
+    expect(emotion.current().loveScore).toBe(-40);
+  });
+
+  it('leaves an ordinary message alone', async () => {
+    const { conversation, emotion } = setup({ sentiment: 'neutral' });
+    await conversation.send('what time is it');
+
+    // Nothing was exercised: no tool, no history to recall from, a short prompt. She should
+    // come out exactly where she went in, rather than decaying for having been spoken to.
+    expect(emotion.current()).toEqual(NEUTRAL);
+  });
+
+  it('does not decay her over a long ordinary conversation', async () => {
+    const { conversation, emotion } = setup({ replies: Array.from({ length: 12 }, () => 'sure') });
+    for (let i = 0; i < 12; i++) await conversation.send(`just chatting ${i}`);
+
+    expect(emotion.current().emotion).toBe('serenity');
+    expect(emotion.current().loveScore).toBeGreaterThanOrEqual(0);
+  });
+
+  it('reloads the state it left behind', async () => {
+    const { conversation, emotion } = setup({ sentiment: 'mean' });
+    await conversation.send('you are useless');
+
+    // What emotion-store.ts writes and reads back is this state through coerceState.
+    expect(coerceState(JSON.parse(JSON.stringify(emotion.current())))).toEqual(emotion.current());
+  });
+});
+
+describe('explain', () => {
+  it('names the thing that is not running on the offline path', () => {
+    const settings: Settings = { ...DEFAULTS, ollamaBaseUrl: 'http://localhost:11434' };
+    expect(explain(new Error('fetch failed'), settings)).toContain('http://localhost:11434');
+  });
+
+  it('passes a real provider message through', () => {
+    const settings: Settings = { ...DEFAULTS, provider: 'openai' };
+    expect(explain(new Error('401 Incorrect API key'), settings)).toBe('401 Incorrect API key');
+  });
+});
+
+describe('freezing the turn (NAV-99)', () => {
+  it('takes the cursor sample before anything can await', async () => {
+    // The ordering is the whole point. A sample taken after the classifier round-trip is a
+    // sample of wherever the user's hand has wandered to in the meantime.
+    const order: string[] = [];
+    const { provider } = fakeProvider(['hi']);
+    const emotion = fakeStore();
+
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => {
+        order.push('provider');
+        return provider;
+      },
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      emit: () => {},
+      onSend: () => order.push('freeze'),
+      classify: async () => {
+        order.push('classify');
+        return { sentiment: 'neutral', clarity: 'clear' };
+      },
+    });
+
+    await conversation.send('what is this?');
+    expect(order).toEqual(['freeze', 'provider', 'classify']);
+  });
+
+  it('does not freeze on a message that is not a turn', async () => {
+    let frozen = 0;
+    const { provider } = fakeProvider(['hi']);
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      emit: () => {},
+      onSend: () => frozen++,
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+
+    await conversation.send('   ');
+    expect(frozen).toBe(0);
+  });
+});
+
+describe('memory (NAV-93)', () => {
+  /** The store, reduced to what a conversation touches, with a log of what it was told. */
+  function fakeMemory(lines: string[] = [], used: string[] = []) {
+    const marked: string[][] = [];
+    const episodes: string[] = [];
+    const preferences: Array<[string, boolean]> = [];
+    return {
+      marked,
+      episodes,
+      preferences,
+      store: {
+        recall: () => ({ lines, used }),
+        used: (ids: readonly string[]) => marked.push([...ids]),
+        episode: (text: string) => episodes.push(text),
+        prefer: (text: string, liked: boolean) => preferences.push([text, liked]),
+      },
+    };
+  }
+
+  /**
+   * A client that answers both kinds of call this path makes: the streamed reply, and the
+   * non-streamed summary at the end. `fakeProvider` streams everything, which the summariser
+   * cannot read.
+   */
+  function summarisingProvider(replies: string[], summary: string) {
+    const bodies: Array<Record<string, unknown>> = [];
+    let turn = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            bodies.push(body);
+            if (body['stream'] !== true) {
+              return { choices: [{ message: { role: 'assistant', content: summary } }] };
+            }
+            const content = replies[turn++] ?? '';
+            return (async function* () {
+              yield { choices: [{ delta: { content } }] };
+            })();
+          },
+        },
+      },
+    };
+    return { provider: { client: client as unknown as OpenAI, model: 'm', remote: false }, bodies };
+  }
+
+  function withMemory(memory: ReturnType<typeof fakeMemory>, replies = ['hello'], summary = '') {
+    const { provider, bodies } = summarisingProvider(replies, summary);
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      memory: memory.store,
+      emit: () => {},
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+    return { conversation, bodies };
+  }
+
+  it('puts what she remembers into the prompt', async () => {
+    const memory = fakeMemory(['- They work on a desktop app called Navi.']);
+    const { conversation, bodies } = withMemory(memory);
+
+    await conversation.send('what am I working on?');
+
+    const system = (bodies[0]?.['messages'] as Array<{ role: string; content: string }>)[0];
+    expect(system?.content).toContain('They work on a desktop app called Navi.');
+  });
+
+  it('marks what it retrieved, but only once the turn actually worked', async () => {
+    const memory = fakeMemory(['- a fact'], ['ep-1', 'ep-2']);
+    const { conversation } = withMemory(memory);
+
+    await conversation.send('anything');
+    expect(memory.marked).toEqual([['ep-1', 'ep-2']]);
+  });
+
+  it('does not mark what it retrieved for a turn that never reached the model', async () => {
+    // An episode recalled for a turn that failed was not, in any useful sense, used — and
+    // marking it would age it towards promotion on the strength of a network error.
+    const memory = fakeMemory(['- a fact'], ['ep-1']);
+    const { provider } = fakeProvider(['x'], { fail: true });
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      memory: memory.store,
+      emit: () => {},
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+
+    await conversation.send('anything');
+    expect(memory.marked).toEqual([]);
+  });
+
+  it('summarises the session into an episode when it ends', async () => {
+    const memory = fakeMemory();
+    const { conversation } = withMemory(memory, ['first', 'second'], 'They planned the migration.');
+
+    await conversation.send('one');
+    await conversation.send('two');
+    await conversation.endSession();
+
+    expect(memory.episodes).toEqual(['They planned the migration.']);
+  });
+
+  it('does not summarise the same session twice', async () => {
+    const memory = fakeMemory();
+    const { conversation } = withMemory(memory, ['first', 'second'], 'A summary of it all.');
+
+    await conversation.send('one');
+    await conversation.send('two');
+    await conversation.endSession();
+    await conversation.endSession();
+
+    expect(memory.episodes).toHaveLength(1);
+  });
+
+  it('remembers nothing from a session too short to have been about anything', async () => {
+    const memory = fakeMemory();
+    const { conversation } = withMemory(memory, ['hi'], 'a summary that should never be asked for');
+
+    await conversation.send('hi');
+    await conversation.endSession();
+
+    expect(memory.episodes).toEqual([]);
+  });
+
+  it('works with no memory store at all', async () => {
+    // She has been memoryless her whole life until now; that must remain a working state.
+    const { conversation, events } = setup({ replies: ['hello'] });
+    await conversation.send('hi');
+    await expect(conversation.endSession()).resolves.toBeUndefined();
+    expect(kinds(events)).toContain('done');
+  });
+});
+
+describe('the appraisal reaches the turn (NAV-95)', () => {
+  it('scores a message she did not understand as one she did not understand', async () => {
+    const { conversation, emotion } = setup({ clarity: 'vague' });
+    await conversation.send('fix it');
+
+    const post = emotion.scored.find((o) => o.preEval !== true);
+    expect(post?.intentClear).toBe(false);
+  });
+
+  it('scores a clear one as clear', async () => {
+    const { conversation, emotion } = setup({ clarity: 'clear' });
+    await conversation.send('what does this error mean?');
+
+    const post = emotion.scored.find((o) => o.preEval !== true);
+    expect(post?.intentClear).toBe(true);
+  });
+
+  it('treats no reading as clear, so a failed appraisal changes nothing', async () => {
+    // The rule engine is the primary path and this is an enhancement on it: a malformed
+    // appraisal has to be indistinguishable from a turn where the request made sense.
+    const { provider } = fakeProvider(['hello']);
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      emit: () => {},
+      classify: async () => NO_READING,
+    });
+
+    await conversation.send('anything');
+    const post = emotion.scored.find((o) => o.preEval !== true);
+    expect(post?.intentClear).toBe(true);
+    expect(post?.sentiment).toBe('neutral');
+  });
+});
+
+describe('the approval loop (NAV-101)', () => {
+  function withPreferences(replies = ['a short answer']) {
+    const marked: string[][] = [];
+    const episodes: string[] = [];
+    const preferences: Array<[string, boolean]> = [];
+    const { provider } = fakeProvider(replies);
+    const emotion = fakeStore();
+    const events: ChatEvent[] = [];
+
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      memory: {
+        recall: () => ({ lines: [], used: [] }),
+        used: (ids) => marked.push([...ids]),
+        episode: (text) => episodes.push(text),
+        prefer: (text, liked) => preferences.push([text, liked]),
+      },
+      emit: (e) => events.push(e),
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+
+    return { conversation, preferences, emotion, events };
+  }
+
+  it('raises confidence and says what was approved', async () => {
+    const s = withPreferences();
+    await s.conversation.send('what is this?');
+
+    expect(s.conversation.approve(true)).toBe(true);
+    expect(s.emotion.current().confidence).toBeGreaterThan(0);
+    // Not just that approval happened: what shape of answer earned it.
+    expect(s.preferences).toEqual([['answering from what you already knew, answering briefly', true]]);
+  });
+
+  it('records a thumbs-down as a dislike rather than as nothing', async () => {
+    const s = withPreferences();
+    await s.conversation.send('what is this?');
+    s.conversation.approve(false);
+
+    expect(s.emotion.current().confidence).toBeLessThan(0);
+    expect(s.preferences[0]?.[1]).toBe(false);
+  });
+
+  it('repaints the header, so the stat is visible the moment it moves', async () => {
+    const s = withPreferences();
+    await s.conversation.send('hello');
+    const before = s.events.filter((e) => e.type === 'emotion').length;
+
+    s.conversation.approve(true);
+    const after = s.events.filter((e) => e.type === 'emotion');
+    expect(after.length).toBe(before + 1);
+    expect(after.at(-1)).toMatchObject({ confidence: 'steady' });
+  });
+
+  it('cannot be pressed twice for the same reply', async () => {
+    const s = withPreferences();
+    await s.conversation.send('hello');
+
+    expect(s.conversation.approve(true)).toBe(true);
+    expect(s.conversation.approve(true)).toBe(false);
+    expect(s.preferences).toHaveLength(1);
+  });
+
+  it('has nothing to approve of before she has said anything', () => {
+    const s = withPreferences();
+    expect(s.conversation.approve(true)).toBe(false);
+    expect(s.preferences).toEqual([]);
+  });
+
+  it('notices when reaching for a tool was her own idea', async () => {
+    const capture: Tool = {
+      schema: {
+        name: 'look_at_screen',
+        description: 'Look at the screen.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+      run: async () => ({ content: 'captured.' }),
+    };
+    const registry = new ToolRegistry();
+    registry.register(capture);
+
+    const turns: Array<Array<Record<string, unknown>>> = [
+      [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'look_at_screen', arguments: '{}' } }] } }] }],
+      [{ choices: [{ delta: { content: 'It is a terminal window showing an error about permissions.' } }] }],
+    ];
+    let n = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async () => {
+            const chunks = turns[n++] ?? [];
+            return (async function* () {
+              for (const c of chunks) yield c;
+            })();
+          },
+        },
+      },
+    };
+
+    const preferences: Array<[string, boolean]> = [];
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => ({ client: client as unknown as OpenAI, model: 'm', remote: false }),
+      registry,
+      emotion: emotion.store,
+      memory: {
+        recall: () => ({ lines: [], used: [] }),
+        used: () => {},
+        episode: () => {},
+        prefer: (text, liked) => preferences.push([text, liked]),
+      },
+      emit: () => {},
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+
+    // A question that does not ask her to look, answered by looking anyway.
+    await conversation.send('why is my build failing');
+    conversation.approve(true);
+
+    expect(preferences[0]?.[0]).toContain('look_at_screen');
+    expect(preferences[0]?.[0]).toContain('without being asked');
+  });
+});

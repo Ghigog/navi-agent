@@ -1,0 +1,245 @@
+/**
+ * The fairy renderer — canvas, carried over from the NAV-94 spike (`spike/fairy.js`).
+ *
+ * ADR 0001 measured this against FairyVisuals.gd's 520 lines of Godot drawing: mean frame
+ * 0.208 ms, p99 0.6 ms, ~28x headroom against a 60fps budget on CPU raster with no GPU.
+ * Rendering was never a reason to stay in Godot.
+ */
+
+import { type Rgb } from '../shared/emotion.js';
+import { EMOJI_GROW_MS, EMOJI_HOLD_MS, EMOJI_RISE, EMOJI_SHRINK_MS, EMOJI_TOTAL_MS } from '../shared/emoji.js';
+
+export const PARTICLE_COUNT = 48;
+
+/** How far out from her centre the pointing arrow sits — just past the aura, still in-window. */
+export const POINTER_TIP = 58;
+
+// The tint is computed in shared/emotion.ts so the main process can derive it too, without
+// pulling the canvas renderer into its bundle. Re-exported here because this is where callers
+// have always looked for it.
+export { emotionColor, type Rgb } from '../shared/emotion.js';
+
+export interface StatusLight extends Rgb {
+  pulsing: boolean;
+}
+
+export interface Fairy {
+  draw(t: number, dt: number): void;
+  setTint(c: Rgb): void;
+  setStatusLight(c: StatusLight | null): void;
+  /**
+   * Where she is pointing, relative to the centre of this window, or null when she is not
+   * (NAV-103). The main process does the subtraction — see `main/follow.ts`'s `onFlight` — so
+   * this never needs to know where its own window is on screen, which it cannot find out.
+   */
+  setPointer(relative: { x: number; y: number } | null): void;
+  /**
+   * Pops a floating emoji above her head (emotions.md §9.2). Called when her Tier 2 emotion
+   * changes; the main process decides that, because it is the side that remembers the last one.
+   */
+  showEmoji(char: string): void;
+  readonly particleCount: number;
+}
+
+interface Particle {
+  a: number;
+  r: number;
+  speed: number;
+  size: number;
+  life: number;
+}
+
+export interface FairyOptions {
+  dpr?: number;
+  size?: number;
+  tint?: Rgb;
+  /** Injectable for deterministic tests. */
+  random?: () => number;
+}
+
+export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}): Fairy {
+  const ctx = canvas.getContext('2d', { alpha: true });
+  if (!ctx) throw new Error('2d canvas context unavailable');
+
+  const dpr = opts.dpr ?? globalThis.devicePixelRatio ?? 1;
+  const size = opts.size ?? 200;
+  const rand = opts.random ?? Math.random;
+
+  // Two sizes, and they are not the same number. The backing store is in device pixels, so it
+  // scales with dpr; the element must still lay out at `size` CSS pixels.
+  //
+  // Setting only the first is the bug this comment exists to prevent. A canvas with no CSS size
+  // lays out at its attribute size, so on a Retina display she became a 400px element inside a
+  // 200px window and all you saw was her top-left quarter. It is invisible at dpr 1 — which is
+  // every test, and every headless run — and obvious on the first real display.
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  ctx.scale(dpr, dpr);
+
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const particles: Particle[] = Array.from({ length: PARTICLE_COUNT }, () => ({
+    a: rand() * Math.PI * 2,
+    r: 8 + rand() * 26,
+    speed: 0.15 + rand() * 0.5,
+    size: 0.6 + rand() * 1.9,
+    life: rand(),
+  }));
+
+  let tint: Rgb = opts.tint ?? { r: 102, g: 178, b: 255 };
+  let statusLight: StatusLight | null = null;
+  let pointer: { x: number; y: number } | null = null;
+  /** The emoji currently playing, with the timestamp it started at. */
+  let emoji: { char: string; startedAt: number } | null = null;
+
+  function draw(t: number, dt: number): void {
+    // A newly-requested emoji starts on the first frame that draws it, whatever the loop's clock
+    // happens to be at.
+    if (emoji !== null && emoji.startedAt === Number.NEGATIVE_INFINITY) emoji.startedAt = t;
+
+    ctx!.clearRect(0, 0, size, size);
+    const { r, g, b } = tint;
+    const breathe = 1 + Math.sin(t * 0.0022) * 0.06;
+
+    // Aura
+    const aura = ctx!.createRadialGradient(cx, cy, 2, cx, cy, 42 * breathe);
+    aura.addColorStop(0, `rgba(${r},${g},${b},0.55)`);
+    aura.addColorStop(0.5, `rgba(${r},${g},${b},0.16)`);
+    aura.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx!.fillStyle = aura;
+    ctx!.beginPath();
+    ctx!.arc(cx, cy, 42 * breathe, 0, Math.PI * 2);
+    ctx!.fill();
+
+    // Wings — two arcs flapping out of phase
+    const flap = Math.sin(t * 0.011);
+    ctx!.save();
+    ctx!.globalCompositeOperation = 'lighter';
+    for (const dir of [-1, 1]) {
+      ctx!.save();
+      ctx!.translate(cx, cy);
+      ctx!.rotate(dir * (0.5 + flap * 0.42));
+      ctx!.beginPath();
+      ctx!.ellipse(dir * 12, -4, 15, 7.5, 0, 0, Math.PI * 2);
+      ctx!.fillStyle = `rgba(255,255,255,${0.16 + Math.abs(flap) * 0.2})`;
+      ctx!.fill();
+      ctx!.restore();
+    }
+    ctx!.restore();
+
+    // Orbiting particles
+    ctx!.save();
+    ctx!.globalCompositeOperation = 'lighter';
+    for (const p of particles) {
+      p.a += p.speed * dt * 0.001;
+      p.life += dt * 0.0006;
+      if (p.life > 1) p.life -= 1;
+      const wob = Math.sin(t * 0.003 + p.a * 3) * 3;
+      const px = cx + Math.cos(p.a) * (p.r + wob);
+      const py = cy + Math.sin(p.a) * (p.r + wob) * 0.8;
+      const alpha = 0.25 + Math.sin(p.life * Math.PI) * 0.6;
+      ctx!.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+      ctx!.beginPath();
+      ctx!.arc(px, py, p.size, 0, Math.PI * 2);
+      ctx!.fill();
+    }
+    ctx!.restore();
+
+    // Core
+    const core = ctx!.createRadialGradient(cx, cy, 0, cx, cy, 9 * breathe);
+    core.addColorStop(0, 'rgba(255,255,255,0.98)');
+    core.addColorStop(0.45, `rgba(${r},${g},${b},0.92)`);
+    core.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx!.fillStyle = core;
+    ctx!.beginPath();
+    ctx!.arc(cx, cy, 9 * breathe, 0, Math.PI * 2);
+    ctx!.fill();
+
+    // The pointing arrow (NAV-103). Drawn on the far edge of her aura, aimed the way she is
+    // travelling, and fading out as she arrives — an arrow at the destination points at itself.
+    if (pointer) {
+      const distance = Math.hypot(pointer.x, pointer.y);
+      const strength = Math.min(1, distance / 120);
+      if (strength > 0.02) {
+        const angle = Math.atan2(pointer.y, pointer.x);
+        ctx!.save();
+        ctx!.translate(cx, cy);
+        ctx!.rotate(angle);
+        ctx!.globalAlpha = strength;
+        ctx!.fillStyle = `rgba(${r},${g},${b},0.9)`;
+        ctx!.beginPath();
+        ctx!.moveTo(POINTER_TIP, 0);
+        ctx!.lineTo(POINTER_TIP - 11, -6.5);
+        ctx!.lineTo(POINTER_TIP - 8, 0);
+        ctx!.lineTo(POINTER_TIP - 11, 6.5);
+        ctx!.closePath();
+        ctx!.fill();
+        ctx!.restore();
+      }
+    }
+
+    // The floating emoji (emotions.md §9.2): grow, hold one second, shrink, gone. She has no
+    // face, so this and her colour are the whole of how a mood reaches the user — and colour
+    // alone is a few degrees of hue nobody notices while reading.
+    if (emoji) {
+      const age = t - emoji.startedAt;
+      if (age >= EMOJI_TOTAL_MS) {
+        emoji = null;
+      } else {
+        // Overshoot slightly on the way in, so it pops rather than inflates.
+        const scale =
+          age < EMOJI_GROW_MS
+            ? 1.12 * (1 - Math.pow(1 - age / EMOJI_GROW_MS, 3))
+            : age < EMOJI_GROW_MS + EMOJI_HOLD_MS
+              ? 1
+              : 1 - (age - EMOJI_GROW_MS - EMOJI_HOLD_MS) / EMOJI_SHRINK_MS;
+
+        // Drifts up as it goes, which is what makes it read as escaping rather than blinking.
+        const rise = EMOJI_RISE + (age / EMOJI_TOTAL_MS) * 10;
+
+        ctx!.save();
+        ctx!.globalAlpha = Math.max(0, Math.min(1, scale));
+        ctx!.translate(cx, cy - rise);
+        ctx!.scale(Math.max(0, scale), Math.max(0, scale));
+        ctx!.font = '22px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+        ctx!.textAlign = 'center';
+        ctx!.textBaseline = 'middle';
+        ctx!.fillText(emoji.char, 0, 0);
+        ctx!.restore();
+      }
+    }
+
+    // Status light above the core (amber = tool running, purple = thinking)
+    if (statusLight) {
+      const pulse = statusLight.pulsing ? 0.5 + Math.abs(Math.sin(t * 0.006)) * 0.5 : 1;
+      ctx!.fillStyle = `rgba(${statusLight.r},${statusLight.g},${statusLight.b},${pulse.toFixed(3)})`;
+      ctx!.beginPath();
+      ctx!.arc(cx, cy - 22, 3.2, 0, Math.PI * 2);
+      ctx!.fill();
+    }
+  }
+
+  return {
+    draw,
+    setTint: (c) => {
+      tint = c;
+    },
+    setStatusLight: (c) => {
+      statusLight = c;
+    },
+    setPointer: (relative) => {
+      pointer = relative;
+    },
+    showEmoji: (char) => {
+      // Started from the next frame's clock rather than `performance.now()`: the loop's `t` is
+      // its own timeline, and mixing the two makes the animation start part-way through.
+      emoji = { char, startedAt: Number.NEGATIVE_INFINITY };
+    },
+    get particleCount() {
+      return particles.length;
+    },
+  };
+}

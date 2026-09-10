@@ -1,0 +1,557 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Navi — Settings</title>
+<style>
+  :root {
+    --bg: #16171e;
+    --panel: rgba(255, 255, 255, 0.045);
+    --line: rgba(255, 255, 255, 0.08);
+    --text: #e9e9ef;
+    --dim: #9aa0b2;
+    --faint: #767c8e;
+    --accent: #8ca5ff;
+  }
+
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* macOS puts its close and zoom buttons over the top-left of a hiddenInset window, so the
+     tab strip starts clear of them and the rest of the strip drags the window. */
+  #tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 12px 10px 84px;
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
+  }
+
+  #tabs button {
+    -webkit-app-region: no-drag;
+    border: 0;
+    border-radius: 7px;
+    padding: 5px 11px;
+    font: inherit;
+    color: var(--dim);
+    background: transparent;
+  }
+  #tabs button:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  #tabs button[aria-selected='true'] {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 22px 28px;
+  }
+
+  section {
+    margin-bottom: 26px;
+  }
+  h2 {
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .field {
+    display: grid;
+    grid-template-columns: 148px 1fr;
+    gap: 10px 14px;
+    align-items: baseline;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .field:last-child {
+    border-bottom: 0;
+  }
+  .field > label {
+    color: var(--dim);
+  }
+  .field .note {
+    grid-column: 2;
+    margin-top: -2px;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .field.stacked {
+    grid-template-columns: 1fr;
+  }
+  .field.stacked .note {
+    grid-column: 1;
+  }
+
+  input[type='text'],
+  input[type='password'],
+  input[type='number'],
+  textarea,
+  select {
+    box-sizing: border-box;
+    width: 100%;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 6px 9px;
+    font: inherit;
+    color: inherit;
+    background: var(--panel);
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: 0;
+    border-color: rgba(140, 165, 255, 0.6);
+  }
+  textarea {
+    resize: vertical;
+    min-height: 66px;
+    line-height: 1.5;
+  }
+  input[type='number'] {
+    width: 92px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .segmented {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  .segmented button {
+    border: 0;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font: inherit;
+    color: var(--dim);
+    background: transparent;
+  }
+  .segmented button[aria-pressed='true'] {
+    color: #fff;
+    background: rgba(140, 165, 255, 0.28);
+  }
+
+  button.plain {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 5px 11px;
+    font: inherit;
+    color: var(--dim);
+    background: transparent;
+  }
+  button.plain:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  button.danger[data-armed='true'] {
+    color: #ffc2c2;
+    border-color: rgba(255, 120, 120, 0.5);
+    background: rgba(255, 90, 90, 0.12);
+  }
+
+  #relationship {
+    font-variant-numeric: tabular-nums;
+  }
+
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 22px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--faint);
+    min-height: 22px;
+  }
+  #saved {
+    opacity: 0;
+    transition: opacity 200ms ease;
+  }
+  #saved.on {
+    opacity: 1;
+  }
+  #warning {
+    color: #ffd9a8;
+  }
+
+  /* Prompt inspector */
+  #prompt-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    color: var(--faint);
+  }
+  .layer {
+    margin-bottom: 14px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    overflow: hidden;
+  }
+  .layer > h3 {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    margin: 0;
+    padding: 7px 11px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .layer > h3 .n {
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .layer > pre {
+    margin: 0;
+    padding: 10px 11px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #cdd2e2;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .empty {
+    color: var(--faint);
+    padding: 30px 0;
+    text-align: center;
+  }
+
+  /* The memory viewer (NAV-93). One row per thing she knows, each with its own delete. */
+  .memory-group h3 {
+    margin: 16px 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .memory-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 0;
+    border-top: 1px solid var(--line);
+  }
+  .memory-item .text {
+    flex: 1;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  #policy-log {
+    margin-top: 8px;
+    max-height: 190px;
+    overflow-y: auto;
+    font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #cdd2e2;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  #policy-log div {
+    padding: 2px 0;
+    border-top: 1px solid var(--line);
+  }
+  #halted-state.stopped {
+    color: var(--bad, #f08c8c);
+  }
+
+  .memory-item .when {
+    color: var(--faint);
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  [hidden] {
+    display: none !important;
+  }
+</style>
+
+<div id="tabs">
+  <button id="tab-settings" aria-selected="true">Settings</button>
+  <button id="tab-prompt" aria-selected="false">Prompt</button>
+  <button id="tab-memory" aria-selected="false">Memory</button>
+</div>
+
+<main>
+  <div id="panel-settings">
+    <section>
+      <h2>Model</h2>
+      <div class="field">
+        <label>Provider</label>
+        <div>
+          <div class="segmented" id="provider">
+            <button data-provider="ollama" aria-pressed="true">Ollama</button>
+            <button data-provider="openai" aria-pressed="false">OpenAI</button>
+          </div>
+        </div>
+        <p class="note" id="provider-note"></p>
+      </div>
+
+      <div class="field">
+        <label>Getting started</label>
+        <div class="row">
+          <button class="plain" id="open-onboarding" type="button">Open the guide</button>
+        </div>
+        <p class="note">
+          Setting up Ollama, switching providers, and the permission checklist — all live, and
+          all reachable without starting over.
+        </p>
+      </div>
+      <div class="field" data-provider-only="ollama">
+        <label for="ollamaBaseUrl">Server</label>
+        <input type="text" id="ollamaBaseUrl" data-setting="ollamaBaseUrl" spellcheck="false" />
+      </div>
+      <div class="field" data-provider-only="ollama">
+        <label for="ollamaModel">Model</label>
+        <input type="text" id="ollamaModel" data-setting="ollamaModel" spellcheck="false" />
+      </div>
+
+      <div class="field" data-provider-only="openai">
+        <label for="openaiApiKey">API key</label>
+        <div class="row">
+          <input type="password" id="openaiApiKey" spellcheck="false" />
+          <button class="plain" id="clear-key" type="button">Clear</button>
+        </div>
+        <p class="note" id="key-note"></p>
+      </div>
+      <div class="field" data-provider-only="openai">
+        <label for="openaiModel">Model</label>
+        <input type="text" id="openaiModel" data-setting="openaiModel" spellcheck="false" />
+      </div>
+
+      <div class="field">
+        <label for="sentimentModel">Sentiment model</label>
+        <input type="text" id="sentimentModel" data-setting="sentimentModel" spellcheck="false" />
+        <p class="note">
+          The fast classification call in front of every message. Leave it empty to use the model
+          above.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Her</h2>
+      <div class="field stacked">
+        <label for="personality">Personality</label>
+        <textarea id="personality" data-setting="personality"></textarea>
+        <p class="note">Colours how she speaks. It cannot change what she reports as true.</p>
+      </div>
+      <div class="field stacked">
+        <label for="systemPrompt">Standing instructions</label>
+        <textarea id="systemPrompt" data-setting="systemPrompt"></textarea>
+        <p class="note">
+          Added to the prompt, fenced and subordinate: preferences, not overrides. Visible in full
+          under Prompt.
+        </p>
+      </div>
+      <div class="field">
+        <label>Relationship</label>
+        <div class="row">
+          <span id="relationship">…</span>
+          <button class="plain danger" id="reset-emotion" type="button" data-armed="false">
+            Start over
+          </button>
+        </div>
+        <p class="note">Starting over resets her mood and the Love Meter. It keeps your settings.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Window</h2>
+      <div class="field">
+        <label for="hotkey">Summon</label>
+        <input type="text" id="hotkey" data-setting="hotkey" spellcheck="false" />
+        <p class="note">
+          An Electron accelerator, e.g. <code>Shift+Command+N</code>. Clicking her also opens the
+          chat.
+        </p>
+      </div>
+      <div class="field">
+        <label for="idleFps">Idle frame rate</label>
+        <div class="row">
+          <input type="number" id="idleFps" data-setting="idleFps" min="1" max="120" step="1" />
+          <span class="note" style="margin: 0">fps while nothing is happening</span>
+        </div>
+        <p class="note">
+          Throttling the idle loop is a required mitigation from ADR 0001, not a preference.
+          Raising this raises idle CPU.
+        </p>
+      </div>
+      <div class="field">
+        <label for="activeFps">Active frame rate</label>
+        <div class="row">
+          <input type="number" id="activeFps" data-setting="activeFps" min="1" max="120" step="1" />
+          <span class="note" style="margin: 0">fps while she is busy</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Acting on your machine</h2>
+      <p class="note">
+        Navi cannot click or type yet — the native helper is not built. This is the gate it will
+        pass through when it is, and it ships first on purpose: a gate written after the thing it
+        gates is a gate written to let the existing behaviour through.
+      </p>
+      <div class="field">
+        <label for="allowedApps">Allowed apps</label>
+        <input type="text" id="allowedApps" data-setting="allowedApps" spellcheck="false"
+               placeholder="com.example.notes, com.apple.mail" />
+        <p class="note">
+          Comma-separated bundle ids. Empty means she may act in nothing, which is the default.
+          Terminals, keychains, password managers, System Settings and Finder are refused
+          outright and cannot be added here.
+        </p>
+      </div>
+      <div class="field">
+        <label for="killHotkey">Stop key</label>
+        <input type="text" id="killHotkey" data-setting="killHotkey" spellcheck="false" />
+        <p class="note">
+          Halts anything in flight, immediately — the reply, her voice, and any action. It stays
+          stopped across a restart, so hitting it because something was going wrong does not
+          wear off.
+        </p>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <div class="row">
+          <span id="halted-state">…</span>
+          <button class="plain" id="resume" type="button" hidden>Start her again</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>What she has tried</label>
+        <div class="row">
+          <button class="plain" id="refresh-log" type="button">Refresh</button>
+        </div>
+        <div id="policy-log"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Voice</h2>
+      <div class="field">
+        <label for="voiceOutput">She speaks</label>
+        <div class="row">
+          <input type="checkbox" id="voiceOutput" data-setting="voiceOutput" />
+          <span class="note" style="margin: 0">read replies aloud, a sentence at a time</span>
+        </div>
+        <p class="note">
+          Uses <code>piper</code> from <code>bin/</code>, entirely offline. If it is not installed
+          she stays quiet and says so once, in the chat — it never costs you the reply.
+        </p>
+      </div>
+      <div class="field">
+        <label for="voiceName">Voice</label>
+        <input type="text" id="voiceName" data-setting="voiceName" spellcheck="false" />
+        <p class="note">
+          The name of a voice in <code>bin/voices</code>, without the <code>.onnx</code>.
+          <code>setup_models.sh</code> fetches <code>en_US-amy-medium</code> and
+          <code>en_US-hfc_female-medium</code>.
+        </p>
+      </div>
+      <div class="field">
+        <label for="voiceSpeed">Speed</label>
+        <div class="row">
+          <input type="number" id="voiceSpeed" data-setting="voiceSpeed" min="0.5" max="2" step="0.1" />
+          <span class="note" style="margin: 0">1 is the voice's own pace</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="voiceInput">You speak</label>
+        <div class="row">
+          <input type="checkbox" id="voiceInput" data-setting="voiceInput" />
+          <span class="note" style="margin: 0">talk to her with a key</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="voiceHotkey">Talk key</label>
+        <input type="text" id="voiceHotkey" data-setting="voiceHotkey" spellcheck="false" />
+        <p class="note">
+          Press once to start listening, again to stop. It is not hold-to-talk: a global shortcut
+          reports key presses and never releases, so a held key would start a recording nothing
+          could end.
+        </p>
+      </div>
+      <div class="field">
+        <label for="speechModel">Hearing model</label>
+        <input type="text" id="speechModel" data-setting="speechModel" spellcheck="false" />
+        <p class="note">
+          A whisper.cpp model in <code>bin/</code>. <code>setup_models.sh</code> fetches
+          <code>ggml-base.en.bin</code>.
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <div id="panel-memory" hidden>
+    <section>
+      <h2>What she remembers</h2>
+      <p class="note">
+        Everything here is on this machine and nowhere else. It reaches the model you configured
+        as part of her prompt, and goes nowhere otherwise. Anything she remembers, you can
+        remove.
+      </p>
+      <div class="field">
+        <label for="memory-add">Tell her something</label>
+        <div class="row">
+          <input type="text" id="memory-add" placeholder="They work on a desktop app called Navi." />
+          <button class="plain" id="memory-save" type="button">Remember</button>
+        </div>
+      </div>
+      <div class="row" style="justify-content: space-between">
+        <span class="note" id="memory-budget" style="margin: 0"></span>
+        <button class="plain danger" id="memory-reset" type="button" data-armed="false">
+          Forget everything
+        </button>
+      </div>
+    </section>
+    <div id="memory-body"></div>
+  </div>
+
+  <div id="panel-prompt" hidden>
+    <div id="prompt-meta">
+      <span id="prompt-when">No prompt yet.</span>
+      <button class="plain" id="refresh-prompt" type="button">Refresh</button>
+      <button class="plain" id="copy-prompt" type="button">Copy</button>
+    </div>
+    <div id="prompt-body"></div>
+  </div>
+</main>
+
+<footer>
+  <span id="warning"></span>
+  <span id="saved">saved</span>
+</footer>
+
+<script type="module" src="./settings.js"></script>

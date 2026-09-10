@@ -22,6 +22,8 @@ state unless I asked. `git clone --mirror` is not a health check.
 ## Settled — never raise these again
 
 - **The repo is public.** Deliberate, so CI works. It is not a finding.
+- **The Godot app is gone.** Deleted by NAV-105 once the port had parity. It is in git history at
+  `bd25efa~1` and does not need rescuing, mentioning, or comparing against.
 - **NAV-81 is closed.** Key revoked and unreplaced, history purged, 3.2MB. GitHub's
   `refs/pull/*` still hold old blobs; nobody can delete those, and nothing in them matters.
 - **Navi's mood affects her competence.** Intended. She is not for reliability-critical work.
@@ -39,5 +41,5 @@ Otherwise pick the sensible option, note it in one line, and keep going.
 
 ## The work itself
 
-Conventions for the Godot app are in `ai_agent.md`; for the Electron port, `app/README.md`.
-Run `npm test` and `npm run typecheck` in `app/` before pushing. Both are under a second.
+Conventions are in `README.md` — one app now, at the repository root (NAV-105). Run `npm test`
+and `npm run typecheck` before pushing. Both are under a second.

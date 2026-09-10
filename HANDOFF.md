@@ -1,13 +1,14 @@
-# Navi modernization — handoff
+# Navi — handoff
 
-Written 2026-09-06. Updated 2026-09-10, after the port's surfaces landed, the app ran on macOS
-for the first time, and cursor following arrived (NAV-102).
+Written 2026-09-06. Rewritten 2026-09-10, after the port gained every capability the Godot app
+had, the Godot app was deleted (NAV-105), companion depth landed, and the safety gate shipped
+ahead of the capability it gates.
 
-Navi is a desktop AI companion, written in Godot 4 and being rebuilt on Electron + TypeScript
-(ADR 0001). **The port has started and lives in `app/`.** The Godot app in the repository root
-is still the one that runs.
+Navi is a desktop AI companion, Electron + TypeScript ([ADR 0001](docs/adr/0001-platform-electron.md)).
+**There is one app now, and it is the repository root.** `npm start`.
 
-Read this, then `backlog.md`. Do not start coding before the section "Where to start".
+Read this, then [`README.md`](README.md), then [`backlog.md`](backlog.md). Do not start coding
+before the section "Where to start".
 
 ---
 
@@ -34,7 +35,7 @@ This is a **companion first, agent second**. See "Decisions already made".
 
 | # | Decision | Recorded in |
 |---|---|---|
-| 1 | **Companion first.** Emotional state legitimately affects her competence. She is explicitly *not* for reliability-critical work. This is intended behaviour, not a bug. | NAV-97 |
+| 1 | **Companion first.** Emotional state legitimately affects her competence. She is explicitly *not* for reliability-critical work. This is intended behaviour, not a bug. | NAV-97, `mission_statement.md` § "The position" |
 | 2 | Mood may shape tone, hedging and willingness. It must **never** license fabricating facts or misreporting the screen. The honesty rule outranks mood. | NAV-97 |
 | 3 | **Local Ollama is the daily driver.** The core path must work offline with no cloud account. Currently `llama3.2:3b` and `gemma4:e4b`. | NAV-94 |
 | 4 | **Distribution is intended** eventually. Signing, notarisation, auto-update and onboarding are real requirements. | NAV-94 |
@@ -45,254 +46,200 @@ This is a **companion first, agent second**. See "Decisions already made".
 | 9 | **Platform: Electron + TypeScript**, with a stateless Swift helper. **Decided 2026-09-07 — the spike passed.** | [ADR 0001](docs/adr/0001-platform-electron.md) |
 | 10 | **Click-through must be driven from outside the window.** A click-through window cannot receive keystrokes, so an in-window toggle can enable it and never disable it. Use a global shortcut, or cursor position. | ADR 0001 |
 | 11 | **The idle render loop must be throttled.** The spike passed its resource bar without much room (2.4-2.6% CPU, 356 MB). The fairy does not need 60fps when nothing is happening. | ADR 0001 |
+| 12 | **The Godot app is deleted.** Not deprecated, not kept as a reference. It is in git history and does not need rescuing or comparing against. | NAV-105 |
 
 ---
 
 ## State of the repository
 
-Planning is merged on `main`. The port is on the branch above, in `app/`.
+One app, at the root. `src/`, `test/`, `package.json`. `bin/` holds the two voice binaries;
+their models are fetched by `setup_models.sh` and are not tracked.
 
-- **`backlog.md`** — the plan. Opens with **Implementation Order**, then 21 tickets NAV-81..101.
-  **Ticket IDs are identity, not sequence.** Order lives in that section. The old log reused
-  sixteen IDs because numbering was doing both jobs; do not repeat that. New tickets continue
-  from NAV-102.
-- **`done.md`** — historical index of 114 completed tickets, plus an accuracy audit explaining
-  why the full bodies were removed. Bodies remain in git history at `81a2e83`.
-- **`app/`** — the Electron port. Has its own README covering layout, the decisions that will
-  look wrong without context, and the Electron install failure mode that will bite you.
-- `mission_statement.md`, `emotions.md`, `ai_agent.md` — design docs, still current and worth
-  reading. `ai_agent.md`'s conventions are GDScript-specific and apply to the root project only.
+Four files in `userData` hold what she knows, kept apart on purpose: `settings.json` is the
+user's preferences, `emotion.json` is the relationship, `memory.json` is what she has inferred
+about you and is consolidated and decayed, and `notes.json` is what you asked her to write down
+and is never pruned. Resetting any one of them must not touch the others.
 
-Deleted: `tickets.md` (broken absolute `file://` links), the empty `in_progress.md`, and `spike/`
-(its fairy renderer is now `app/src/renderer/fairy.ts`; ADR 0001 holds its measurements).
+- **[`README.md`](README.md)** — what she is, how to run her, the layout, and the long list of
+  decisions that will look wrong if you do not know why they were made. It absorbed the port's
+  own README when NAV-105 moved the app to the root.
+- **[`backlog.md`](backlog.md)** — the plan. Opens with **Implementation Order**; sections 1, 2
+  and 3 are done, and section 4 is down to NAV-90 and the two tickets behind it. **Ticket IDs
+  are identity, not sequence.** New tickets continue from NAV-106.
+- **[`done.md`](done.md)** — historical index of 114 completed tickets, plus an accuracy audit
+  explaining why the full bodies were removed. Bodies remain in git history at `81a2e83`.
+- `mission_statement.md`, `emotions.md` — design docs, current, and worth reading. The mission
+  statement now carries NAV-97's position and the bound on her moods.
+
+Deleted: the Godot project (`project.godot`, `scenes/`, `scripts/`, `addons/`, the GDScript
+suite), `ai_agent.md` — its conventions were GDScript-specific and died with the app — and,
+earlier, `tickets.md`, `in_progress.md` and `spike/`.
+
+**If you suspect something was lost in the migration, diff against the deleted tree rather than
+trusting this file.** `git show 394808f~1:scripts/<name>.gd` reads any of it. That is how
+NAV-106, the cursor marker and the emoji notifications were found; all three were features that
+had shipped and that nothing in the port's plan mentioned.
 
 ---
 
 ## Where to start
 
-### Step 1 — read `app/README.md`, then the ADR.
+### Step 1 — read `README.md`, then the ADR.
 
-[docs/adr/0001-platform-electron.md](docs/adr/0001-platform-electron.md) is the decision;
-`app/README.md` is what was built from it. Follow `backlog.md` → Implementation Order → **3a**;
-the 3b (stay in Godot) sequence is kept only as a record and must not be worked.
+`README.md`'s "Things that are decided" section is the one that saves time: every entry there is
+something that looks like a mistake and is not.
 
-### Step 2 — NAV-81, and the one piece still open
+### Step 2 — the state of it, stated plainly
 
-- The leaked OpenAI key was **revoked by the owner and not replaced**. The mechanism that leaked
-  it is closed — `SettingsManager.load_settings()` printed the whole settings dictionary on every
-  start, which is how a live key ended up in `test_run.log` and got committed. There is now a
-  `redact_secrets()` helper, the load-time print goes through it, and five tests cover the
-  redaction. The `openai_api_key` **setting is deliberately kept** — NAV-92 needs it for the
-  bring-your-own-cloud-key onboarding path.
-- History is purged. The owner confirmed a backup clone, `setup_models.sh` was extended to fetch
-  `en_US-hfc_female-medium.onnx` (it previously only fetched `amy`) and the download was verified
-  before anything was rewritten. `git filter-repo` then removed `test_run.log`, the eight
-  `reconstructed_aiservice_step*.txt` scratch files, and both 61MB `.onnx` voice models from every
-  ref (`main`, `claude/navi-purge-large-files-x1de5f`, and `claude/navi-modernization-review-rpw3mq`
-  all had to be rewritten and force-pushed — the third still held the old blobs and would have kept
-  the repo heavy otherwise). `bin/piper`, `bin/hotkey_daemon`, `bin/whisper-cli`, and the
-  `.onnx.json` sidecars stay tracked; only the two `.onnx` models were purged. `.git` went from
-  **116 MB to 3.4 MB**; a fresh clone is 11 MB.
+**She is finished, and nobody has watched her work.**
 
-A footnote, so nobody re-raises it as a finding: `filter-repo` rewrites `refs/heads/*` and does
-not touch `refs/pull/*`, which GitHub creates per pull request and never lets anyone delete. So
-`refs/pull/1/head` and `refs/pull/2/head` still hold `test_run.log` and the two voice models.
-**This needs no action.** GitHub reports the repository at 3.2 MB and a normal clone is 3.5 MB;
-the old blobs only appear if you ask for them by name (`git clone --mirror`, or an explicit
-`git fetch origin refs/pull/2/head`). The key in them is revoked and unreplaced, and the voice
-models are public downloads. Removing them would mean deleting and recreating the repository.
+Everything in the backlog is done except computer use. She follows the cursor; she can see the
+screen and the area around the cursor and point at what she saw; she speaks a sentence at a time
+and listens on a key; a stranger can get from install to a working Navi through a guided first
+run; she remembers you between sessions inside a fixed budget; she takes notes and fires
+reminders that survive a restart; she can tell when she did not understand you; and you can tell
+her she did well, which raises a stat and teaches her what you liked. 446 tests, all offline,
+typecheck clean, builds.
 
-Note that the repository is **public**. Earlier NAV-81 reasoning assumed private and used that to
-bound blast radius; re-check visibility before leaning on it in a future security call.
+**None of it has been seen working on a real Mac.** The suite runs at dpr 1 with no compositor,
+no transparency, no Spaces, no Screen Recording permission, no microphone and no audio device —
+which is exactly what these capabilities are made of. That is not pessimism about the code; it is
+the same automation gap that let the HiDPI bug reach the first real launch. **Do the checks in
+`backlog.md` → "What a human still owes" before building anything on top of this.** The list is
+longer than it was, and every item on it is a thing no headless environment can perform.
 
-The port carries the same rule independently, in `app/src/shared/redact.ts`, with its own tests.
-Two differences from the Godot helper, both deliberate: it recurses into nested structures, and it
-masks a value that *looks* like a credential whatever its setting is named. The Godot version is
-name-based only, which is sufficient for a flat settings dictionary and keeps `hotkey_keycode`
-readable in debug output.
+### Step 3 — what to build next
 
-### Step 3 — the port, in `app/`
+Two tickets. One needs a machine this environment does not have; the other was found by audit
+rather than planned.
 
-**Done** (186 tests, typecheck clean, builds):
+**NAV-106 — step-by-step guidance.** Nothing depends on it and it depends on nothing beyond
+`flyTo`, which exists. It is here because a feature that shipped in Godot across five tickets
+(NAV-11, NAV-35, NAV-39, NAV-40, NAV-43) was never given a port ticket: the only tickets
+referring to it were NAV-87 and NAV-88, and closing those as superseded took the guidance work
+with them silently. **Worth reading as a warning about this backlog** — "closed as superseded"
+is not the same as "nothing in it mattered", and this was found by diffing deleted GDScript
+against the port rather than by anything written down.
 
-- NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
-- The Electron shell: overlay window, click-through driven from the main process, throttled
-  render loop, settings.
-- The agent loop: one provider seam, native tool calling, no substring router (NAV-83), no
-  in-band control tags (NAV-84), personality in the identity layer (NAV-86).
-- The emotion engine, in `src/shared/emotion.ts`: the three dimensions, the eight composite
-  emotions, the Love Meter and its relationship bands, retrieval relevance, and the fairy tint.
-  Pure and synchronous, so it costs nothing on the latency path. `takeTurn` returns the
-  `TurnOutcome` for a turn; `src/main/emotion-store.ts` scores and persists it to its own file,
-  separate from settings. The prompt's Context layer carries the state with its tone guidance.
-- The chat surface, and with it the wiring that gives `takeTurn` a caller. A second window,
-  because the overlay is click-through and could never be typed into; `src/main/conversation.ts`
-  owns the exchange and imports nothing from Electron, so a whole turn runs under test.
-- Sentiment classification (emotions.md §4.4), in `src/agent/sentiment.ts`, with its prompt in
-  `src/prompt/sentiment.ts`. A second cheap non-streaming call on the pre-reply pass. It never
-  throws and is bounded in time: a mood reading must not cost the user their turn.
-- Settings, and the prompt inspector panel that NAV-85 built `inspector.ts` for. The window is
-  never sent the API key — it is told whether one is set and nothing else (NAV-81) — and
-  `shared/settings.ts` validates every save, because an IPC boundary carrying typed values is
-  where `'banana'` gets in as a provider name.
+**NAV-90 — the native accessibility helper.** Swift, a Mac, and Accessibility granted. It is the
+only thing standing between Navi and the "agent second" half of what she is, and two other
+tickets are queued behind it: NAV-89 packages and signs it, NAV-96's ambient presence needs the
+AX tree it provides.
 
-- CI, in `.github/workflows/ci.yml` (NAV-82): typecheck, tests and build on every push and pull
-  request. Its Godot half closes as superseded — see the ticket for why fixing tests for
-  `AIService.gd` is work the sequencing was designed to avoid.
+Two things to know before starting it, both now written at the top of its ticket:
 
-- NAV-102 — cursor following, and the flight primitive pointing is built on. `shared/motion.ts`
-  is the maths, `main/follow.ts` the controller, and neither imports Electron: the window
-  arrives as a three-method port and the cursor as a source, so a whole follow-pause-fly-restore
-  cycle runs under test. Two things worth knowing before you change it. Click-through and
-  following now share **one** cursor poll (`main/cursor.ts`) rather than running two timers that
-  sample at two rates and disagree; and the easing is `1 - exp(-speed * dt)` rather than Godot's
-  `lerp(target, speed * delta)`, which is the same curve made frame-rate independent — the
-  original moved differently at 30fps and 60fps and overshot when a slow frame pushed the factor
-  past 1. `flyTo` suspends following, eases her *body* onto a coordinate, holds, then restores;
-  it outranks the chat-window pause, because pointing at something is most useful exactly when
-  you are talking about it.
+- **NAV-91 is done and is waiting on this ticket for two inputs.** The gate is only as honest as
+  what it is told. `secureField` must come from a real `AXSecureTextField` read rather than a
+  caller's say-so, and `app` must be a bundle id the OS reported rather than a string the model
+  produced. Every write tool calls `gate.attempt` and does nothing else about safety.
+- **Define the wire protocol platform-neutrally on day one.** Windows and Linux are wanted
+  eventually (decision 5), and leaking `AXUIElement` specifics across the seam means rewriting
+  every call site later.
 
-### The state of it, stated plainly
-
-**The port has surfaces, one capability, and no senses.** She runs on macOS, she looks right,
-she holds a conversation, she has moods that persist, and she now follows your cursor and can be
-flown to a coordinate. She still cannot see your screen, cannot point at anything *of her own
-accord*, and cannot speak. `main/index.ts` creates a `ToolRegistry` and registers nothing in it,
-so the flight primitive has no caller yet — NAV-103's `point_to` is the one it was built for.
-
-That is not a bug list, it is the honest shape of the work: everything hard about the *platform*
-is done and everything the product actually does is still in GDScript. Do not read "the port is
-nearly finished" into the fact that the windows all work.
-
-### What to build next, in order
-
-1. **NAV-103 — the screen-capture tools.** This is the product. The owner's description leads
-   with "what's this near my cursor?", and it does not work. The prompt half of NAV-99's cursor
-   anchoring is already in `prompt/builder.ts`, gated on a `cursorAnchored` flag that nothing
-   sets; setting it is part of the ticket. Read NAV-99 before writing the crop code — anchoring
-   on the fairy instead of the cursor is the bug it exists to have fixed. `follow.flyTo` is
-   waiting for `point_to`, and `cursor.current()` is where the send-time cursor sample comes
-   from — take it when the user sends, not when the tool runs, or it is NAV-99 all over again.
-2. **NAV-104 — voice.** The binaries and voice models are still tracked and `setup_models.sh`
-   still fetches them.
-3. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of its
-   second half already.
-4. **NAV-97** companion-first identity — *parallel*, and mostly finished without anyone
-   closing it: the honesty-outranks-mood rule is in the identity layer with tests on it. What is
-   left is `mission_statement.md` and telling the **user** she has moods, which is a paragraph
-   inside NAV-92's onboarding copy rather than a pass of its own.
-5. **NAV-105 — retire the Godot app.** New. There was no ticket for the migration finishing,
-   which is how a port stays half-done for a year. The moment 1-4 give parity, delete the root
-   project; until then every ticket after it has to be asked "on which app?".
-
-After that, `backlog.md` → Implementation Order sections 3 and 4. The short version: companion
-depth (memory, notes, the approval loop) comes **before** computer use, because nothing in the
-owner's description needs Navi to click anything and NAV-90/91 are the largest and riskiest
-block in the backlog. NAV-89 folds into NAV-90 rather than standing alone — the Swift hotkey
-daemon it was written about died when the port moved to `globalShortcut`.
-
-### Still owed on macOS, by a human
-
-She launches, and the first launch immediately found something the entire automated suite could
-not: the fairy canvas laid out at its backing-store size, so on a Retina display only her
-top-left quarter drew. dpr 1 is every test and every headless run, and at dpr 1 the bug does not
-exist. Fixed in `app/test/fairy.test.ts`'s commit — but treat it as the argument for doing the
-rest of ADR 0001's Risk A list by hand rather than assuming:
-
-- background genuinely transparent
-- click-through toggling both ways as the cursor crosses her
-- the global shortcut firing while another app has focus
-- idle CPU and memory re-measured over a long window, not 90 seconds — **now including the
-  cursor poll and the window moves NAV-102 added**, which is the one acceptance criterion on
-  that ticket no test can close
-
-The last one has moved since the ADR: the idle throttle it required is now in and should have
-roughly halved the CPU figure, so the bar is no longer 5% — anything not clearly under the
-spike's 2.4-2.6% is a regression. Check the settings window says 30fps before measuring, since
-it can now raise that.
+---
 
 ## Traps in this codebase
 
-Things that will mislead you if you read the code straight.
+Things that will mislead you if you read the code straight. The eight `AIService.gd` traps that
+used to head this list went with the file.
 
-1. **`AIService.gd` is 2320 lines** and is a hand-written agent framework: transport for two
-   providers in two modes, SSE parsing, the agent loop, prompt assembly, tool routing, emotion
-   scoring, history, personality rewriting, error copy. `_deliver_final_response()` is 330 lines
-   of two near-identical branches. Do not refactor it before NAV-94 resolves; if the migration
-   goes ahead, most of it is never ported rather than fixed.
+1. **`main/follow.ts` moves the window; the renderer does not know it moved.** Following is a
+   main-process decision on top of one shared cursor poll (`main/cursor.ts`), and the fairy canvas
+   is never told her window's screen position. The pointing arrow works because `onFlight` does the
+   subtraction in the main process, on the tick that moves her, and sends the *direction*. Anything
+   else that needs to draw towards a screen coordinate has to be sent one the same way; do not
+   reach for the position inside the renderer, it is not there.
 
-2. **`PROMPT_SKILL_RULES` (`:66`) is dead weight that still runs.** ~150 hardcoded substrings
-   that force a skill before the model is consulted. `"here"` forces a screenshot; so do `"find"`,
-   `"move"`, `"chat"`, `"app"`. Native tool calling was implemented later, so two routers compete
-   and the substring one always wins. NAV-83 deletes it.
+2. **The screen tools cannot see the live cursor, and that is the design.** `agent/screen.ts` has
+   a `cursor()` dependency that only `freeze()` calls. Reading it at tool-run time would compile,
+   pass every test that does not move the cursor, and be NAV-99 all over again: the crop would be
+   centred on where the hand wandered while she was thinking. The freeze happens in
+   `conversation.send`, before the first `await`.
 
-3. **Genuinely dead code that reads as live.** `_VISUAL_REFUSAL_PATTERNS` (`:153`) and
-   `_get_retraction_message()` (`:1908`) have **zero callers** — NAV-59 removed the pipeline and
-   left the parts. `[ESCALATE]` survives only in a strip list. `_deliver_final_response()` takes a
-   `fast_model` parameter it never reads. NAV-98.
+3. **The system prompt can be rendered more than once in a turn.** `run()` takes `systemPrompt` as
+   a function of the turn's flags and re-renders the system message in place when a cursor-anchored
+   crop arrives. A capture happens *during* a turn, so a fixed string would carry NAV-99's
+   anchoring note on every turn or on none. The inspector shows the last render, which is the one
+   she actually answered under.
 
-4. **`done.md` was partly false before the audit.** Most notably NAV-68 claims
-   `_apply_personality_voice()` was bypassed; it was not, and still wraps every thought line in
-   hardcoded templates. Trust the code over any historical ticket. Seven tests named in acceptance
-   criteria do not exist.
+4. **An image reaches the model as a `user` message, not a tool result.** The chat-completions
+   schema has no place for an image on a `role: "tool"` message and both providers ignore one. It
+   is labelled as a capture so that screen text does not read as the user speaking — the user role
+   is the trusted one and a screenshot is not (NAV-91). Images are deliberately *not* added to the
+   conversation history: a capture is true about the moment it was taken and misleading five turns
+   later.
 
-5. **Control tags are parsed out of the live token stream** — `<scratchpad>`, `[CONTINUE]`,
-   `[PAUSE]`, `[SKILL: point_to: X,Y]` — while that same stream is being rendered. `point_to` has
-   two calling conventions and the prompt asks the model to pick. NAV-84.
+5. **The last sentence of a reply is never spoken by `push()`.** `shared/speech.ts` requires
+   whitespace after a terminator, because during streaming the end of the buffer is not the end of
+   anything — treat it as one and "It is 3." gets spoken the instant the model writes the 3 of
+   3.5. It leaves through `flush()`. If you "fix" this you will reintroduce the bug.
 
-6. **The system prompt is a `+=` chain** across eight fragments in several files, with no way to
-   see the final string. This is how the contradictory pointing instructions survived. NAV-85
-   adds an assembler and an inspector; build the inspector first, it makes everything else
-   verifiable.
+6. **The talk key is not hold-to-talk and cannot be.** `globalShortcut` reports key presses and
+   never releases. This is written on the setting, in the README and here, because it reads like
+   an oversight three times before it reads like a constraint.
 
-7. **Godot cannot do computer use.** No API for synthesizing input outside its own window,
-   enumerating other apps' windows, or reading an accessibility tree. `Input.parse_input_event`
-   only feeds Godot's own queue. A native helper is required on any platform. This is settled;
-   do not go looking for a Godot-native solution.
+7. **`emotion.json` is separate from `settings.json` on purpose.** Resetting preferences must not
+   wipe the relationship. `coerceState` re-derives the emotion and relationship labels from the
+   scores, so hand-editing the file to say `best_friend` does nothing.
 
-8. **The Godot test suite has one failing test** in `test/test_ai_service.gd` and emits a lot of
-   `Stack underflow! (Engine Bug)` noise. It still does; NAV-82 closed that half as superseded
-   rather than fixed, because `AIService.gd` is replaced rather than repaired. CI covers `app/`.
+8. **The relevance flags on `TurnOutcome` default to false and look redundant.** They are not.
+   Ordinary conversation touches no tool, and scoring that as "no tool available" decays Navi into
+   Oblivion just by being talked to. Deleting them looks like a simplification and is a behaviour
+   change (emotions.md §4.1).
 
-Two in `app/`, which otherwise reads cleanly:
+9. **Memory and notes are two files, and merging them would be a regression.** Memory is inferred
+   and is consolidated and decayed to hold a fixed prompt size. Notes are the user's own words
+   and nothing prunes them. The separation is what makes "notes survive a memory-consolidation
+   pass" true by construction rather than by a rule somebody has to remember.
 
-9. **`main/follow.ts` moves the window; the renderer does not know it moved.** Following is a
-   main-process decision on top of one shared cursor poll (`main/cursor.ts`), and the fairy
-   canvas is never told her window's screen position. Anything that needs to draw towards a
-   screen coordinate — NAV-103's pointer arrow — has to be sent one, the way `tint` and `busy`
-   are; do not reach for the position inside the renderer, it is not there.
+10. **`agent/sentiment.ts` asks for two bare words, not JSON, and parses each independently.**
+    That is not laziness about structured output — it is the acknowledgement that `llama3.2:3b`
+    cannot be relied on to produce it. A model that answers only "kind" still gets its tone read.
+    Each axis has a default that moves nothing, so a failed appraisal is indistinguishable
+    downstream from a polite message that made sense.
 
-10. **The `ToolRegistry` is empty and looks deliberate.** It is — for now — but it means every
-    capability the product is about is absent while the code around it looks finished. NAV-103.
+11. **`confidence` is on `EmotionState` and is not a Triforce dimension.** emotions.md maps
+    exactly three onto the eight composite emotions and onto her tint. Adding it to
+    `deriveEmotion` or to `emotionColor` would change both, and would be a rewrite of the design
+    document rather than a tidy-up.
+
+12. **`main/marker.ts` looks like decoration and is not.** The fading ring at the cursor is the
+    *visible* half of NAV-99. The bug it exists to fix — Navi answering about the wrong thing —
+    survived as long as it did because a user could not tell where she had looked, and a
+    confident answer about the wrong window reads exactly like a confident answer about the
+    right one. The arithmetic being right is not a substitute for the user being able to see
+    that it was. It was missed on the first pass and added by audit.
+
+13. **The safety gate gates nothing, and that is the ordering rather than an oversight.**
+    `shared/policy.ts` and `main/gate.ts` are complete and tested against a capability that does
+    not exist. A gate written after the thing it gates is a gate written to let the existing
+    behaviour through. Do not "simplify" it into the write tools when you build them.
 
 ---
 
 ## Working agreements
 
-- Branch: `claude/handoff-docs-review-0nr7ij`. Do not push elsewhere without asking.
-- Root project (Godot): conventions live in `ai_agent.md` — static typing mandatory in GDScript,
-  PascalCase scenes, composition over inheritance. Tests use GUT, run headless with
-  `godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test/ -gexit`.
-- Port (`app/`): `npm test`, `npm run typecheck`. Both run offline and take under a second, so
-  there is no excuse for pushing without them.
+- Branch: whatever the current task names. Do not push elsewhere without asking.
+- `npm test` and `npm run typecheck` before pushing. Both run offline and take about a second, so
+  there is no excuse.
 - Do not open a PR unless asked.
 - Ticket IDs are stable. Update the Implementation Order section when sequence changes; never
   renumber a ticket.
 - **Never commit a credential.** The leak in `test_run.log` came from `print()`-ing the whole
-  settings dictionary on load. NAV-81 adds redaction.
+  settings dictionary on load. `shared/redact.ts` carries the rule forward, with its own tests; it
+  recurses into nested structures and masks anything that *looks* like a credential whatever the
+  setting is called.
 
 ## Things only the owner can do
 
 Flag these rather than attempting them: rotating a leaked API key (NAV-81 is closed — key rotated,
-history rewritten); anything that needs a real macOS display; granting Accessibility and Screen
-Recording permissions. Any further `git push --force` or history rewrite still needs an explicit
-go-ahead and a confirmed backup first, same as NAV-81 did.
+history rewritten); anything that needs a real macOS display; granting Accessibility, Screen
+Recording and Microphone permissions; installing piper and pulling an Ollama model; and the Apple
+developer account NAV-89 needs to sign anything. Any further `git push --force` or history
+rewrite still needs an explicit go-ahead and a confirmed backup first, same as NAV-81 did.
 
-The port's first launch is done — see "Still owed on macOS" above for what a human still has to
-check by eye, and why the HiDPI bug found on that launch is the reason to check rather than
-assume. NAV-103 will need Screen Recording granted before it can be tested at all.
-
-Worth knowing about the automation gap, since it will keep mattering: Xvfb on Linux verifies
-plumbing — windows, IPC, a full exchange, settings reaching disk — and it runs at dpr 1 with no
-compositor, no transparency and no Spaces. Everything ADR 0001's Risk A list covers is precisely
-what it cannot see.
+The automation gap will keep mattering, so it is worth stating once more: the suite verifies
+plumbing — windows, IPC, a full exchange, settings reaching disk, the crop arithmetic, the
+sentence splitting, the failure copy. It runs at dpr 1 with no compositor, no transparency, no
+Spaces, no permissions and no audio. Everything ADR 0001's Risk A list covers, and everything the
+new capabilities are actually made of, is precisely what it cannot see.
