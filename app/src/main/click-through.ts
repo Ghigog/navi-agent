@@ -7,14 +7,14 @@
  *
  * So the default is click-through ON, and it is disabled only while the OS cursor is actually
  * over the fairy. Nothing about that decision runs inside the renderer.
+ *
+ * The cursor sample arrives from `cursor.ts` rather than being polled here, so this and
+ * `follow.ts` always act on the same one (NAV-102).
  */
 
 import type { BrowserWindow } from 'electron';
-import { screen } from 'electron';
 import { isOverFairy } from '../shared/geometry.js';
-
-/** How often to check whether the cursor is over the fairy. */
-const POLL_MS = 100;
+import type { CursorSource } from './cursor.js';
 
 export interface ClickThrough {
   stop(): void;
@@ -22,7 +22,7 @@ export interface ClickThrough {
   isClickThrough(): boolean;
 }
 
-export function attachClickThrough(win: BrowserWindow): ClickThrough {
+export function attachClickThrough(win: BrowserWindow, cursor: CursorSource): ClickThrough {
   let clickThrough: boolean | null = null;
 
   const apply = (next: boolean) => {
@@ -34,15 +34,15 @@ export function attachClickThrough(win: BrowserWindow): ClickThrough {
     win.webContents.send('click-through', next);
   };
 
-  const timer = setInterval(() => {
+  const unsubscribe = cursor.subscribe((point) => {
     if (win.isDestroyed()) return;
-    apply(!isOverFairy(screen.getCursorScreenPoint(), win.getBounds()));
-  }, POLL_MS);
+    apply(!isOverFairy(point, win.getBounds()));
+  });
 
   apply(true);
 
   return {
-    stop: () => clearInterval(timer),
+    stop: unsubscribe,
     isClickThrough: () => clickThrough === true,
   };
 }

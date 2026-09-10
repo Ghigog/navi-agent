@@ -10,11 +10,13 @@
  * `settings-window.ts`. Keep decisions out of here.
  */
 
-import { app, clipboard, globalShortcut, ipcMain, type BrowserWindow } from 'electron';
+import { app, clipboard, globalShortcut, ipcMain, screen, type BrowserWindow } from 'electron';
 import { createOverlay } from './overlay.js';
 import { createChatWindow, type ChatWindow } from './chat-window.js';
 import { createSettingsWindow, type SettingsWindow } from './settings-window.js';
 import { attachClickThrough, type ClickThrough } from './click-through.js';
+import { createCursorSource, type CursorSource } from './cursor.js';
+import { createFollow, type Follow } from './follow.js';
 import { createConversation } from './conversation.js';
 import { load, save } from './settings-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
@@ -28,11 +30,19 @@ let win: BrowserWindow | null = null;
 let chat: ChatWindow | null = null;
 let settings: SettingsWindow | null = null;
 let clickThrough: ClickThrough | null = null;
+let cursor: CursorSource | null = null;
+let follow: Follow | null = null;
 
 app.whenReady().then(() => {
+  const current = load();
+
   win = createOverlay();
-  clickThrough = attachClickThrough(win);
-  chat = createChatWindow();
+  // One poll, two readers. Click-through and following both act on the cursor, and two timers
+  // would sample it at two rates and disagree about where it is (NAV-102).
+  cursor = createCursorSource({ read: () => screen.getCursorScreenPoint(), fps: current.idleFps });
+  clickThrough = attachClickThrough(win, cursor);
+  follow = createFollow({ window: win, cursor });
+  chat = createChatWindow({ onVisibility: (open) => follow?.setPaused('chat', open) });
   settings = createSettingsWindow();
 
   // Empty for now. Tools reach the model as native schemas and the model picks; nothing here
@@ -74,9 +84,11 @@ app.whenReady().then(() => {
 
   const sendRates = (s: Settings): void => {
     win?.webContents.send('rates', { idle: s.idleFps, active: s.activeFps });
+    // The cursor poll is a permanent timer, so it is measured against ADR 0001's idle CPU bar
+    // like the render loop is, and it moves with the same setting.
+    cursor?.setRate(s.idleFps);
   };
 
-  const current = load();
   registerHotkey(current.hotkey);
 
   // She wakes up in the state she was left in, at the frame rates that were configured. Sent
@@ -132,6 +144,8 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   clickThrough?.stop();
+  follow?.stop();
+  cursor?.stop();
 });
 
 // The overlay is the app. Closing it means quitting, including on macOS.

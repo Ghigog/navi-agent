@@ -21,6 +21,15 @@ const here = __dirname;
 /** Wide enough for a paragraph, short enough not to own the screen. */
 export const CHAT_SIZE: Size = { width: 380, height: 440 };
 
+export interface ChatWindowOptions {
+  /**
+   * Called whenever the panel opens or closes. Following pauses while it is open (NAV-102):
+   * the panel is placed against her once, on open, so a fairy who kept following would walk
+   * off and leave it behind — or drag it around while you are typing into it.
+   */
+  onVisibility?: (open: boolean) => void;
+}
+
 export interface ChatWindow {
   /** Opens it against the fairy's current position and puts the caret in the input. */
   show(anchor: BrowserWindow): void;
@@ -31,7 +40,7 @@ export interface ChatWindow {
   send(channel: string, payload?: unknown): void;
 }
 
-export function createChatWindow(): ChatWindow {
+export function createChatWindow(opts: ChatWindowOptions = {}): ChatWindow {
   const win = new BrowserWindow({
     ...CHAT_SIZE,
     show: false,
@@ -85,10 +94,13 @@ export function createChatWindow(): ChatWindow {
     app.focus({ steal: true });
     win.focus();
     win.webContents.send('chat:focus');
+    opts.onVisibility?.(true);
   };
 
   const hide = (): void => {
-    if (!win.isDestroyed()) win.hide();
+    if (win.isDestroyed()) return;
+    win.hide();
+    opts.onVisibility?.(false);
   };
 
   return {
