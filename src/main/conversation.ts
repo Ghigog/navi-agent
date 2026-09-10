@@ -22,6 +22,7 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { takeTurn } from '../agent/session.js';
 import { classifySentiment } from '../agent/sentiment.js';
+import { summariseSession } from '../agent/summary.js';
 import type { Provider } from '../agent/client.js';
 import type { ToolRegistry } from '../agent/tools.js';
 import type { Settings } from '../shared/settings.js';
@@ -64,11 +65,29 @@ export interface EmotionStore {
   record(outcome: TurnOutcome): Evaluation;
 }
 
+/**
+ * The slice of the memory store a conversation needs (NAV-93).
+ *
+ * Retrieval happens here rather than as a tool: a model that had to decide to look something up
+ * would have to already know it was there, and on a 3B model it would cost a round trip before
+ * an answer that should have been immediate.
+ */
+export interface MemoryStore {
+  /** Everything to inject for this message, already inside its token budget. */
+  recall(query: string): { lines: string[]; used: string[] };
+  /** Marks the retrieved episodes, which is what decay and promotion read. */
+  used(ids: readonly string[]): void;
+  /** Stores a session summary as an episode. Called when a conversation ends. */
+  episode(text: string): void;
+}
+
 export interface ConversationDeps {
   settings(): Settings;
   createProvider(settings: Settings): Provider;
   registry: ToolRegistry;
   emotion: EmotionStore;
+  /** Optional: without it she simply has no memory, which is how she has always been until now. */
+  memory?: MemoryStore;
   emit(event: ChatEvent): void;
   /**
    * Called the instant a message is accepted, before anything async happens.
@@ -86,6 +105,15 @@ export interface ConversationDeps {
 export interface Conversation {
   /** Runs one exchange. Resolves when it has finished, failed, or been cancelled. */
   send(text: string): Promise<void>;
+  /**
+   * Ends the session: summarises what was discussed and stores it as an episode (NAV-93).
+   *
+   * Called when the chat window closes and on quit. It is the only model call in the app nobody
+   * is waiting for, which is what makes a summary affordable on a local model at all — and it
+   * never throws, because a session that could not be summarised is one that is not remembered
+   * rather than one that fails.
+   */
+  endSession(): Promise<void>;
   /** Stops the turn in flight. Harmless when there is none. */
   cancel(): void;
   busy(): boolean;
@@ -130,9 +158,34 @@ export function createConversation(deps: ConversationDeps): Conversation {
     messages.splice(0, start);
   };
 
+  /** So a session with nothing new in it is not summarised again on the next close. */
+  let summarised = 0;
+
   return {
     busy: () => inFlight !== null,
     history: () => messages,
+
+    async endSession() {
+      if (deps.memory === undefined || messages.length === summarised) return;
+      summarised = messages.length;
+
+      const settings = deps.settings();
+      let provider: Provider;
+      try {
+        provider = deps.createProvider(settings);
+      } catch {
+        // No provider means no summary. Nothing to unwind and nothing to tell the user: they
+        // did not ask for this and are not waiting for it.
+        return;
+      }
+
+      const text = await summariseSession({
+        client: provider.client,
+        model: settings.sentimentModel === '' ? provider.model : settings.sentimentModel,
+        messages,
+      });
+      if (text !== '') deps.memory.episode(text);
+    },
 
     describeState() {
       const settings = deps.settings();
@@ -158,6 +211,9 @@ export function createConversation(deps: ConversationDeps): Conversation {
       deps.onSend?.();
 
       const settings = deps.settings();
+
+      // Before the provider, so that a turn which cannot reach a model has still cost nothing.
+      const recalled = deps.memory?.recall(asked) ?? { lines: [], used: [] };
 
       let provider: Provider;
       try {
@@ -197,6 +253,7 @@ export function createConversation(deps: ConversationDeps): Conversation {
           settings,
           messages,
           emotion: pre.state,
+          ...(recalled.lines.length > 0 ? { memory: recalled.lines } : {}),
           signal: controller.signal,
           events: {
             onText: (delta) => {
@@ -210,6 +267,10 @@ export function createConversation(deps: ConversationDeps): Conversation {
 
         if (result.text !== '') messages.push({ role: 'assistant', content: result.text });
         trim();
+
+        // Marked after the turn rather than at retrieval: an episode that was recalled for a
+        // turn that then failed was not, in any useful sense, used.
+        if (recalled.used.length > 0) deps.memory?.used(recalled.used);
 
         const post = deps.emotion.record({
           ...result.outcome,

@@ -9,6 +9,8 @@
  * looking at the panel, and unverifiable without it.
  */
 
+import { estimateTokens } from '../shared/text.js';
+
 import type { PromptSection } from './types.js';
 
 export interface PromptRecord {
@@ -28,9 +30,9 @@ export interface PromptRecord {
  * answer "is the prompt getting out of hand?", which this answers well enough. The UI labels it
  * an estimate. If a token budget is ever enforced against this, replace it first.
  */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
+// Re-exported from `shared/text.ts`, where the memory budgets need it too (NAV-93). Callers have
+// always looked for it here.
+export { estimateTokens };
 
 let last: PromptRecord | null = null;
 

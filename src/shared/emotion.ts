@@ -30,6 +30,8 @@
  *   only there.
  */
 
+import { STOPWORDS, words } from './text.js';
+
 /** The eight Tier 2 composite emotions (emotions.md §3). */
 export type Emotion =
   | 'serenity'
@@ -360,19 +362,7 @@ export function coerceState(stored: unknown): EmotionState {
   };
 }
 
-/**
- * Words too common to mean anything about topical overlap. Short, on purpose: this is a rough
- * measure and a long stopword list would imply a precision it does not have.
- */
-const STOPWORDS = new Set([
-  'the', 'and', 'for', 'you', 'your', 'that', 'this', 'with', 'was', 'are', 'have', 'has',
-  'can', 'but', 'not', 'what', 'when', 'where', 'why', 'how', 'who', 'from', 'about', 'into',
-  'they', 'them', 'there', 'then', 'than', 'get', 'got', 'just', 'like', 'some', 'any', 'all',
-  'its', "it's", 'his', 'her', 'him', 'she', 'their', 'our', 'were', 'been', 'being', 'does',
-  'did', 'doing', 'would', 'could', 'should', 'will', 'one', 'two', 'now', 'out', 'off',
-]);
 
-const words = (s: string): string[] => s.toLowerCase().match(/[a-z0-9']+/g) ?? [];
 
 /**
  * How much of what the user just asked about, Navi already had context for — 0 to 1

@@ -324,3 +324,141 @@ describe('freezing the turn (NAV-99)', () => {
     expect(frozen).toBe(0);
   });
 });
+
+describe('memory (NAV-93)', () => {
+  /** The store, reduced to what a conversation touches, with a log of what it was told. */
+  function fakeMemory(lines: string[] = [], used: string[] = []) {
+    const marked: string[][] = [];
+    const episodes: string[] = [];
+    return {
+      marked,
+      episodes,
+      store: {
+        recall: () => ({ lines, used }),
+        used: (ids: readonly string[]) => marked.push([...ids]),
+        episode: (text: string) => episodes.push(text),
+      },
+    };
+  }
+
+  /**
+   * A client that answers both kinds of call this path makes: the streamed reply, and the
+   * non-streamed summary at the end. `fakeProvider` streams everything, which the summariser
+   * cannot read.
+   */
+  function summarisingProvider(replies: string[], summary: string) {
+    const bodies: Array<Record<string, unknown>> = [];
+    let turn = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            bodies.push(body);
+            if (body['stream'] !== true) {
+              return { choices: [{ message: { role: 'assistant', content: summary } }] };
+            }
+            const content = replies[turn++] ?? '';
+            return (async function* () {
+              yield { choices: [{ delta: { content } }] };
+            })();
+          },
+        },
+      },
+    };
+    return { provider: { client: client as unknown as OpenAI, model: 'm', remote: false }, bodies };
+  }
+
+  function withMemory(memory: ReturnType<typeof fakeMemory>, replies = ['hello'], summary = '') {
+    const { provider, bodies } = summarisingProvider(replies, summary);
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      memory: memory.store,
+      emit: () => {},
+      classify: async () => 'neutral',
+    });
+    return { conversation, bodies };
+  }
+
+  it('puts what she remembers into the prompt', async () => {
+    const memory = fakeMemory(['- They work on a desktop app called Navi.']);
+    const { conversation, bodies } = withMemory(memory);
+
+    await conversation.send('what am I working on?');
+
+    const system = (bodies[0]?.['messages'] as Array<{ role: string; content: string }>)[0];
+    expect(system?.content).toContain('They work on a desktop app called Navi.');
+  });
+
+  it('marks what it retrieved, but only once the turn actually worked', async () => {
+    const memory = fakeMemory(['- a fact'], ['ep-1', 'ep-2']);
+    const { conversation } = withMemory(memory);
+
+    await conversation.send('anything');
+    expect(memory.marked).toEqual([['ep-1', 'ep-2']]);
+  });
+
+  it('does not mark what it retrieved for a turn that never reached the model', async () => {
+    // An episode recalled for a turn that failed was not, in any useful sense, used — and
+    // marking it would age it towards promotion on the strength of a network error.
+    const memory = fakeMemory(['- a fact'], ['ep-1']);
+    const { provider } = fakeProvider(['x'], { fail: true });
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      memory: memory.store,
+      emit: () => {},
+      classify: async () => 'neutral',
+    });
+
+    await conversation.send('anything');
+    expect(memory.marked).toEqual([]);
+  });
+
+  it('summarises the session into an episode when it ends', async () => {
+    const memory = fakeMemory();
+    const { conversation } = withMemory(memory, ['first', 'second'], 'They planned the migration.');
+
+    await conversation.send('one');
+    await conversation.send('two');
+    await conversation.endSession();
+
+    expect(memory.episodes).toEqual(['They planned the migration.']);
+  });
+
+  it('does not summarise the same session twice', async () => {
+    const memory = fakeMemory();
+    const { conversation } = withMemory(memory, ['first', 'second'], 'A summary of it all.');
+
+    await conversation.send('one');
+    await conversation.send('two');
+    await conversation.endSession();
+    await conversation.endSession();
+
+    expect(memory.episodes).toHaveLength(1);
+  });
+
+  it('remembers nothing from a session too short to have been about anything', async () => {
+    const memory = fakeMemory();
+    const { conversation } = withMemory(memory, ['hi'], 'a summary that should never be asked for');
+
+    await conversation.send('hi');
+    await conversation.endSession();
+
+    expect(memory.episodes).toEqual([]);
+  });
+
+  it('works with no memory store at all', async () => {
+    // She has been memoryless her whole life until now; that must remain a working state.
+    const { conversation, events } = setup({ replies: ['hello'] });
+    await conversation.send('hi');
+    await expect(conversation.endSession()).resolves.toBeUndefined();
+    expect(kinds(events)).toContain('done');
+  });
+});

@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('naviSettings', {
   /** A patch, not a whole Settings. Keys left out keep whatever is stored. */
   save: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:save', patch),
   lastPrompt: () => ipcRenderer.invoke('prompt:last'),
+  /** The memory viewer (NAV-93). Anything she remembers, the user can see and remove. */
+  memory: () => ipcRenderer.invoke('memory:get'),
+  memoryForget: (id: string) => ipcRenderer.invoke('memory:forget', id),
+  memoryRemember: (text: string) => ipcRenderer.invoke('memory:remember', text),
+  memoryReset: () => ipcRenderer.invoke('memory:reset'),
   emotion: () => ipcRenderer.invoke('emotion:get'),
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */

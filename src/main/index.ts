@@ -23,9 +23,12 @@ import { blockers, type OnboardingState, type PermissionKind } from '../shared/o
 import { attachClickThrough, type ClickThrough } from './click-through.js';
 import { createCursorSource, type CursorSource } from './cursor.js';
 import { createFollow, type Follow } from './follow.js';
-import { createConversation } from './conversation.js';
+import { createConversation, type Conversation } from './conversation.js';
 import { load, save } from './settings-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
+import { load as loadMemory, reset as resetMemory, save as saveMemory } from './memory-store.js';
+import { createMemoryTools } from '../agent/recall.js';
+import { forget, markUsed, prefer, recall, recordEpisode, remember } from '../shared/memory.js';
 import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
 import { createScreenTools } from '../agent/screen.js';
@@ -44,6 +47,9 @@ let clickThrough: ClickThrough | null = null;
 let cursor: CursorSource | null = null;
 let follow: Follow | null = null;
 let speaker: Speaker | null = null;
+// Declared out here because the chat window's close handler ends the session, and the window is
+// built before the conversation that owns one.
+let conversation: Conversation | null = null;
 
 app.whenReady().then(() => {
   const current = load();
@@ -60,7 +66,14 @@ app.whenReady().then(() => {
     // one place that knows both her window's position and where she is going (NAV-103).
     onFlight: (relative) => win?.webContents.send('point', relative),
   });
-  chat = createChatWindow({ onVisibility: (open) => follow?.setPaused('chat', open) });
+  chat = createChatWindow({
+    onVisibility: (open) => {
+      follow?.setPaused('chat', open);
+      // Closing the chat ends the session, which is when it gets summarised into memory. It is
+      // the one model call nobody is waiting for, so it runs unawaited and failing silently.
+      if (!open) void conversation?.endSession();
+    },
+  });
   settings = createSettingsWindow();
   onboarding = createOnboardingWindow();
 
@@ -74,6 +87,35 @@ app.whenReady().then(() => {
     point: async (target) => follow?.flyTo(target),
   });
   for (const tool of screenTools.tools) registry.register(tool);
+
+  /**
+   * Memory (NAV-93). Every write goes through the store so it reaches disk immediately: she
+   * says "I'll remember that" and then the process is killed, and the promise should hold.
+   */
+  const memory = {
+    recall: (query: string) => {
+      const result = recall(loadMemory(), query);
+      return { lines: result.lines, used: result.used };
+    },
+    used: (ids: readonly string[]) => {
+      saveMemory(markUsed(loadMemory(), [...ids]));
+    },
+    episode: (text: string) => {
+      saveMemory(recordEpisode(loadMemory(), text));
+    },
+  };
+
+  for (const tool of createMemoryTools({
+    remember: (text) => {
+      saveMemory(remember(loadMemory(), text));
+      return text;
+    },
+    prefer: (text, liked) => {
+      saveMemory(prefer(loadMemory(), text, liked));
+    },
+  })) {
+    registry.register(tool);
+  }
 
   /**
    * Voice (NAV-104).
@@ -95,11 +137,12 @@ app.whenReady().then(() => {
     });
   speaker = buildSpeaker(current);
 
-  const conversation = createConversation({
+  conversation = createConversation({
     settings: load,
     createProvider,
     registry,
     emotion: { load: loadEmotion, record: recordEmotion },
+    memory,
     // NAV-99: the crop is centred on where the cursor was when they asked, not on where it has
     // drifted to by the time the model gets round to asking for a picture.
     onSend: () => screenTools.freeze(),
@@ -191,12 +234,12 @@ app.whenReady().then(() => {
     sendRates(current);
   });
 
-  ipcMain.on('chat:ready', () => conversation.describeState());
+  ipcMain.on('chat:ready', () => conversation?.describeState());
   ipcMain.on('chat:send', (_e, text: unknown) => {
     // The renderer is ours, but the boundary is still a boundary.
-    if (typeof text === 'string') void conversation.send(text);
+    if (typeof text === 'string') void conversation?.send(text);
   });
-  ipcMain.on('chat:cancel', () => conversation.cancel());
+  ipcMain.on('chat:cancel', () => conversation?.cancel());
   ipcMain.on('chat:hide', () => chat?.hide());
   ipcMain.on('chat:open', () => {
     if (win) chat?.show(win);
@@ -230,7 +273,7 @@ app.whenReady().then(() => {
       // typed messages itself and never sees the ones that arrive this way.
       chat?.send('voice:transcript', text);
       if (win) chat?.show(win);
-      void conversation.send(text);
+      void conversation?.send(text);
     } finally {
       await unlink(file).catch(() => undefined);
     }
@@ -289,16 +332,28 @@ app.whenReady().then(() => {
     sendRates(next);
     speaker?.stop();
     speaker = buildSpeaker(next);
-    conversation.describeState();
+    conversation?.describeState();
     return { view: view(next), hotkeyRegistered, voiceHotkeyRegistered };
   });
+
+  /** The memory viewer (NAV-93): anything she remembers, the user can see and remove. */
+  ipcMain.handle('memory:get', () => loadMemory());
+  ipcMain.handle('memory:forget', (_e, id: unknown) => {
+    if (typeof id === 'string') saveMemory(forget(loadMemory(), id));
+    return loadMemory();
+  });
+  ipcMain.handle('memory:remember', (_e, text: unknown) => {
+    if (typeof text === 'string' && text.trim() !== '') saveMemory(remember(loadMemory(), text));
+    return loadMemory();
+  });
+  ipcMain.handle('memory:reset', () => resetMemory());
 
   ipcMain.handle('prompt:last', () => lastPrompt());
   ipcMain.handle('emotion:get', () => describe(loadEmotion()));
   ipcMain.handle('emotion:reset', () => {
     const state = resetEmotion();
     // Repaints the fairy and the chat header from the state she has just been given.
-    conversation.describeState();
+    conversation?.describeState();
     return describe(state);
   });
   ipcMain.handle('clipboard:write', (_e, text: unknown) => {
@@ -328,6 +383,12 @@ app.whenReady().then(() => {
   // The overlay is the app. It has no frame and cannot be closed by hand, but if it ever goes
   // away the hidden windows must not keep the process alive with nothing on screen.
   win.on('closed', () => app.quit());
+});
+
+app.on('before-quit', () => {
+  // Last chance to remember the session. Unawaited: `before-quit` will not hold for it, and a
+  // summary is worth attempting rather than worth delaying a quit for.
+  void conversation?.endSession();
 });
 
 app.on('will-quit', () => {

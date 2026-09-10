@@ -15,6 +15,8 @@
  * a save from here cannot erase one it could not see.
  */
 
+import { factTokens, FACT_BUDGET, MAX_EPISODES, type Memory } from '../shared/memory.js';
+
 import type { PromptRecord } from '../prompt/inspector.js';
 import type { SettingsView } from '../shared/settings.js';
 
@@ -28,6 +30,10 @@ declare global {
         voiceHotkeyRegistered: boolean;
       }>;
       lastPrompt(): Promise<PromptRecord | null>;
+      memory(): Promise<Memory>;
+      memoryForget(id: string): Promise<Memory>;
+      memoryRemember(text: string): Promise<Memory>;
+      memoryReset(): Promise<Memory>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
@@ -39,8 +45,12 @@ declare global {
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-const panels = { settings: $('panel-settings'), prompt: $('panel-prompt') };
-const tabs = { settings: $<HTMLButtonElement>('tab-settings'), prompt: $<HTMLButtonElement>('tab-prompt') };
+const panels = { settings: $('panel-settings'), prompt: $('panel-prompt'), memory: $('panel-memory') };
+const tabs = {
+  settings: $<HTMLButtonElement>('tab-settings'),
+  prompt: $<HTMLButtonElement>('tab-prompt'),
+  memory: $<HTMLButtonElement>('tab-memory'),
+};
 const saved = $('saved');
 const warning = $('warning');
 const relationship = $('relationship');
@@ -53,12 +63,13 @@ const bound = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaEleme
 
 let current: SettingsView | null = null;
 
-function showTab(name: 'settings' | 'prompt'): void {
-  panels.settings.hidden = name !== 'settings';
-  panels.prompt.hidden = name !== 'prompt';
-  tabs.settings.setAttribute('aria-selected', String(name === 'settings'));
-  tabs.prompt.setAttribute('aria-selected', String(name === 'prompt'));
+type TabName = 'settings' | 'prompt' | 'memory';
+
+function showTab(name: TabName): void {
+  for (const [key, panel] of Object.entries(panels)) panel.hidden = key !== name;
+  for (const [key, tab] of Object.entries(tabs)) tab.setAttribute('aria-selected', String(key === name));
   if (name === 'prompt') void loadPrompt();
+  if (name === 'memory') void loadMemory();
 }
 
 function flashSaved(): void {
@@ -208,6 +219,7 @@ $('copy-prompt').addEventListener('click', async () => {
 
 tabs.settings.addEventListener('click', () => showTab('settings'));
 tabs.prompt.addEventListener('click', () => showTab('prompt'));
+tabs.memory.addEventListener('click', () => showTab('memory'));
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -226,3 +238,126 @@ void (async () => {
   if (view) render(view);
   relationship.textContent = (await window.naviSettings?.emotion()) ?? '';
 })();
+
+// ---------------------------------------------------------------------------
+// The memory viewer (NAV-93)
+// ---------------------------------------------------------------------------
+
+const memoryAdd = $<HTMLInputElement>('memory-add');
+const memoryBody = $('memory-body');
+const memoryBudget = $('memory-budget');
+
+/**
+ * One row per thing she knows, with its own delete.
+ *
+ * Preferences are shown but not individually deletable: they are a capped, newest-wins list
+ * that she rewrites as she learns, so the honest control over them is "forget everything" and
+ * telling her plainly, not a delete button on a value that will be replaced anyway.
+ */
+function memoryGroup(title: string, items: Array<{ id?: string; text: string; at?: number }>): HTMLElement {
+  const group = document.createElement('div');
+  group.className = 'memory-group';
+
+  const heading = document.createElement('h3');
+  heading.textContent = `${title} (${items.length})`;
+  group.append(heading);
+
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'memory-item';
+
+    const text = document.createElement('span');
+    text.className = 'text';
+    text.textContent = item.text;
+    row.append(text);
+
+    if (item.at !== undefined && item.at > 0) {
+      const when = document.createElement('span');
+      when.className = 'when';
+      when.textContent = new Date(item.at).toLocaleDateString();
+      row.append(when);
+    }
+
+    if (item.id !== undefined) {
+      const remove = document.createElement('button');
+      remove.className = 'plain';
+      remove.textContent = 'Forget';
+      remove.addEventListener('click', async () => {
+        renderMemory(await window.naviSettings?.memoryForget(item.id!));
+        flashSaved();
+      });
+      row.append(remove);
+    }
+
+    group.append(row);
+  }
+
+  return group;
+}
+
+function renderMemory(memory: Memory | undefined): void {
+  memoryBody.textContent = '';
+  if (!memory) return;
+
+  const preferences = [
+    ...memory.relationship.likes.map((text) => ({ text: `liked: ${text}` })),
+    ...memory.relationship.dislikes.map((text) => ({ text: `disliked: ${text}` })),
+  ];
+
+  if (memory.facts.length === 0 && memory.episodes.length === 0 && preferences.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'She does not know anything about you yet. Tell her something, or ask her to remember.';
+    memoryBody.append(empty);
+    memoryBudget.textContent = '';
+    return;
+  }
+
+  if (preferences.length > 0) memoryBody.append(memoryGroup('What you like', preferences));
+  if (memory.facts.length > 0) memoryBody.append(memoryGroup('Facts', memory.facts));
+  if (memory.episodes.length > 0) {
+    // Newest first: what she did most recently is what you came here to check.
+    const episodes = [...memory.episodes].sort((a, b) => b.at - a.at);
+    memoryBody.append(memoryGroup('Sessions', episodes));
+  }
+
+  // Stated because the whole store exists to stay small, and a number is the only honest way to
+  // say whether it has.
+  memoryBudget.textContent =
+    `~${factTokens(memory.facts)} of ${FACT_BUDGET} tokens of facts · ` +
+    `${memory.episodes.length} sessions, at most ${MAX_EPISODES} recalled per message`;
+}
+
+async function loadMemory(): Promise<void> {
+  renderMemory(await window.naviSettings?.memory());
+}
+
+$('memory-save').addEventListener('click', async () => {
+  const text = memoryAdd.value.trim();
+  if (text === '') return;
+  memoryAdd.value = '';
+  renderMemory(await window.naviSettings?.memoryRemember(text));
+  flashSaved();
+});
+
+memoryAdd.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('memory-save').click();
+});
+
+const memoryReset = $<HTMLButtonElement>('memory-reset');
+const disarmMemory = (): void => {
+  memoryReset.dataset['armed'] = 'false';
+  memoryReset.textContent = 'Forget everything';
+};
+memoryReset.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (memoryReset.dataset['armed'] !== 'true') {
+    memoryReset.dataset['armed'] = 'true';
+    memoryReset.textContent = 'Really forget everything?';
+    return;
+  }
+  renderMemory(await window.naviSettings?.memoryReset());
+  disarmMemory();
+  flashSaved();
+});
+document.addEventListener('click', disarmMemory);

@@ -448,7 +448,7 @@ wrong.
 What the owner actually described wanting, in the order the description names it. None of it
 needs computer use.
 
-### NAV-93: Bounded persistent memory (Backlog)
+### NAV-93: Bounded persistent memory (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to remember me across sessions without her replies getting slower or worse
@@ -501,14 +501,40 @@ User control:
 - Everything stays local. Memory leaves the machine only as prompt context to the configured model.
 
 **Acceptance Criteria:**
-- [ ] A fact stated in one session is recalled in the next, after a restart.
-- [ ] With 1000+ stored episodes, injected memory stays inside its token budget and response latency
-      is unchanged versus an empty store. This is the ticket's real test.
-- [ ] Consolidation reduces episode count without losing facts that were promoted.
-- [ ] Decay removes never-retrieved episodes and leaves retrieved ones.
-- [ ] The viewer lists, searches, edits, and deletes across all three stores.
-- [ ] Deleting a memory removes it from subsequent prompts.
-- [ ] `_calculate_retrieval_relevance` is replaced by real retrieval or removed.
+- [x] A fact stated in one session is recalled in the next, after a restart. `memory.json`, its
+      own file for the same reason `emotion.json` is: resetting preferences must not wipe the
+      relationship.
+- [x] With 1000+ stored episodes, injected memory stays inside its token budget and response
+      latency is unchanged versus an empty store. `test/memory.test.ts` → "the budget, with a
+      thousand episodes", which is the ticket's real test and is written as such.
+- [x] Consolidation reduces episode count without losing facts that were promoted — including
+      the awkward case where promotion and decay disagree, which is pinned separately.
+- [x] Decay removes never-retrieved episodes and leaves retrieved ones.
+- [x] The viewer lists and deletes across all three stores, and adds a fact directly. It does
+      not offer per-preference deletes: preferences are a capped, newest-wins list she rewrites
+      as she learns, so the honest controls are "tell her plainly" and "forget everything".
+- [x] Deleting a memory removes it from subsequent prompts.
+- [x] `_calculate_retrieval_relevance` went with the Godot app (NAV-105). The port's
+      `retrievalRelevance` is a different function doing a different job — it scores how much
+      context a turn had, for the Wisdom dimension — and stays.
+
+**Not SQLite, and the reason is in `main/memory-store.ts`.** The usable options are native
+modules that must be rebuilt against Electron's ABI on every version bump and every platform.
+What that buys is indexed query over a store this ticket *bounds by design*: consolidation
+promotes, decay prunes, and the retrieval test holds a thousand episodes well inside budget. If
+that stops being true, `memory-store.ts` is the only file that changes — everything above it
+takes a `Memory` value and gives one back.
+
+**Consolidation is honest about what it is.** Merging two facts into one needs a model call,
+which would put a network round trip inside a write. What happens instead: the *oldest* facts go
+when the sheet is full, a fact reinforced by being mentioned again has its timestamp refreshed
+and survives, and the episodes it came from remain — so a dropped fact can be recalled rather
+than being gone.
+
+**Retrieval is not a tool.** It happens before the turn and reaches the model through prompt
+Layer 3. A model that had to *decide* to look something up would have to already know it was
+there, which is the wrong way round, and on a 3B model it costs a round trip before an answer
+that should have been immediate. Writing *is* a tool: `remember` and `note_preference`.
 
 ### NAV-100: Notes and reminders (Backlog)
 **User Story:**
