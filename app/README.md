@@ -5,7 +5,7 @@ the repository root is still the one that runs; this replaces it.
 
 ```
 npm install
-npm test          # 159 tests, all offline
+npm test          # 162 tests, all offline
 npm run typecheck
 npm run build
 npm start         # needs a display; macOS for the overlay behaviour
@@ -41,6 +41,12 @@ same stream it was rendering, so a model that merely mentioned a tag triggered i
 
 **Click-through is decided in the main process, from the cursor position.** A click-through
 window cannot receive keystrokes, so nothing inside the window can turn it back off.
+
+**The fairy canvas carries two sizes, and they are not the same number.** The backing store is
+device pixels (`size * dpr`); the CSS size is `size`. Set only the first and the element lays out
+at its attribute size — 400px inside a 200px window on a Retina display, showing her top-left
+quarter. It is invisible at dpr 1, which is every test and every headless run, so it survived to
+the first launch on a real display. `test/fairy.test.ts` holds the line.
 
 **The render loop is throttled when idle.** This is a required mitigation, not an optimisation:
 ADR 0001's idle CPU result passed its bar with little room, and a regression past those numbers
