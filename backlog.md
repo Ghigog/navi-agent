@@ -55,30 +55,30 @@ nothing else outranked them.
 |---|---|---|
 | 5 | **NAV-105** Retire the Godot app | **Done.** The Godot project is deleted, the port moved to the repository root, and there is one README. The parity behind it is code-level and test-level; the hand check on macOS is still owed. |
 
-### 3. Companion depth — next
+### 3. Companion depth — **done**
 
-What the owner described wanting, in roughly the order the description names it. None of it needs
-computer use.
+What the owner described wanting, in roughly the order the description names it. None of it needed
+computer use, which is why it came first.
 
-| Order | Ticket | Why here |
+| Order | Ticket | Outcome |
 |---|---|---|
-| 6 | **NAV-93** Bounded persistent memory | The foundation the next two build on: NAV-100 wants its SQLite store, NAV-101 wants its relationship-state store. The binding constraint is the 3B local model, so this is a ticket about *budgets*, not about storage. |
-| 7 | **NAV-100** Notes and reminders | Small, and named second in the owner's own description. Needs only NAV-93's store layer, not its consolidation or decay — start as soon as the store exists. |
-| 8 | **NAV-95** Model-driven emotion evaluation | Largely done in the port: `agent/sentiment.ts` is exactly the cheap constrained follow-up call the ticket asks for, and `shared/emotion.ts` clamps the per-turn deltas. What remains is a richer appraisal, and confirming the keyword tables never came across. Before NAV-101 rather than after, so the scoring is not built twice. |
-| 9 | **NAV-101** Confidence and the approval loop | The pet loop's missing input: the user cannot currently tell Navi she did well. Needs NAV-93's store to record *what* was approved and NAV-97's bounds to stop confidence licensing fabrication. |
+| 6 | **NAV-93** Bounded persistent memory | **Done.** Three stores, three lifecycles, and a thousand episodes that cost the prompt what none do. |
+| 7 | **NAV-100** Notes and reminders | **Done.** Times resolved at write, vague times refused, and a timer that survives a restart. |
+| 8 | **NAV-95** Model-driven emotion appraisal | **Done.** A second axis on the same cheap call: `intentClear` had been hardcoded true since the port began. |
+| 9 | **NAV-101** Confidence and the approval loop | **Done.** The fourth stat, an explicit 👍 on the reply, and a record of *what* was approved. |
 
-### 4. Computer use
+### 4. Computer use — where the work now is
 
-The largest and riskiest block in the backlog, and **nothing above it depends on a line of it**.
+The largest and riskiest block in the backlog, and **nothing above it depended on a line of it**.
 That is why it is last rather than first: the owner's description asks her to *point at* things, not
 to click them, and pointing is NAV-103.
 
-| Order | Ticket | Why here |
+| Order | Ticket | State |
 |---|---|---|
-| 10 | **NAV-91** Safety model | **Before the capability, not after** — a settled decision. Its untrusted-screen-content half is already in the port's identity layer; the gate, the app allowlist and the kill switch are not. |
-| 11 | **NAV-90** Native accessibility helper | The actual capability. Define the wire protocol platform-neutrally on day one — Windows and Linux are wanted eventually, and leaking `AXUIElement` specifics means rewriting every call site later. |
-| 12 | **NAV-89** Prebuilt signed helper | Folds into 11: package and sign the helper NAV-90 builds, and authenticate its channel. Most of the original ticket died with the Swift hotkey daemon the port replaced with `globalShortcut`. |
-| 13 | **NAV-96** Ambient presence | Last by its own dependency: ambient observation widens the prompt-injection surface NAV-91 exists to close, and on local models its real cost is battery and fan noise rather than tokens. |
+| 10 | **NAV-91** Safety model | **Done.** Deny-by-default allowlist, immovable denied apps, secure-field rule, confirmation tiers, per-turn write limit, kill switch, append-only audit log. Two inputs wait on NAV-90 and its ticket says so. |
+| 11 | **NAV-90** Native accessibility helper | **Next, and the only thing left that a machine here cannot do.** Needs Swift, a Mac and Accessibility granted. Define the wire protocol platform-neutrally on day one — Windows and Linux are wanted eventually, and leaking `AXUIElement` specifics means rewriting every call site later. |
+| 12 | **NAV-89** Prebuilt signed helper | Folds into 11, and needs an Apple developer account nobody but the owner has. |
+| 13 | **NAV-96** Ambient presence | Last by its own dependency: ambient observation widens the prompt-injection surface NAV-91 closes, and on local models its real cost is battery and fan noise rather than tokens. |
 
 ### Dependency summary
 
@@ -103,8 +103,9 @@ it is how "what's this near my cursor?" stays broken for another six months.
 
 ### What a human still owes
 
-Sections 1 and 2 are complete in code and in tests, and untried on a real machine. Nothing below
-is a known defect; all of it is a check no headless environment can perform.
+Sections 1, 2 and 3 are complete in code and in tests, along with NAV-91 from section 4, and none
+of it has been tried on a real machine. Nothing below is a known defect; all of it is a check no
+headless environment can perform.
 
 - ADR 0001's Risk A list, by hand on macOS: transparency, click-through toggling both ways, the
   global shortcut firing while another app has focus, and idle CPU and memory re-measured over a
@@ -120,6 +121,11 @@ is a known defect; all of it is a check no headless environment can perform.
   whether she sounds like anything and hears anything.
 - First run on a clean account, both provider paths, and whether each permission deep link opens
   the pane it claims to.
+- Notes and reminders across a real restart, and a reminder firing while another app has focus.
+- Whether her memory of a previous session reads as knowing you or as quoting you back at
+  yourself. The budgets are tested; whether the recalled line is the *right* line is a judgement
+  only use will settle.
+- The stop key, from an application that has the focus.
 
 ---
 

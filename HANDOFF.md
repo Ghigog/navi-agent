@@ -1,7 +1,8 @@
 # Navi — handoff
 
 Written 2026-09-06. Rewritten 2026-09-10, after the port gained every capability the Godot app
-had and the Godot app was deleted (NAV-105).
+had, the Godot app was deleted (NAV-105), companion depth landed, and the safety gate shipped
+ahead of the capability it gates.
 
 Navi is a desktop AI companion, Electron + TypeScript ([ADR 0001](docs/adr/0001-platform-electron.md)).
 **There is one app now, and it is the repository root.** `npm start`.
@@ -54,12 +55,17 @@ This is a **companion first, agent second**. See "Decisions already made".
 One app, at the root. `src/`, `test/`, `package.json`. `bin/` holds the two voice binaries;
 their models are fetched by `setup_models.sh` and are not tracked.
 
+Four files in `userData` hold what she knows, kept apart on purpose: `settings.json` is the
+user's preferences, `emotion.json` is the relationship, `memory.json` is what she has inferred
+about you and is consolidated and decayed, and `notes.json` is what you asked her to write down
+and is never pruned. Resetting any one of them must not touch the others.
+
 - **[`README.md`](README.md)** — what she is, how to run her, the layout, and the long list of
   decisions that will look wrong if you do not know why they were made. It absorbed the port's
   own README when NAV-105 moved the app to the root.
-- **[`backlog.md`](backlog.md)** — the plan. Opens with **Implementation Order**, and sections 1
-  and 2 of it are now done. **Ticket IDs are identity, not sequence.** New tickets continue from
-  NAV-106.
+- **[`backlog.md`](backlog.md)** — the plan. Opens with **Implementation Order**; sections 1, 2
+  and 3 are done, and section 4 is down to NAV-90 and the two tickets behind it. **Ticket IDs
+  are identity, not sequence.** New tickets continue from NAV-106.
 - **[`done.md`](done.md)** — historical index of 114 completed tickets, plus an accuracy audit
   explaining why the full bodies were removed. Bodies remain in git history at `81a2e83`.
 - `mission_statement.md`, `emotions.md` — design docs, current, and worth reading. The mission
@@ -80,40 +86,41 @@ something that looks like a mistake and is not.
 
 ### Step 2 — the state of it, stated plainly
 
-**She works, and nobody has watched her do it.**
+**She is finished, and nobody has watched her work.**
 
-Everything the Godot app did, the port does: she follows the cursor, she can see the screen and
-the area around the cursor, she can fly to a point and draw an arrow at it, she speaks a sentence
-at a time and listens on a key, and a stranger can get from install to a working Navi through a
-guided first run. 280 tests, all offline, typecheck clean, builds.
+Everything in the backlog is done except computer use. She follows the cursor; she can see the
+screen and the area around the cursor and point at what she saw; she speaks a sentence at a time
+and listens on a key; a stranger can get from install to a working Navi through a guided first
+run; she remembers you between sessions inside a fixed budget; she takes notes and fires
+reminders that survive a restart; she can tell when she did not understand you; and you can tell
+her she did well, which raises a stat and teaches her what you liked. 446 tests, all offline,
+typecheck clean, builds.
 
-None of it has been seen working on a real Mac. The suite runs at dpr 1 with no compositor, no
-transparency, no Spaces, no Screen Recording permission and no audio device — which is exactly
-the set of things these capabilities are made of. That is not pessimism about the code; it is the
-same automation gap that let the HiDPI bug reach the first real launch. **Do the checks in
-`backlog.md` → "What a human still owes" before building anything on top of this.**
+**None of it has been seen working on a real Mac.** The suite runs at dpr 1 with no compositor,
+no transparency, no Spaces, no Screen Recording permission, no microphone and no audio device —
+which is exactly what these capabilities are made of. That is not pessimism about the code; it is
+the same automation gap that let the HiDPI bug reach the first real launch. **Do the checks in
+`backlog.md` → "What a human still owes" before building anything on top of this.** The list is
+longer than it was, and every item on it is a thing no headless environment can perform.
 
 ### Step 3 — what to build next
 
-`backlog.md` → Implementation Order, section 3, then section 4.
+One ticket, and it is the one that needs a machine this environment does not have.
 
-**Section 3, companion depth**, is what the owner actually described wanting, in roughly the
-order the description names it, and none of it needs computer use:
+**NAV-90 — the native accessibility helper.** Swift, a Mac, and Accessibility granted. It is the
+only thing standing between Navi and the "agent second" half of what she is, and two other
+tickets are queued behind it: NAV-89 packages and signs it, NAV-96's ambient presence needs the
+AX tree it provides.
 
-1. **NAV-93** bounded persistent memory — the store the next two build on. A ticket about
-   *budgets*, not storage: the binding constraint is a 3B local model's context window.
-2. **NAV-100** notes and reminders — small, named second in the owner's description, and needs
-   only NAV-93's store layer rather than its consolidation or decay.
-3. **NAV-95** model-driven emotion appraisal — largely done already. `agent/sentiment.ts` is the
-   cheap constrained follow-up call the ticket asks for, and `shared/emotion.ts` clamps the
-   per-turn deltas. What remains is a richer appraisal, and confirming the keyword tables never
-   came across.
-4. **NAV-101** confidence and the approval loop — the pet loop's missing input: the user cannot
-   currently tell Navi she did well.
+Two things to know before starting it, both now written at the top of its ticket:
 
-**Section 4, computer use**, is the largest and riskiest block in the backlog and nothing above
-depends on a line of it. NAV-91's gate ships before NAV-90's capability; that is settled.
-NAV-89 folds into NAV-90 rather than standing alone.
+- **NAV-91 is done and is waiting on this ticket for two inputs.** The gate is only as honest as
+  what it is told. `secureField` must come from a real `AXSecureTextField` read rather than a
+  caller's say-so, and `app` must be a bundle id the OS reported rather than a string the model
+  produced. Every write tool calls `gate.attempt` and does nothing else about safety.
+- **Define the wire protocol platform-neutrally on day one.** Windows and Linux are wanted
+  eventually (decision 5), and leaking `AXUIElement` specifics across the seam means rewriting
+  every call site later.
 
 ---
 
@@ -166,6 +173,27 @@ used to head this list went with the file.
    Oblivion just by being talked to. Deleting them looks like a simplification and is a behaviour
    change (emotions.md §4.1).
 
+9. **Memory and notes are two files, and merging them would be a regression.** Memory is inferred
+   and is consolidated and decayed to hold a fixed prompt size. Notes are the user's own words
+   and nothing prunes them. The separation is what makes "notes survive a memory-consolidation
+   pass" true by construction rather than by a rule somebody has to remember.
+
+10. **`agent/sentiment.ts` asks for two bare words, not JSON, and parses each independently.**
+    That is not laziness about structured output — it is the acknowledgement that `llama3.2:3b`
+    cannot be relied on to produce it. A model that answers only "kind" still gets its tone read.
+    Each axis has a default that moves nothing, so a failed appraisal is indistinguishable
+    downstream from a polite message that made sense.
+
+11. **`confidence` is on `EmotionState` and is not a Triforce dimension.** emotions.md maps
+    exactly three onto the eight composite emotions and onto her tint. Adding it to
+    `deriveEmotion` or to `emotionColor` would change both, and would be a rewrite of the design
+    document rather than a tidy-up.
+
+12. **The safety gate gates nothing, and that is the ordering rather than an oversight.**
+    `shared/policy.ts` and `main/gate.ts` are complete and tested against a capability that does
+    not exist. A gate written after the thing it gates is a gate written to let the existing
+    behaviour through. Do not "simplify" it into the write tools when you build them.
+
 ---
 
 ## Working agreements
@@ -185,9 +213,9 @@ used to head this list went with the file.
 
 Flag these rather than attempting them: rotating a leaked API key (NAV-81 is closed — key rotated,
 history rewritten); anything that needs a real macOS display; granting Accessibility, Screen
-Recording and Microphone permissions; installing piper and pulling an Ollama model. Any further
-`git push --force` or history rewrite still needs an explicit go-ahead and a confirmed backup
-first, same as NAV-81 did.
+Recording and Microphone permissions; installing piper and pulling an Ollama model; and the Apple
+developer account NAV-89 needs to sign anything. Any further `git push --force` or history
+rewrite still needs an explicit go-ahead and a confirmed backup first, same as NAV-81 did.
 
 The automation gap will keep mattering, so it is worth stating once more: the suite verifies
 plumbing — windows, IPC, a full exchange, settings reaching disk, the crop arithmetic, the

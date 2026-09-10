@@ -62,16 +62,19 @@ the code.
 
 ```
 src/prompt/     the system prompt. All prompt text lives here and nowhere else (NAV-85).
-src/agent/      provider seam, tool registry, the screen tools, agent loop, turn assembly.
+src/agent/      provider seam, tool registry, the screen tools, the memory and note tools, the
+                agent loop, turn assembly, and the two cheap side-calls (appraisal, summary).
 src/main/       Electron main process: the four windows, the cursor poll that drives
-                click-through and following, capture, voice, settings, hotkeys, and
-                conversation.ts — the thing that finally calls takeTurn.
+                click-through and following, capture, voice, the three stores, the reminder
+                timer, the safety gate, settings, hotkeys, and conversation.ts — the thing that
+                finally calls takeTurn.
 src/renderer/   the fairy canvas and its frame pacing, the chat surface, settings, first run,
                 and the microphone.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it
                 testable. emotion.ts is the whole Triforce engine (emotions.md); settings,
-                redaction, onboarding readiness, the crop arithmetic, the motion maths and the
-                sentence splitter live here too.
+                redaction, onboarding readiness, the crop arithmetic, the motion maths, the
+                sentence splitter, the memory budgets, note search, time resolution and the
+                safety policy live here too.
 bin/            the local voice binaries. Models are fetched by setup_models.sh, not tracked.
 ```
 
@@ -202,6 +205,32 @@ will not stop at the `.` in "3.5", which is why the *last* sentence of a reply c
 through `flush()`: until the stream ends, a full stop at the end of the buffer might be a decimal
 point.
 
+**Memory is a budget, not a store.** The daily driver is a 3B model whose context degrades as it
+fills, so remembering everything would make her worse the longer you used her. `shared/memory.ts`
+keeps three stores with three lifecycles and holds a fixed injected size however much has piled
+up behind it; a thousand episodes cost the prompt what none do.
+
+**Notes are not memory, and the two files are separate for that reason.** Memory is inferred and
+is consolidated and decayed. Notes are the user's own words, saved because they asked, and
+nothing prunes them. A note that vanished because a schedule thought it was stale would be a bug
+wearing the clothes of a feature.
+
+**A reminder's time is resolved when it is set, never when it fires.** Storing "tomorrow morning"
+asks a 3B model to do date arithmetic against a clock at the moment it has to be right, with
+nobody watching. `shared/when.ts` also refuses "later" and "soon" rather than guessing: a
+reminder set for a time the user did not mean is worse than a question, because they find out
+too late.
+
+**Confidence is not a fourth Triforce dimension.** emotions.md maps exactly three onto the eight
+composite emotions and onto her colour. Confidence sits beside them, accumulates like the Love
+Meter, and says how she carries herself rather than how she feels. It changes hedging and
+willingness and may not change what she reports as true (NAV-97).
+
+**The safety gate ships before the capability, and gates nothing yet.** That is the settled
+ordering, not an oversight: `shared/policy.ts` decides and `main/gate.ts` remembers, and no tool
+decides its own policy. When the write tools arrive they call `gate.attempt` and do nothing else
+about safety.
+
 **Nothing on first run fails silently.** Navi needs a model provider, Screen Recording and
 Accessibility, and all three fail quietly by default. `shared/onboarding.ts` is the single answer
 to "is she usable yet?", and the checklist polls because macOS grants these in another application
@@ -246,8 +275,13 @@ the window when there is nothing to stop.
 The header carries her current emotion and relationship, tinted with the same colour she is,
 and says whether what you type stays on this machine.
 
-She has three tools and the model picks between them: `look_at_screen`, `look_near_cursor` and
-`point_to`. Nothing inspects what you typed to choose one.
+She has eight tools and the model picks between them: `look_at_screen`, `look_near_cursor`,
+`point_to`, `remember`, `note_preference`, `save_note`, `set_reminder` and `list_notes`. Nothing
+inspects what you typed to choose one.
+
+A 👍 or 👎 on any reply tells her plainly how it went. It raises or lowers her confidence — the
+fourth stat, shown in the chat header beside her mood — and records *what* she did that you
+liked, which is what she carries into the next conversation.
 
 With voice turned on in Settings, `Shift+Cmd+V` starts listening and stops it again. Both halves
 are off by default and both need `setup_models.sh` to have fetched their models.
@@ -277,6 +311,11 @@ and whisper have to actually be installed for voice to make a sound. The suite p
 arithmetic, the ordering and the failure copy, which is everything that was previously wrong —
 but none of it has been seen working on a Mac.
 
-**Companion depth and computer use.** `backlog.md` → Implementation Order, sections 3 and 4:
-memory, notes, a richer emotional appraisal and the approval loop, then the safety gate and the
-native accessibility helper.
+**She cannot act on your machine.** She can see it, point at it, and talk about it. She cannot
+click or type, because NAV-90's native helper does not exist: Godot could not do it and neither
+can Electron, so it needs a Swift helper reading the accessibility tree. The safety gate it will
+pass through is already built and tested (NAV-91) — deliberately, since a gate written after the
+capability is a gate written to let the existing behaviour through.
+
+**Ambient presence.** NAV-96: she speaks only when spoken to. Sequenced after the helper, because
+ambient observation widens exactly the prompt-injection surface the gate exists to close.
