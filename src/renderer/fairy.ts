@@ -7,6 +7,7 @@
  */
 
 import { type Rgb } from '../shared/emotion.js';
+import { EMOJI_GROW_MS, EMOJI_HOLD_MS, EMOJI_RISE, EMOJI_SHRINK_MS, EMOJI_TOTAL_MS } from '../shared/emoji.js';
 
 export const PARTICLE_COUNT = 48;
 
@@ -32,6 +33,11 @@ export interface Fairy {
    * this never needs to know where its own window is on screen, which it cannot find out.
    */
   setPointer(relative: { x: number; y: number } | null): void;
+  /**
+   * Pops a floating emoji above her head (emotions.md §9.2). Called when her Tier 2 emotion
+   * changes; the main process decides that, because it is the side that remembers the last one.
+   */
+  showEmoji(char: string): void;
   readonly particleCount: number;
 }
 
@@ -86,8 +92,14 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
   let tint: Rgb = opts.tint ?? { r: 102, g: 178, b: 255 };
   let statusLight: StatusLight | null = null;
   let pointer: { x: number; y: number } | null = null;
+  /** The emoji currently playing, with the timestamp it started at. */
+  let emoji: { char: string; startedAt: number } | null = null;
 
   function draw(t: number, dt: number): void {
+    // A newly-requested emoji starts on the first frame that draws it, whatever the loop's clock
+    // happens to be at.
+    if (emoji !== null && emoji.startedAt === Number.NEGATIVE_INFINITY) emoji.startedAt = t;
+
     ctx!.clearRect(0, 0, size, size);
     const { r, g, b } = tint;
     const breathe = 1 + Math.sin(t * 0.0022) * 0.06;
@@ -169,6 +181,37 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
       }
     }
 
+    // The floating emoji (emotions.md §9.2): grow, hold one second, shrink, gone. She has no
+    // face, so this and her colour are the whole of how a mood reaches the user — and colour
+    // alone is a few degrees of hue nobody notices while reading.
+    if (emoji) {
+      const age = t - emoji.startedAt;
+      if (age >= EMOJI_TOTAL_MS) {
+        emoji = null;
+      } else {
+        // Overshoot slightly on the way in, so it pops rather than inflates.
+        const scale =
+          age < EMOJI_GROW_MS
+            ? 1.12 * (1 - Math.pow(1 - age / EMOJI_GROW_MS, 3))
+            : age < EMOJI_GROW_MS + EMOJI_HOLD_MS
+              ? 1
+              : 1 - (age - EMOJI_GROW_MS - EMOJI_HOLD_MS) / EMOJI_SHRINK_MS;
+
+        // Drifts up as it goes, which is what makes it read as escaping rather than blinking.
+        const rise = EMOJI_RISE + (age / EMOJI_TOTAL_MS) * 10;
+
+        ctx!.save();
+        ctx!.globalAlpha = Math.max(0, Math.min(1, scale));
+        ctx!.translate(cx, cy - rise);
+        ctx!.scale(Math.max(0, scale), Math.max(0, scale));
+        ctx!.font = '22px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+        ctx!.textAlign = 'center';
+        ctx!.textBaseline = 'middle';
+        ctx!.fillText(emoji.char, 0, 0);
+        ctx!.restore();
+      }
+    }
+
     // Status light above the core (amber = tool running, purple = thinking)
     if (statusLight) {
       const pulse = statusLight.pulsing ? 0.5 + Math.abs(Math.sin(t * 0.006)) * 0.5 : 1;
@@ -189,6 +232,11 @@ export function createFairy(canvas: HTMLCanvasElement, opts: FairyOptions = {}):
     },
     setPointer: (relative) => {
       pointer = relative;
+    },
+    showEmoji: (char) => {
+      // Started from the next frame's clock rather than `performance.now()`: the loop's `t` is
+      // its own timeline, and mixing the two makes the animation start part-way through.
+      emoji = { char, startedAt: Number.NEGATIVE_INFINITY };
     },
     get particleCount() {
       return particles.length;

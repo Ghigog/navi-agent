@@ -11,7 +11,9 @@
  *
  * Ported from the Godot build's `FollowController.gd`, now deleted (NAV-105). That version also
  * carried `navigate_sequence` and the arrow drawing; the arrow arrived with NAV-103's `point_to`,
- * as `onFlight` below. A sequence of points has no caller yet.
+ * as `onFlight` below. A sequence of points is NAV-106, which is a *found* ticket — the guidance
+ * feature it belongs to shipped in Godot across five tickets and the port's plan never mentioned
+ * it, because the only tickets referring to it were closed as superseded by the migration.
  */
 
 import type { Point } from '../shared/geometry.js';

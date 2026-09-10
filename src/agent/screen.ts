@@ -62,6 +62,15 @@ export interface ScreenToolsDeps {
    * is still crossing the screen — "it's over there" reads oddly when she is still here.
    */
   point(target: Point): Promise<void>;
+  /**
+   * Shows the user the exact point a cursor-anchored crop was centred on (NAV-99).
+   *
+   * Not decoration. The failure NAV-99 exists to fix was Navi answering about the wrong thing,
+   * and what let it survive is that a user could not tell *where she had looked* — a confident
+   * answer about the wrong window reads exactly like a confident answer about the right one.
+   * This is how a person catches it and says "no, over here".
+   */
+  markAnchor?(point: Point): void;
 }
 
 export interface ScreenTools {
@@ -137,6 +146,10 @@ export function createScreenTools(deps: ScreenToolsDeps): ScreenTools {
       const refusal = blocked();
       if (refusal) return refusal;
       if (anchor === null) return { content: NO_ANCHOR, isError: true };
+
+      // Before the capture, not after: the user should see where she is looking while she is
+      // looking, and a capture can take a moment on a large display.
+      deps.markAnchor?.(anchor);
 
       const display = deps.screen.displayAt(anchor);
       // The rectangle first, the picture second. `desktopCapturer` only offers whole displays,

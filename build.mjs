@@ -23,6 +23,9 @@ await cp('src/renderer/index.html', 'dist/renderer/index.html');
 await cp('src/renderer/chat.html', 'dist/renderer/chat.html');
 await cp('src/renderer/settings.html', 'dist/renderer/settings.html');
 await cp('src/renderer/onboarding.html', 'dist/renderer/onboarding.html');
+// No entry point of its own: marker.html carries its own inline script, because the window it
+// belongs to lives for 600ms and has no IPC surface to justify a preload.
+await cp('src/renderer/marker.html', 'dist/renderer/marker.html');
 
 for (const t of targets) {
   const config = { ...t, bundle: true, sourcemap: true, target: 'node20', external: ['electron'] };

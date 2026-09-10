@@ -80,6 +80,11 @@ to click them, and pointing is NAV-103.
 | 12 | **NAV-89** Prebuilt signed helper | Folds into 11, and needs an Apple developer account nobody but the owner has. |
 | 13 | **NAV-96** Ambient presence | Last by its own dependency: ambient observation widens the prompt-injection surface NAV-91 closes, and on local models its real cost is battery and fan noise rather than tokens. |
 
+**NAV-106** sits outside that order and can be worked at any time. It is a *found* ticket — a
+feature that shipped in Godot across five tickets and that the port's plan never mentioned,
+because the only tickets referring to it were closed as superseded by the migration. Nothing
+depends on it and it depends on nothing beyond `flyTo`, which exists.
+
 ### Dependency summary
 
 ```
@@ -97,7 +102,10 @@ it is how "what's this near my cursor?" stays broken for another six months.
 
 ### Not sequenced
 
-- **NAV-87**, **NAV-88** — closed, superseded by the migration. Never implemented.
+- **NAV-106** — step-by-step guidance. Found by audit rather than planned; see its own note in
+  section 4. Not sequenced because nothing depends on it.
+- **NAV-87**, **NAV-88** — closed, superseded by the migration. Never implemented. Closing them
+  also, silently, dropped the guidance work they referred to; NAV-106 picks it back up.
 - **NAV-98** — closed. Every line it names is in code the port does not carry; its two live items
   moved into NAV-104.
 
@@ -109,9 +117,20 @@ headless environment can perform.
 
 - ADR 0001's Risk A list, by hand on macOS: transparency, click-through toggling both ways, the
   global shortcut firing while another app has focus, and idle CPU and memory re-measured over a
-  long window **with following and the cursor poll running**. Xvfb runs at dpr 1 with no
-  compositor and no Spaces, which is precisely the set it cannot see — the HiDPI bug on the first
-  real launch is the proof.
+  long window — ten minutes or more, untouched — **with following, the cursor poll and the
+  reminder timer running**. Xvfb runs at dpr 1 with no compositor and no Spaces, which is
+  precisely the set it cannot see; the HiDPI bug on the first real launch is the proof.
+
+  **The bar has moved and the ADR's number is no longer a pass.** The idle throttle it required
+  is in, and should have roughly halved the CPU figure. Check the settings window says `30`
+  before measuring, since it can now raise the idle frame rate, and note that following, the
+  cursor poll and the reminder timer have all been added since the spike:
+
+  | Measure | ADR bar | Spike, Electron 33 | Now expected |
+  |---|---|---|---|
+  | Idle CPU, average | < 5% | 2.4–2.6% | clearly under 2.4% |
+  | Idle CPU, peak | < 5% | 4.6% | lower |
+  | Memory, peak | < 400 MB | 356 MB | no worse |
 - Grant Screen Recording, then ask her "what's this?" with the cursor over something specific.
   The arithmetic and the freeze ordering are pinned by tests; whether the crop lands on the right
   thing is an eye test.
@@ -188,6 +207,11 @@ Register a screen-capture tool and a cursor-anchored crop tool, and wire the mul
       sample before anything can await, and the tools can only see the frozen one — the live
       cursor is not reachable from them at all. `test/screen-tools.test.ts` moves the cursor
       between the freeze and the tool call, which is the regression NAV-99 was.
+- [x] The user can see where she looked. A fading amber ring at the frozen point, in its own
+      click-through window (`main/marker.ts`) — the Godot build's `CursorSampleMarker`, which
+      was missed on the first pass and added by audit. It is not decoration: what let NAV-99's
+      bug survive was that a confident answer about the wrong window reads exactly like a
+      confident answer about the right one.
 - [x] A denied Screen Recording permission produces a clear message, not a blank image.
       `NO_SCREEN_ACCESS` names the pane to open; an empty capture from a revoked permission
       throws with the same explanation rather than returning a blank picture.
@@ -825,6 +849,63 @@ its ticket says.
 a capture arrives as a *user*-role message, because the chat schema has no place for an image on
 a tool message, so it is labelled as a picture and the identity rule now covers images in any
 role. The user role is the trusted one; a screenshot is not.
+
+### NAV-106: Port step-by-step guidance (Backlog)
+**User Story:**
+- **As a:** User
+- **I want:** To ask Navi to walk me through something and have her point at each step in turn
+- **So that:** "Show me how" is an answer she can act out rather than only describe
+
+**Context:**
+
+**This ticket exists because the feature fell through a gap, not because it was descoped.**
+Step-by-step guidance was shipped in the Godot build across five tickets — NAV-11, NAV-35,
+NAV-39, NAV-40 and NAV-43 — and lived in `GuidanceController.gd` (339 lines) plus
+`FollowController.navigate_sequence()`. The port's plan never mentioned it. The only places it
+appeared were NAV-87 and NAV-88, which were closed as superseded by the migration, and closing
+them took the guidance work with them silently. It was found by auditing the deleted GDScript
+against the port, not by anything in this file.
+
+What it did: parsed a numbered sequence out of the reply stream, flew Navi to each point in
+turn, held while she read the step aloud, and auto-advanced. `main/follow.ts` carries a comment
+saying `navigate_sequence` has no caller yet; this is the caller.
+
+**Do not port the parser.** The Godot version read steps out of the token stream as it rendered
+it, which is exactly the class of thing NAV-84 deleted — two conventions, a partial step reaching
+the screen before it was recognised, and any model that mentioned a step number triggering one.
+Steps arrive as a tool call with a structured argument, or they do not arrive.
+
+**Description:**
+A `guide_through` tool that takes an ordered list of steps and acts them out.
+
+**Requirements:**
+- One tool call carrying the whole sequence: a list of `{ text, x, y }` with coordinates on the
+  same 0-1000 grid `point_to` uses (`shared/capture.ts`). No in-band tags, no stream parsing.
+- Reuse `follow.flyTo` per step rather than adding a second motion path. The sequencing belongs
+  in a controller above it, the way `main/reminders.ts` sits above a timer.
+- The user drives it. Auto-advance on a timer is the Godot behaviour and it was wrong: a step
+  that advances while you are still looking for the thing is worse than no guidance. Advance on
+  a keypress or a click, with a generous timeout as a backstop, and let Escape end it.
+- Speak each step when voice output is on (NAV-104), a step at a time. Do not queue the whole
+  sequence into the speaker — an aborted guidance run must stop talking.
+- Following is suspended for the duration and restored at the end, including when it is
+  abandoned. `follow.setPaused` takes a reason for exactly this; add one rather than reusing
+  `'chat'`.
+- It is a read-tier action (`shared/policy.ts`): she moves her own window and points. Nothing
+  here touches the user's machine, so it does not pass NAV-91's confirmation gate.
+- Bound the sequence length. A model that has decided to produce steps will produce forty.
+
+**Acceptance Criteria:**
+- [ ] "Walk me through changing my password" produces a sequence she acts out, one step at a time.
+- [ ] The user advances each step; nothing advances on its own inside the backstop timeout.
+- [ ] Escape ends it mid-sequence and following is restored.
+- [ ] With voice on, each step is spoken as it is reached, and abandoning the run stops her
+      mid-sentence.
+- [ ] A sequence longer than the cap is truncated and she says so rather than silently dropping
+      the tail.
+- [ ] No step text is ever parsed out of the reply stream (NAV-84).
+
+---
 
 ### NAV-90: Native accessibility and input-synthesis helper (Backlog)
 **User Story:**

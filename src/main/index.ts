@@ -38,10 +38,12 @@ import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
 import { createScreenTools } from '../agent/screen.js';
 import { createScreenPort } from './screen.js';
+import { dismissCursorMarker, showCursorMarker } from './marker.js';
 import { createSpeaker, createTranscriber, type Speaker } from './voice.js';
 import { createPlayer, createRunner, speakerPaths, whisperPaths } from './exec.js';
 import { lastPrompt } from '../prompt/inspector.js';
-import { describe, tintFor } from '../shared/emotion.js';
+import { describe, tintFor, type Emotion } from '../shared/emotion.js';
+import { emojiFor } from '../shared/emoji.js';
 import { view, type Settings } from '../shared/settings.js';
 
 let win: BrowserWindow | null = null;
@@ -56,6 +58,8 @@ let speaker: Speaker | null = null;
 // built before the conversation that owns one.
 let conversation: Conversation | null = null;
 let reminders: Reminders | null = null;
+/** What she was feeling last, so a change can be spotted (emotions.md §9.2). */
+let lastEmotion: Emotion | null = null;
 let gate: Gate | null = null;
 
 /** Pending confirmation cards, keyed by the id the chat window answers with (NAV-91). */
@@ -96,6 +100,7 @@ app.whenReady().then(() => {
     cursor: () => cursor?.current() ?? screen.getCursorScreenPoint(),
     // Never rejects — a pointing gesture that goes wrong costs the gesture, not the turn.
     point: async (target) => follow?.flyTo(target),
+    markAnchor: showCursorMarker,
   });
   for (const tool of screenTools.tools) registry.register(tool);
 
@@ -224,7 +229,15 @@ app.whenReady().then(() => {
 
       // The fairy shows the same state the chat window does — she is the one having the
       // conversation, and the chat window is only where the words are.
-      if (event.type === 'emotion') win?.webContents.send('tint', event.tint);
+      if (event.type === 'emotion') {
+        win?.webContents.send('tint', event.tint);
+        // Only on a change (emotions.md §9.2). An emoji on every turn is wallpaper; one on a
+        // change is a reaction. The main process owns this because it is the side that
+        // remembers what she was feeling a moment ago.
+        const char = emojiFor(lastEmotion, event.emotion as Emotion);
+        lastEmotion = event.emotion as Emotion;
+        if (char !== null) win?.webContents.send('emoji', char);
+      }
       if (event.type === 'start') win?.webContents.send('busy', true);
       if (event.type === 'done' || event.type === 'error') win?.webContents.send('busy', false);
     },
@@ -288,6 +301,7 @@ app.whenReady().then(() => {
     const ok = globalShortcut.register(settings.killHotkey, () => {
       gate?.halt();
       save({ halted: true });
+      dismissCursorMarker();
       // Everything in flight, not only the acting: a turn she is mid-way through is part of
       // what the user just told her to stop.
       conversation?.cancel();
@@ -322,6 +336,9 @@ app.whenReady().then(() => {
   // once the renderer is listening — before that the fairy draws in its neutral colour at the
   // default rates and would keep both.
   const emotion = loadEmotion();
+  // Seeded from the restored state, so waking up in the mood she was left in is not itself
+  // reported as a change on the first turn.
+  lastEmotion = emotion.emotion;
   win.webContents.once('did-finish-load', () => {
     win?.webContents.send('tint', tintFor(emotion));
     sendRates(current);

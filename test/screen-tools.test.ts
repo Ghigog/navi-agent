@@ -39,12 +39,14 @@ function stand(access: ScreenAccess = 'granted', display: Bounds = DISPLAY) {
   const flights: Point[] = [];
   let cursor: Point = { x: 0, y: 0 };
 
+  const marked: Point[] = [];
   const tools = createScreenTools({
     screen: screen.port,
     cursor: () => cursor,
     point: async (target) => {
       flights.push(target);
     },
+    markAnchor: (point) => marked.push(point),
   });
 
   const byName = (name: string) => {
@@ -56,6 +58,7 @@ function stand(access: ScreenAccess = 'granted', display: Bounds = DISPLAY) {
   return {
     tools,
     flights,
+    marked,
     captures: screen.captures,
     moveCursorTo: (p: Point) => {
       cursor = p;
@@ -103,6 +106,28 @@ describe('look_near_cursor', () => {
     expect(s.captures).toHaveLength(1);
   });
 
+  it('shows the user where it looked, so a wrong answer can be caught (NAV-99)', async () => {
+    // The failure NAV-99 exists to fix survived because a user could not tell where she had
+    // looked: a confident answer about the wrong window reads exactly like a confident answer
+    // about the right one. The ring is how a person catches it.
+    const s = stand();
+    s.moveCursorTo({ x: 300, y: 200 });
+    s.tools.freeze();
+    await s.run('look_near_cursor');
+
+    expect(s.marked).toEqual([{ x: 300, y: 200 }]);
+  });
+
+  it('marks the frozen point, not where the cursor has since gone', async () => {
+    const s = stand();
+    s.moveCursorTo({ x: 300, y: 200 });
+    s.tools.freeze();
+    s.moveCursorTo({ x: 1400, y: 880 });
+    await s.run('look_near_cursor');
+
+    expect(s.marked).toEqual([{ x: 300, y: 200 }]);
+  });
+
   it('says so rather than capturing when the cursor was never sampled', async () => {
     const s = stand();
     const result = await s.run('look_near_cursor');
@@ -121,6 +146,13 @@ describe('look_at_screen', () => {
     expect(result.cursorAnchored).toBeUndefined();
     expect(result.imageBase64).toBe('AAAA');
   });
+
+  it('marks nothing, because it did not look anywhere in particular', async () => {
+    const s = stand();
+    s.tools.freeze();
+    await s.run('look_at_screen');
+    expect(s.marked).toEqual([]);
+  });
 });
 
 describe('a denied Screen Recording permission', () => {
@@ -135,6 +167,8 @@ describe('a denied Screen Recording permission', () => {
       expect(result.imageBase64).toBeUndefined();
     }
     expect(s.captures).toHaveLength(0);
+    // And no ring: pointing at a place she could not see would be a lie told in amber.
+    expect(s.marked).toEqual([]);
   });
 
   it('still lets her point, which needs no permission at all', async () => {

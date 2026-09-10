@@ -75,6 +75,11 @@ Deleted: the Godot project (`project.godot`, `scenes/`, `scripts/`, `addons/`, t
 suite), `ai_agent.md` — its conventions were GDScript-specific and died with the app — and,
 earlier, `tickets.md`, `in_progress.md` and `spike/`.
 
+**If you suspect something was lost in the migration, diff against the deleted tree rather than
+trusting this file.** `git show 394808f~1:scripts/<name>.gd` reads any of it. That is how
+NAV-106, the cursor marker and the emoji notifications were found; all three were features that
+had shipped and that nothing in the port's plan mentioned.
+
 ---
 
 ## Where to start
@@ -105,7 +110,16 @@ longer than it was, and every item on it is a thing no headless environment can 
 
 ### Step 3 — what to build next
 
-One ticket, and it is the one that needs a machine this environment does not have.
+Two tickets. One needs a machine this environment does not have; the other was found by audit
+rather than planned.
+
+**NAV-106 — step-by-step guidance.** Nothing depends on it and it depends on nothing beyond
+`flyTo`, which exists. It is here because a feature that shipped in Godot across five tickets
+(NAV-11, NAV-35, NAV-39, NAV-40, NAV-43) was never given a port ticket: the only tickets
+referring to it were NAV-87 and NAV-88, and closing those as superseded took the guidance work
+with them silently. **Worth reading as a warning about this backlog** — "closed as superseded"
+is not the same as "nothing in it mattered", and this was found by diffing deleted GDScript
+against the port rather than by anything written down.
 
 **NAV-90 — the native accessibility helper.** Swift, a Mac, and Accessibility granted. It is the
 only thing standing between Navi and the "agent second" half of what she is, and two other
@@ -189,7 +203,14 @@ used to head this list went with the file.
     `deriveEmotion` or to `emotionColor` would change both, and would be a rewrite of the design
     document rather than a tidy-up.
 
-12. **The safety gate gates nothing, and that is the ordering rather than an oversight.**
+12. **`main/marker.ts` looks like decoration and is not.** The fading ring at the cursor is the
+    *visible* half of NAV-99. The bug it exists to fix — Navi answering about the wrong thing —
+    survived as long as it did because a user could not tell where she had looked, and a
+    confident answer about the wrong window reads exactly like a confident answer about the
+    right one. The arithmetic being right is not a substitute for the user being able to see
+    that it was. It was missed on the first pass and added by audit.
+
+13. **The safety gate gates nothing, and that is the ordering rather than an oversight.**
     `shared/policy.ts` and `main/gate.ts` are complete and tested against a capability that does
     not exist. A gate written after the thing it gates is a gate written to let the existing
     behaviour through. Do not "simplify" it into the write tools when you build them.

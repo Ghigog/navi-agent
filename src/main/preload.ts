@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('navi', {
    */
   onPoint: (fn: (relative: { x: number; y: number } | null) => void) =>
     ipcRenderer.on('point', (_e, relative) => fn(relative)),
+  /** A floating emoji, when her emotion changed (emotions.md §9.2). */
+  onEmoji: (fn: (char: string) => void) => ipcRenderer.on('emoji', (_e, char: string) => fn(char)),
   /** True while she is reaching outside her own window (NAV-91). The user must always know. */
   onActing: (fn: (acting: boolean) => void) => ipcRenderer.on('acting', (_e, acting: boolean) => fn(acting)),
   /** Clicking her opens the chat window. The hotkey should not be the only way in. */

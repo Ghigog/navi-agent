@@ -20,6 +20,7 @@ declare global {
       onRates(fn: (r: { idle: number; active: number }) => void): void;
       onPoint(fn: (relative: { x: number; y: number } | null) => void): void;
       onActing(fn: (acting: boolean) => void): void;
+      onEmoji(fn: (char: string) => void): void;
       requestChat(): void;
     };
   }
@@ -59,6 +60,13 @@ window.navi?.onPoint((relative) => {
   fairy.setPointer(relative);
   loop.markActive();
 });
+// She felt something change. Worth spending frames on — it is a 1.5-second animation and the
+// idle rate would render it as a slideshow.
+window.navi?.onEmoji((char) => {
+  fairy.showEmoji(char);
+  loop.markActive();
+});
+
 // She is acting on the machine: an amber light, distinct from the pale one that means thinking.
 // NAV-91 requires this to be visible whenever a write is in flight — the user must always know.
 const ACTING_LIGHT = { r: 255, g: 191, b: 0, pulsing: true };
