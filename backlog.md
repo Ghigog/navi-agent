@@ -69,7 +69,7 @@ clean up; build it correctly once.
 | 5 | **NAV-92** Onboarding flow | *Parallel.* Mostly product and copy, not platform code. Can be designed while the port proceeds. The settings window now carries the provider fields it needs, so what is left is first-run copy and the permissions rows. |
 | 6 | Port the shell and agent loop | 🟢 **Surfaces complete** in `app/`. Shell, prompt assembler, agent loop, emotion engine, chat surface, sentiment classification, settings and the prompt inspector panel, with **NAV-83**, **NAV-84**, **NAV-85** and **NAV-86** baked in. `takeTurn` has a caller: `main/conversation.ts` runs the exchange and both emotion passes. Driven end to end under Xvfb; **not yet launched on a real display** — 6a is now the blocker. |
 | 6a | Re-validate on macOS | **Do this before building further on it.** Re-run ADR 0001's Risk A checks and re-measure idle CPU and memory over a long window. The ADR already required the re-measurement; the Electron bump from 33 to 44 (security advisories) widened what it covers. |
-| 6b | **NAV-102** Cursor following | The port has surfaces and no capabilities. These three are not new features — they are the existing product arriving on the new stack, which is why they sit above everything else. |
+| 6b | ✅ **NAV-102** Cursor following — **DONE** | The port has surfaces and no capabilities. These three are not new features — they are the existing product arriving on the new stack, which is why they sit above everything else. Following and `flyTo` are in; the idle CPU re-measurement it also asks for needs a real display and sits with 6a. |
 | 6c | **NAV-103** Screen-capture tools | **The product.** "What's this near my cursor?" does not work: the tool registry is empty. Carries NAV-99's cursor anchoring across. |
 | 6d | **NAV-104** Voice in and out | Last of the three; a Navi who cannot see is broken, one who cannot speak is quiet. |
 | 7 | **NAV-89** Prebuilt native helper | Folds into the new build pipeline. |
@@ -735,7 +735,7 @@ It did not port a single one of the Godot build's capabilities. She can hold a c
 do nothing else, which is why these are numbered before the Phase 2 and 3 work: they are not new
 features, they are the existing product arriving on the new stack.
 
-### NAV-102: Port cursor following and flight (Backlog)
+### NAV-102: Port cursor following and flight (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to follow my cursor around the desktop
@@ -766,10 +766,33 @@ primitive that NAV-103's `point_to` needs.
 - A `fly_to(x, y)` primitive that suspends following, animates to a coordinate, and restores.
 
 **Acceptance Criteria:**
-- [ ] She follows the cursor with easing, at the same offset as the Godot build.
+- [x] She follows the cursor with easing, at the same offset as the Godot build.
 - [ ] Idle CPU is re-measured over a long window and has not regressed past ADR 0001's numbers.
-- [ ] Following pauses while the chat window has focus.
-- [ ] The placement maths is pure and tested, as `chatBounds` is — the window call is not.
+- [x] Following pauses while the chat window has focus.
+- [x] The placement maths is pure and tested, as `chatBounds` is — the window call is not.
+
+**Done.** `shared/motion.ts` is the maths, `main/follow.ts` the controller, `main/cursor.ts` the
+one poll both it and click-through read. Neither of the first two imports Electron — the window
+arrives as a three-method port and the cursor as a source — so the controller is tested too, not
+just the maths: a follow-pause-fly-restore cycle runs in `test/follow.test.ts`.
+
+Four decisions worth knowing before changing it:
+
+- **One cursor poll, not two.** The ticket asked whether one loop should do both; it should. Two
+  timers would have sampled at two rates, so she would ease towards a position a tenth of a
+  second away from the one deciding whether she takes clicks.
+- **The easing is `1 - exp(-speed * dt)`, not Godot's `lerp(target, speed * delta)`.** Same
+  curve, made frame-rate independent. The original moved differently at 30fps and 60fps and
+  overshot the cursor when a slow frame pushed `speed * delta` past 1.
+- **A settled fairy under a still cursor costs no window call.** The tick compares the rounded
+  position against the last one applied. This is the ADR 0001 mitigation, and `test/follow.test.ts`
+  holds it.
+- **A flight outranks the chat-window pause.** Pointing at something is most useful exactly when
+  you are mid-conversation about it, which is the pause that would otherwise swallow it.
+
+The remaining criterion needs a real display and belongs with **6a**: re-measure idle CPU over a
+long window with following on. The cursor poll follows the idle frame rate setting, so check the
+settings window says 30fps before measuring.
 
 ---
 
@@ -800,7 +823,11 @@ Register a screen-capture tool and a cursor-anchored crop tool, and wire the mul
 **Requirements:**
 - Capture via Electron's `desktopCapturer`; no native helper needed for reading pixels.
 - Sample the cursor at the moment the user sends, not when the tool runs. A crop centred on
-  where the cursor drifted to is NAV-99 all over again.
+  where the cursor drifted to is NAV-99 all over again. `cursor.current()` (NAV-102) is the
+  sample; take it in the send handler.
+- `point_to` has its motion already: `follow.flyTo(point)` suspends following, eases her body
+  onto the coordinate, holds and restores (NAV-102). What it does not have is the pointer arrow
+  — the renderer is never told the window's screen position, so send it one.
 - Pass the image as a multimodal message part. `session.ts`'s `userText` already skips non-text
   parts when counting prompt words, so that path is ready.
 - Set `cursorAnchored` on the turn so Layer 3 explains the crop to the model.

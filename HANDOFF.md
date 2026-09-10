@@ -1,7 +1,7 @@
 # Navi modernization — handoff
 
-Written 2026-09-06. Updated 2026-09-10, after the port's surfaces landed and the app ran on
-macOS for the first time.
+Written 2026-09-06. Updated 2026-09-10, after the port's surfaces landed, the app ran on macOS
+for the first time, and cursor following arrived (NAV-102).
 
 Navi is a desktop AI companion, written in Godot 4 and being rebuilt on Electron + TypeScript
 (ADR 0001). **The port has started and lives in `app/`.** The Godot app in the repository root
@@ -113,7 +113,7 @@ readable in debug output.
 
 ### Step 3 — the port, in `app/`
 
-**Done** (159 tests, typecheck clean, builds):
+**Done** (186 tests, typecheck clean, builds):
 
 - NAV-85 — the layered prompt assembler and inspector. All prompt text is in `src/prompt/`.
 - The Electron shell: overlay window, click-through driven from the main process, throttled
@@ -140,12 +140,25 @@ readable in debug output.
   request. Its Godot half closes as superseded — see the ticket for why fixing tests for
   `AIService.gd` is work the sequencing was designed to avoid.
 
+- NAV-102 — cursor following, and the flight primitive pointing is built on. `shared/motion.ts`
+  is the maths, `main/follow.ts` the controller, and neither imports Electron: the window
+  arrives as a three-method port and the cursor as a source, so a whole follow-pause-fly-restore
+  cycle runs under test. Two things worth knowing before you change it. Click-through and
+  following now share **one** cursor poll (`main/cursor.ts`) rather than running two timers that
+  sample at two rates and disagree; and the easing is `1 - exp(-speed * dt)` rather than Godot's
+  `lerp(target, speed * delta)`, which is the same curve made frame-rate independent — the
+  original moved differently at 30fps and 60fps and overshot when a slow frame pushed the factor
+  past 1. `flyTo` suspends following, eases her *body* onto a coordinate, holds, then restores;
+  it outranks the chat-window pause, because pointing at something is most useful exactly when
+  you are talking about it.
+
 ### The state of it, stated plainly
 
-**The port has surfaces and no capabilities.** She runs on macOS, she looks right, she holds a
-conversation, she has moods that persist. She cannot see your screen, cannot follow your cursor,
-cannot point at anything and cannot speak. `main/index.ts` creates a `ToolRegistry` and registers
-nothing in it.
+**The port has surfaces, one capability, and no senses.** She runs on macOS, she looks right,
+she holds a conversation, she has moods that persist, and she now follows your cursor and can be
+flown to a coordinate. She still cannot see your screen, cannot point at anything *of her own
+accord*, and cannot speak. `main/index.ts` creates a `ToolRegistry` and registers nothing in it,
+so the flight primitive has no caller yet — NAV-103's `point_to` is the one it was built for.
 
 That is not a bug list, it is the honest shape of the work: everything hard about the *platform*
 is done and everything the product actually does is still in GDScript. Do not read "the port is
@@ -157,15 +170,14 @@ nearly finished" into the fact that the windows all work.
    with "what's this near my cursor?", and it does not work. The prompt half of NAV-99's cursor
    anchoring is already in `prompt/builder.ts`, gated on a `cursorAnchored` flag that nothing
    sets; setting it is part of the ticket. Read NAV-99 before writing the crop code — anchoring
-   on the fairy instead of the cursor is the bug it exists to have fixed.
-2. **NAV-102 — cursor following.** Small, visible, and it carries the flight primitive NAV-103's
-   `point_to` will want. Watch the idle CPU: it is a per-frame window move on top of ADR 0001's
-   weakest measurement.
-3. **NAV-104 — voice.** The binaries and voice models are still tracked and `setup_models.sh`
+   on the fairy instead of the cursor is the bug it exists to have fixed. `follow.flyTo` is
+   waiting for `point_to`, and `cursor.current()` is where the send-time cursor sample comes
+   from — take it when the user sends, not when the tool runs, or it is NAV-99 all over again.
+2. **NAV-104 — voice.** The binaries and voice models are still tracked and `setup_models.sh`
    still fetches them.
-4. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of its
+3. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of its
    second half already.
-5. **NAV-89** prebuilt native helper.
+4. **NAV-89** prebuilt native helper.
 
 ### Still owed on macOS, by a human
 
@@ -178,7 +190,9 @@ rest of ADR 0001's Risk A list by hand rather than assuming:
 - background genuinely transparent
 - click-through toggling both ways as the cursor crosses her
 - the global shortcut firing while another app has focus
-- idle CPU and memory re-measured over a long window, not 90 seconds
+- idle CPU and memory re-measured over a long window, not 90 seconds — **now including the
+  cursor poll and the window moves NAV-102 added**, which is the one acceptance criterion on
+  that ticket no test can close
 
 The last one has moved since the ADR: the idle throttle it required is now in and should have
 roughly halved the CPU figure, so the bar is no longer 5% — anything not clearly under the
@@ -230,8 +244,11 @@ Things that will mislead you if you read the code straight.
 
 Two in `app/`, which otherwise reads cleanly:
 
-9. **`FOLLOW_OFFSET` in `overlay.ts` reads as if following works.** It does not: she is placed
-   once at launch and never moves. NAV-102.
+9. **`main/follow.ts` moves the window; the renderer does not know it moved.** Following is a
+   main-process decision on top of one shared cursor poll (`main/cursor.ts`), and the fairy
+   canvas is never told her window's screen position. Anything that needs to draw towards a
+   screen coordinate — NAV-103's pointer arrow — has to be sent one, the way `tint` and `busy`
+   are; do not reach for the position inside the renderer, it is not there.
 
 10. **The `ToolRegistry` is empty and looks deliberate.** It is — for now — but it means every
     capability the product is about is absent while the code around it looks finished. NAV-103.
@@ -240,7 +257,7 @@ Two in `app/`, which otherwise reads cleanly:
 
 ## Working agreements
 
-- Branch: `claude/navi-modernization-review-xsaqgo`. Do not push elsewhere without asking.
+- Branch: `claude/handoff-docs-review-0nr7ij`. Do not push elsewhere without asking.
 - Root project (Godot): conventions live in `ai_agent.md` — static typing mandatory in GDScript,
   PascalCase scenes, composition over inheritance. Tests use GUT, run headless with
   `godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://test/ -gexit`.

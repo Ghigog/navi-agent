@@ -8,6 +8,7 @@
 
 import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
+import { FOLLOW_OFFSET } from '../shared/motion.js';
 
 // The main bundle is emitted as CommonJS, so `__dirname` is the path that survives bundling.
 // `import.meta.url` does not: esbuild leaves it undefined in a CJS output and the window then
@@ -16,16 +17,11 @@ declare const __dirname: string;
 const here = __dirname;
 
 export const SIZE = 200;
-/**
- * Where she appears relative to the cursor, down-right of it as in the Godot build.
- *
- * This is a launch position and nothing more: **cursor following is not ported** (NAV-102).
- * `FollowController.gd` lerps her towards the cursor every frame and also flies her to a
- * coordinate for pointing; neither exists here yet, so she is placed once and stays put. The
- * name is aspirational — do not read it as evidence that following works.
- */
-export const FOLLOW_OFFSET = { x: 20, y: 20 };
 
+/**
+ * She launches where she will be standing a moment later: at the follow offset from the
+ * cursor. `main/follow.ts` takes over from here and keeps her there (NAV-102).
+ */
 export function createOverlay(): BrowserWindow {
   const cursor = screen.getCursorScreenPoint();
 

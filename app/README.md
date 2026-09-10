@@ -5,7 +5,7 @@ the repository root is still the one that runs; this replaces it.
 
 ```
 npm install
-npm test          # 162 tests, all offline
+npm test          # 186 tests, all offline
 npm run typecheck
 npm run build
 npm start         # needs a display; macOS for the overlay behaviour
@@ -21,11 +21,13 @@ that are not about the code.
 ```
 src/prompt/     the system prompt. All prompt text lives here and nowhere else (NAV-85).
 src/agent/      provider seam, tool registry, agent loop, turn assembly.
-src/main/       Electron main process: the three windows, click-through, settings, hotkey, and
-                conversation.ts — the thing that finally calls takeTurn.
+src/main/       Electron main process: the three windows, the cursor poll that drives
+                click-through and following, settings, hotkey, and conversation.ts — the thing
+                that finally calls takeTurn.
 src/renderer/   the fairy canvas and its frame pacing, the chat surface, and settings.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it testable.
-                emotion.ts is the whole Triforce engine (emotions.md); settings and redaction live here too.
+                emotion.ts is the whole Triforce engine (emotions.md); settings, redaction and the
+                motion maths live here too.
 ```
 
 ## Things that are decided, and will look wrong if you don't know why
@@ -41,6 +43,23 @@ same stream it was rendering, so a model that merely mentioned a tag triggered i
 
 **Click-through is decided in the main process, from the cursor position.** A click-through
 window cannot receive keystrokes, so nothing inside the window can turn it back off.
+
+**There is one cursor poll, not two.** Click-through and cursor following both act on the
+pointer, and separate timers would sample it at separate rates — she would ease towards a
+position a tenth of a second away from the one deciding whether she takes clicks. `main/cursor.ts`
+is the single timer, and because it runs for the life of the app it is measured against ADR 0001's
+idle CPU bar and follows the same idle frame rate the render loop does.
+
+**Following moves the window from the main process, and skips the call when nothing changed.**
+The renderer cannot move its own window, and a per-frame window move sits on top of the port's
+weakest measurement — so a still cursor and a settled fairy cost no window call at all.
+`main/follow.ts` keeps a sub-pixel position of its own rather than easing from the window's
+rounded bounds, which is what the Godot build did and why it jittered.
+
+**Following pauses while the chat window is open, and a flight outranks the pause.** The panel
+is placed against her once, on open; a fairy who kept walking would drag it around while you
+type into it. Pointing is the exception, because pointing at something is most useful exactly
+when you are mid-conversation about it.
 
 **The fairy canvas carries two sizes, and they are not the same number.** The backing store is
 device pixels (`size * dpr`); the CSS size is `size`. Set only the first and the element lays out
