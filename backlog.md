@@ -291,7 +291,12 @@ NAV-94 decided in favour of Electron ([ADR 0001](docs/adr/0001-platform-electron
 no longer refactors of the Godot code. They are **constraints on the port**: build it this way the
 first time rather than porting the current behaviour and cleaning up afterwards.
 
-### NAV-83: Delete the deterministic prompt router (Backlog)
+### NAV-83: Delete the deterministic prompt router (Done in the port)
+**Done in the port, not by changing the Godot app.** These four were written as refactors of
+`AIService.gd` and were built correctly once on the new stack instead, which is what
+Implementation Order item 6 means by "constraints on the port". The GDScript they describe is
+still there and still wrong; it is never ported rather than fixed.
+
 **User Story:**
 - **As a:** User
 - **I want:** Navi to decide for herself which capability a request needs
@@ -331,7 +336,12 @@ Remove both tables and route entirely through native tool calling.
 
 ---
 
-### NAV-84: Retire in-band control tags (Backlog)
+### NAV-84: Retire in-band control tags (Done in the port)
+**Done in the port, not by changing the Godot app.** These four were written as refactors of
+`AIService.gd` and were built correctly once on the new stack instead, which is what
+Implementation Order item 6 means by "constraints on the port". The GDScript they describe is
+still there and still wrong; it is never ported rather than fixed.
+
 **User Story:**
 - **As a:** Developer
 - **I want:** The model's token stream to contain only prose
@@ -371,7 +381,12 @@ Replace all four with native model features and structured tool calls.
 
 ---
 
-### NAV-85: Layered system prompt assembler and prompt inspector (Backlog)
+### NAV-85: Layered system prompt assembler and prompt inspector (Done in the port)
+**Done in the port, not by changing the Godot app.** These four were written as refactors of
+`AIService.gd` and were built correctly once on the new stack instead, which is what
+Implementation Order item 6 means by "constraints on the port". The GDScript they describe is
+still there and still wrong; it is never ported rather than fixed.
+
 **User Story:**
 - **As a:** Developer
 - **I want:** One place that assembles the system prompt, and a way to see what was actually sent
@@ -413,7 +428,12 @@ settings view that displays the assembled result.
 
 ---
 
-### NAV-86: Remove personality post-processing (Backlog)
+### NAV-86: Remove personality post-processing (Done in the port)
+**Done in the port, not by changing the Godot app.** These four were written as refactors of
+`AIService.gd` and were built correctly once on the new stack instead, which is what
+Implementation Order item 6 means by "constraints on the port". The GDScript they describe is
+still there and still wrong; it is never ported rather than fixed.
+
 **User Story:**
 - **As a:** User
 - **I want:** Navi's voice to come from Navi
