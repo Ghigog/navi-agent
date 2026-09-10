@@ -22,7 +22,7 @@ function ctx(over: Partial<PromptContext> = {}): PromptContext {
 }
 
 /** A valid emotion state from the three scores, so the labels can never be invented here. */
-function mood(courage: number, wisdom: number, power: number, loveScore: number): EmotionState {
+function mood(courage: number, wisdom: number, power: number, loveScore: number, confidence = 0): EmotionState {
   return {
     courage,
     wisdom,
@@ -30,6 +30,7 @@ function mood(courage: number, wisdom: number, power: number, loveScore: number)
     loveScore,
     emotion: deriveEmotion(courage, wisdom, power),
     relationshipLevel: deriveRelationship(loveScore),
+    confidence,
   };
 }
 

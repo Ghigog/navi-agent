@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('naviChat', {
   ready: () => ipcRenderer.send('chat:ready'),
   send: (text: string) => ipcRenderer.send('chat:send', text),
   cancel: () => ipcRenderer.send('chat:cancel'),
+  /** "That was good" / "that wasn't" on the last reply (NAV-101). */
+  approve: (liked: boolean) => ipcRenderer.send('chat:approve', liked),
   hide: () => ipcRenderer.send('chat:hide'),
   openSettings: () => ipcRenderer.send('settings:open'),
   onEvent: (fn: (event: unknown) => void) =>

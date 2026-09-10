@@ -16,6 +16,8 @@ import { takeTurn } from '../src/agent/session.js';
 import { ToolRegistry, type Tool } from '../src/agent/tools.js';
 import { createScreenTools, NO_SCREEN_ACCESS, type ScreenPort } from '../src/agent/screen.js';
 import {
+  CONFIDENCE_MAX,
+  CONFIDENCE_MIN,
   deriveEmotion,
   deriveRelationship,
   evaluate,
@@ -34,6 +36,7 @@ const WORST: EmotionState = {
   loveScore: LOVE_MIN,
   emotion: deriveEmotion(-10, -10, -10),
   relationshipLevel: deriveRelationship(LOVE_MIN),
+  confidence: CONFIDENCE_MIN,
 };
 
 const BEST: EmotionState = {
@@ -43,6 +46,7 @@ const BEST: EmotionState = {
   loveScore: 1000,
   emotion: deriveEmotion(10, 10, 10),
   relationshipLevel: deriveRelationship(1000),
+  confidence: CONFIDENCE_MAX,
 };
 
 const TOOL: Tool = {

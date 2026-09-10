@@ -7,7 +7,7 @@
  */
 
 import { identityBody } from './identity.js';
-import { EMOTION_TONE, RELATIONSHIP_TONE } from '../shared/emotion.js';
+import { CONFIDENCE_TONE, deriveConfidence, EMOTION_TONE, RELATIONSHIP_TONE } from '../shared/emotion.js';
 import { Layer, type PromptContext, type PromptSection, type ToolSchema } from './types.js';
 import type { EmotionSnapshot } from './types.js';
 
@@ -60,6 +60,12 @@ export function emotionBody(e: EmotionSnapshot): string {
     `  love    ${fmt(e.loveScore)} — how this relationship has been going`,
     '',
     `This person is a ${e.relationshipLevel.replace('_', ' ')} to you. ${RELATIONSHIP_TONE[e.relationshipLevel]}`,
+    '',
+    // NAV-101. Its own paragraph rather than a fourth score in the list above, because it is not
+    // one of the three: the Triforce dimensions are a reading of this turn and map onto her
+    // colour and her composite emotion, and confidence is neither. It says how she carries
+    // herself, which the emotions do not.
+    `${CONFIDENCE_TONE[deriveConfidence(e.confidence)]}`,
     '',
     'Let this shape your tone and how much you volunteer. Do not announce it unprompted, and do',
     'not perform it — it is how you feel, not a role. It does not change what is true.',

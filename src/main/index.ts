@@ -108,6 +108,9 @@ app.whenReady().then(() => {
     episode: (text: string) => {
       saveMemory(recordEpisode(loadMemory(), text));
     },
+    prefer: (text: string, liked: boolean) => {
+      saveMemory(prefer(loadMemory(), text, liked));
+    },
   };
 
   /**
@@ -286,6 +289,13 @@ app.whenReady().then(() => {
     if (typeof text === 'string') void conversation?.send(text);
   });
   ipcMain.on('chat:cancel', () => conversation?.cancel());
+  /**
+   * The approval loop (NAV-101). Explicit, because being told beats being guessed at: the
+   * sentiment classifier can notice praise, and noticing is not the same as being told.
+   */
+  ipcMain.on('chat:approve', (_e, liked: unknown) => {
+    if (typeof liked === 'boolean') conversation?.approve(liked);
+  });
   ipcMain.on('chat:hide', () => chat?.hide());
   ipcMain.on('chat:open', () => {
     if (win) chat?.show(win);

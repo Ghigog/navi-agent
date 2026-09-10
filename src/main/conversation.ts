@@ -23,11 +23,15 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { takeTurn } from '../agent/session.js';
 import { appraise, NO_READING, type Appraisal } from '../agent/sentiment.js';
 import { summariseSession } from '../agent/summary.js';
+import { describeTurn, wordsIn, type TurnShape } from '../shared/approval.js';
 import type { Provider } from '../agent/client.js';
 import type { ToolRegistry } from '../agent/tools.js';
 import type { Settings } from '../shared/settings.js';
 import {
+  containsHedging,
+  deriveConfidence,
   tintFor,
+  type ConfidenceLevel,
   type EmotionState,
   type Evaluation,
   type Rgb,
@@ -51,7 +55,7 @@ export type ChatEvent =
   | { type: 'tool'; name: string; state: 'start' | 'ok' | 'fail' }
   | { type: 'done'; text: string; cancelled: boolean }
   | { type: 'error'; message: string }
-  | { type: 'emotion'; emotion: string; relationship: string; tint: Rgb }
+  | { type: 'emotion'; emotion: string; relationship: string; tint: Rgb; confidence: ConfidenceLevel }
   /**
    * The talk key went down or up (NAV-104). Emitted by the main process rather than by a turn:
    * listening happens before there is a turn to belong to. It lives in this union because this
@@ -85,6 +89,8 @@ export interface MemoryStore {
   used(ids: readonly string[]): void;
   /** Stores a session summary as an episode. Called when a conversation ends. */
   episode(text: string): void;
+  /** Records something the user approved or pushed back on (NAV-101). */
+  prefer(text: string, liked: boolean): void;
 }
 
 export interface ConversationDeps {
@@ -123,6 +129,17 @@ export interface Conversation {
   /** Stops the turn in flight. Harmless when there is none. */
   cancel(): void;
   busy(): boolean;
+  /**
+   * The user said, in as many words, that the last reply was good or bad (NAV-101).
+   *
+   * Explicit rather than inferred, and that is the ticket: the sentiment classifier can notice
+   * praise, and noticing is not the same as being told. Being pleasant and saying the answer was
+   * right are different things, and a companion that conflated them would learn that politeness
+   * means she got it right.
+   *
+   * Does nothing when there is no turn to approve of.
+   */
+  approve(liked: boolean): boolean;
   /** Re-announces the current provider and emotion. Called when the chat window opens. */
   describeState(): void;
   history(): readonly ChatCompletionMessageParam[];
@@ -153,6 +170,9 @@ export function createConversation(deps: ConversationDeps): Conversation {
       emotion: state.emotion,
       relationship: state.relationshipLevel,
       tint: tintFor(state),
+      // A pet whose stats are invisible cannot be looked after (NAV-101). The band, not the
+      // number: "unsure" is something a person can respond to.
+      confidence: deriveConfidence(state.confidence),
     });
   };
 
@@ -166,6 +186,13 @@ export function createConversation(deps: ConversationDeps): Conversation {
 
   /** So a session with nothing new in it is not summarised again on the next close. */
   let summarised = 0;
+
+  /**
+   * What the last turn looked like, kept so that approving it can record *what* was approved
+   * rather than only that it was. Cleared when it has been used, so a second press does not
+   * count the same reply twice.
+   */
+  let lastShape: TurnShape | null = null;
 
   return {
     busy: () => inFlight !== null,
@@ -206,6 +233,17 @@ export function createConversation(deps: ConversationDeps): Conversation {
       inFlight?.abort();
     },
 
+    approve(liked) {
+      if (lastShape === null) return false;
+      const shape = lastShape;
+      lastShape = null;
+
+      const after = deps.emotion.record({ approved: liked });
+      emitEmotion(after.state);
+      deps.memory?.prefer(describeTurn(shape), liked);
+      return true;
+    },
+
     async send(text: string) {
       const asked = text.trim();
       // A second message while she is still answering is dropped rather than queued: the chat
@@ -239,6 +277,8 @@ export function createConversation(deps: ConversationDeps): Conversation {
       // Accumulated so that a cancelled turn can keep what she had already said. History and
       // the transcript on screen have to agree; the user does not see two of them.
       let streamed = '';
+      // Which tools ran, so approving the turn can say what was approved (NAV-101).
+      const toolsUsed: string[] = [];
 
       try {
         const appraisal: Appraisal = await classify({
@@ -268,13 +308,25 @@ export function createConversation(deps: ConversationDeps): Conversation {
               streamed += delta;
               deps.emit({ type: 'delta', text: delta });
             },
-            onToolStart: (name) => deps.emit({ type: 'tool', name, state: 'start' }),
+            onToolStart: (name) => {
+              toolsUsed.push(name);
+              deps.emit({ type: 'tool', name, state: 'start' });
+            },
             onToolEnd: (name, ok) => deps.emit({ type: 'tool', name, state: ok ? 'ok' : 'fail' }),
           },
         });
 
         if (result.text !== '') messages.push({ role: 'assistant', content: result.text });
         trim();
+
+        lastShape = {
+          tools: toolsUsed,
+          // Nothing inspects her text to route (NAV-83); this reads the *user's* message only to
+          // record whether looking was their idea, which is a preference she can act on.
+          askedToLook: /\b(look|see|screen|screenshot|this|here|cursor)\b/i.test(asked),
+          hedged: containsHedging(result.text),
+          words: wordsIn(result.text),
+        };
 
         // Marked after the turn rather than at retrieval: an episode that was recalled for a
         // turn that then failed was not, in any useful sense, used.

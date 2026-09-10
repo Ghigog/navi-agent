@@ -60,12 +60,38 @@ export interface EmotionState {
   /** -1000..+1000, cumulative across sessions. */
   loveScore: number;
   relationshipLevel: RelationshipLevel;
+
+  /**
+   * -100..+100, cumulative (NAV-101). How sure of herself she is.
+   *
+   * The fourth stat, and unlike the other three it is not a reading of one turn: it accumulates,
+   * like the Love Meter, because confidence earned over a week should not be spent by one
+   * awkward question. It is deliberately *not* part of the Triforce — emotions.md maps exactly
+   * three dimensions onto the eight composite emotions and onto her colour, and adding a fourth
+   * would change both. This shapes how much she hedges and how readily she acts, which the
+   * emotions do not.
+   */
+  confidence: number;
 }
 
 export const DIMENSION_MIN = -10;
 export const DIMENSION_MAX = 10;
 export const LOVE_MIN = -1000;
 export const LOVE_MAX = 1000;
+export const CONFIDENCE_MIN = -100;
+export const CONFIDENCE_MAX = 100;
+
+/**
+ * What one explicit approval is worth (NAV-101).
+ *
+ * Large next to what a turn earns on its own, and that is the point of the ticket: the user
+ * telling her she did well has to count for more than her guessing that it went fine, or the
+ * approval loop is decorative. Ten deliberate "good job"s take her from nothing to certain.
+ */
+export const APPROVAL_STEP = 10;
+
+/** What a turn that went badly costs. Smaller than an approval: she is slow to lose her nerve. */
+export const CONFIDENCE_DRIFT = 2;
 
 /**
  * The most the Love Meter may move in one exchange (NAV-95).
@@ -91,6 +117,43 @@ export const NEUTRAL: EmotionState = {
   emotion: 'serenity',
   loveScore: 0,
   relationshipLevel: 'acquaintance',
+  confidence: 0,
+};
+
+/**
+ * How sure of herself she is, as a band.
+ *
+ * Bands rather than the number, because the prompt is the consumer and a model handed "-37"
+ * will either ignore it or perform it. Same argument as `EMOTION_TONE`.
+ */
+export type ConfidenceLevel = 'unsure' | 'steady' | 'assured';
+
+export function deriveConfidence(confidence: number): ConfidenceLevel {
+  if (confidence >= 40) return 'assured';
+  if (confidence <= -30) return 'unsure';
+  return 'steady';
+}
+
+/**
+ * What each band means for how she behaves — and, in the last line of each, what it does not.
+ *
+ * NAV-97's bound applies here with particular force. Confidence may change willingness, hedging
+ * and tone. It may not change what she reports as true: a confident Navi who is wrong is worse
+ * than a hesitant one, because the hedging was the only warning the user had.
+ */
+export const CONFIDENCE_TONE: Record<ConfidenceLevel, string> = {
+  unsure:
+    'You are not sure of yourself at the moment. Check in more, offer what you have rather than ' +
+    'asserting it, and say when you are guessing. This is about how you speak, not about what ' +
+    'you claim: being unsure is never a reason to say something you do not believe.',
+  steady:
+    'You are steady. Say what you know plainly, hedge where you genuinely are unsure, and neither ' +
+    'apologise for yourself nor overreach.',
+  assured:
+    'You are sure of yourself. Answer directly, act on what they asked without checking twice, and ' +
+    'do not pad with disclaimers. This is not licence to answer what you cannot answer: "I don\'t ' +
+    'know" is still the honest answer to a question you cannot see the answer to, however sure of ' +
+    'yourself you feel.',
 };
 
 /** Keyed by courage/wisdom/power as H or L. */
@@ -209,6 +272,16 @@ export interface TurnOutcome {
   sentiment?: Sentiment;
 
   /**
+   * The user said, in as many words, that a reply was good or bad (NAV-101).
+   *
+   * Undefined means they said nothing about it, which is the usual case and moves confidence
+   * only by the small drift below. This is deliberately a separate input from `sentiment`:
+   * being pleasant and saying the answer was right are different things, and a companion who
+   * conflated them would learn that politeness means she got it right.
+   */
+  approved?: boolean;
+
+  /**
    * Set on the post-turn pass of an exchange whose pre-reply pass already applied this
    * sentiment. The Love Meter adjustment still lands here — that pass owns the relationship —
    * but the dimension nudges do not run a second time.
@@ -251,6 +324,7 @@ export function evaluate(prev: EmotionState, outcome: TurnOutcome = {}): Evaluat
     toolsAvailable = false,
     toolSucceeded = false,
     analysisFailed = false,
+    approved,
     sentiment = 'neutral',
     sentimentDimensionsApplied = false,
     preEval = false,
@@ -328,6 +402,23 @@ export function evaluate(prev: EmotionState, outcome: TurnOutcome = {}): Evaluat
   const promptScore = clamp(raw, -MAX_LOVE_DELTA, MAX_LOVE_DELTA);
   const loveScore = clamp(prev.loveScore + promptScore, LOVE_MIN, LOVE_MAX);
 
+  /**
+   * Confidence drifts on how the turn went and jumps on explicit approval (NAV-101).
+   *
+   * Asymmetric on purpose, and the other way round from the Love Meter: rapport is quicker to
+   * break than to build, and self-belief is quicker to build than to break. She loses her nerve
+   * slowly, over several bad turns, rather than on the first one.
+   */
+  let confidence = prev.confidence;
+  if (approved === true) confidence += APPROVAL_STEP;
+  else if (approved === false) confidence -= APPROVAL_STEP;
+  else if (!preEval) {
+    if (analysisFailed || (toolsAvailable && !toolSucceeded && powerRelevant)) confidence -= CONFIDENCE_DRIFT;
+    else if (!intentClear) confidence -= CONFIDENCE_DRIFT;
+    else if (toolSucceeded) confidence += 1;
+  }
+  confidence = clamp(confidence, CONFIDENCE_MIN, CONFIDENCE_MAX);
+
   const state: EmotionState = {
     courage,
     wisdom,
@@ -335,6 +426,7 @@ export function evaluate(prev: EmotionState, outcome: TurnOutcome = {}): Evaluat
     emotion: deriveEmotion(courage, wisdom, power),
     loveScore,
     relationshipLevel: deriveRelationship(loveScore),
+    confidence,
   };
 
   return {
@@ -372,6 +464,7 @@ export function coerceState(stored: unknown): EmotionState {
     emotion: deriveEmotion(courage, wisdom, power),
     loveScore,
     relationshipLevel: deriveRelationship(loveScore),
+    confidence: Math.round(num(d['confidence'], NEUTRAL.confidence, CONFIDENCE_MIN, CONFIDENCE_MAX)),
   };
 }
 
@@ -427,5 +520,11 @@ export function tintFor(s: EmotionState): Rgb {
 /** One-line summary for logs. */
 export function describe(s: EmotionState): string {
   const n = (v: number): string => (v > 0 ? `+${v}` : `${v}`);
-  return `${s.emotion} · ${s.relationshipLevel} · love ${n(s.loveScore)} · C${n(s.courage)} W${n(s.wisdom)} P${n(s.power)}`;
+  return (
+    `${s.emotion} · ${s.relationshipLevel} · love ${n(s.loveScore)} · ` +
+    `C${n(s.courage)} W${n(s.wisdom)} P${n(s.power)} · ` +
+    // A pet whose stats are invisible cannot be looked after (NAV-101), and this string is what
+    // Settings shows.
+    `${deriveConfidence(s.confidence)} ${n(s.confidence)}`
+  );
 }

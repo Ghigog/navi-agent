@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type OpenAI from 'openai';
 import { createConversation, explain, MAX_HISTORY, type ChatEvent } from '../src/main/conversation.js';
-import { ToolRegistry } from '../src/agent/tools.js';
+import { ToolRegistry, type Tool } from '../src/agent/tools.js';
 import { NO_READING } from '../src/agent/sentiment.js';
 import { DEFAULTS, type Settings } from '../src/shared/settings.js';
 import {
@@ -332,13 +332,16 @@ describe('memory (NAV-93)', () => {
   function fakeMemory(lines: string[] = [], used: string[] = []) {
     const marked: string[][] = [];
     const episodes: string[] = [];
+    const preferences: Array<[string, boolean]> = [];
     return {
       marked,
       episodes,
+      preferences,
       store: {
         recall: () => ({ lines, used }),
         used: (ids: readonly string[]) => marked.push([...ids]),
         episode: (text: string) => episodes.push(text),
+        prefer: (text: string, liked: boolean) => preferences.push([text, liked]),
       },
     };
   }
@@ -500,5 +503,133 @@ describe('the appraisal reaches the turn (NAV-95)', () => {
     const post = emotion.scored.find((o) => o.preEval !== true);
     expect(post?.intentClear).toBe(true);
     expect(post?.sentiment).toBe('neutral');
+  });
+});
+
+describe('the approval loop (NAV-101)', () => {
+  function withPreferences(replies = ['a short answer']) {
+    const marked: string[][] = [];
+    const episodes: string[] = [];
+    const preferences: Array<[string, boolean]> = [];
+    const { provider } = fakeProvider(replies);
+    const emotion = fakeStore();
+    const events: ChatEvent[] = [];
+
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => provider,
+      registry: new ToolRegistry(),
+      emotion: emotion.store,
+      memory: {
+        recall: () => ({ lines: [], used: [] }),
+        used: (ids) => marked.push([...ids]),
+        episode: (text) => episodes.push(text),
+        prefer: (text, liked) => preferences.push([text, liked]),
+      },
+      emit: (e) => events.push(e),
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+
+    return { conversation, preferences, emotion, events };
+  }
+
+  it('raises confidence and says what was approved', async () => {
+    const s = withPreferences();
+    await s.conversation.send('what is this?');
+
+    expect(s.conversation.approve(true)).toBe(true);
+    expect(s.emotion.current().confidence).toBeGreaterThan(0);
+    // Not just that approval happened: what shape of answer earned it.
+    expect(s.preferences).toEqual([['answering from what you already knew, answering briefly', true]]);
+  });
+
+  it('records a thumbs-down as a dislike rather than as nothing', async () => {
+    const s = withPreferences();
+    await s.conversation.send('what is this?');
+    s.conversation.approve(false);
+
+    expect(s.emotion.current().confidence).toBeLessThan(0);
+    expect(s.preferences[0]?.[1]).toBe(false);
+  });
+
+  it('repaints the header, so the stat is visible the moment it moves', async () => {
+    const s = withPreferences();
+    await s.conversation.send('hello');
+    const before = s.events.filter((e) => e.type === 'emotion').length;
+
+    s.conversation.approve(true);
+    const after = s.events.filter((e) => e.type === 'emotion');
+    expect(after.length).toBe(before + 1);
+    expect(after.at(-1)).toMatchObject({ confidence: 'steady' });
+  });
+
+  it('cannot be pressed twice for the same reply', async () => {
+    const s = withPreferences();
+    await s.conversation.send('hello');
+
+    expect(s.conversation.approve(true)).toBe(true);
+    expect(s.conversation.approve(true)).toBe(false);
+    expect(s.preferences).toHaveLength(1);
+  });
+
+  it('has nothing to approve of before she has said anything', () => {
+    const s = withPreferences();
+    expect(s.conversation.approve(true)).toBe(false);
+    expect(s.preferences).toEqual([]);
+  });
+
+  it('notices when reaching for a tool was her own idea', async () => {
+    const capture: Tool = {
+      schema: {
+        name: 'look_at_screen',
+        description: 'Look at the screen.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+      run: async () => ({ content: 'captured.' }),
+    };
+    const registry = new ToolRegistry();
+    registry.register(capture);
+
+    const turns: Array<Array<Record<string, unknown>>> = [
+      [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'look_at_screen', arguments: '{}' } }] } }] }],
+      [{ choices: [{ delta: { content: 'It is a terminal window showing an error about permissions.' } }] }],
+    ];
+    let n = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async () => {
+            const chunks = turns[n++] ?? [];
+            return (async function* () {
+              for (const c of chunks) yield c;
+            })();
+          },
+        },
+      },
+    };
+
+    const preferences: Array<[string, boolean]> = [];
+    const emotion = fakeStore();
+    const conversation = createConversation({
+      settings: () => ({ ...DEFAULTS }),
+      createProvider: () => ({ client: client as unknown as OpenAI, model: 'm', remote: false }),
+      registry,
+      emotion: emotion.store,
+      memory: {
+        recall: () => ({ lines: [], used: [] }),
+        used: () => {},
+        episode: () => {},
+        prefer: (text, liked) => preferences.push([text, liked]),
+      },
+      emit: () => {},
+      classify: async () => ({ sentiment: 'neutral', clarity: 'clear' }),
+    });
+
+    // A question that does not ask her to look, answered by looking anyway.
+    await conversation.send('why is my build failing');
+    conversation.approve(true);
+
+    expect(preferences[0]?.[0]).toContain('look_at_screen');
+    expect(preferences[0]?.[0]).toContain('without being asked');
   });
 });

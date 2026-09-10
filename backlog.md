@@ -661,7 +661,7 @@ axis is read on its own, so a model that manages only "kind" gets the default cl
 than nothing at all — and two labels on one axis is a model thinking out loud, which falls back
 like anything else unrecognised.
 
-### NAV-101: Confidence stat and the approval loop (Backlog)
+### NAV-101: Confidence stat and the approval loop (Done)
 **User Story:**
 - **As a:** User
 - **I want:** My approval to visibly teach Navi what I want and make her more sure of herself
@@ -698,12 +698,37 @@ Add confidence as a stat, give the user a direct way to grant approval, and stor
 - Show the stats somewhere. A pet whose stats are invisible cannot be looked after.
 
 **Acceptance Criteria:**
-- [ ] Approving a reply raises confidence and is visible in the UI.
-- [ ] What was approved is recorded, not just the fact of approval.
-- [ ] Accumulated approvals measurably change later behaviour in the approved direction.
-- [ ] Low confidence produces more hedging; high confidence produces less.
-- [ ] A test confirms high confidence does not increase fabrication on questions Navi cannot answer.
-- [ ] Relationship state stays inside its token budget as approvals accumulate.
+- [x] Approving a reply raises confidence and is visible in the UI. A 👍/👎 on the reply itself,
+      and the chat header carries her confidence band beside her emotion and the relationship.
+      It repaints the moment the stat moves.
+- [x] What was approved is recorded, not just the fact of approval. `shared/approval.ts` turns
+      the turn into a clause she could act on — "reaching for look_at_screen without being
+      asked, answering briefly" — and it lands in NAV-93's relationship store.
+- [x] Accumulated approvals measurably change later behaviour in the approved direction: they
+      are what the prompt's "They have liked:" line is made of.
+- [x] Low confidence produces more hedging; high confidence produces less. Three bands, each
+      with its own tone guidance, in the same way and for the same reason `EMOTION_TONE` has
+      one: a model handed "-37" will either ignore it or perform it.
+- [x] A test confirms high confidence does not increase fabrication on questions Navi cannot
+      answer. The honesty rule is present unchanged at every band, and the assured band says in
+      its own words that it is not licence to answer what she cannot answer.
+- [x] Relationship state stays inside its token budget as approvals accumulate — capped list,
+      newest wins, and each description is hard-capped at 80 characters. A hundred approvals
+      cost what six do.
+
+**Confidence is not a fourth Triforce dimension.** emotions.md maps exactly three onto the eight
+composite emotions and onto her colour; a fourth would change both. It sits beside them, it
+accumulates like the Love Meter rather than being rescored each turn, and it has its own
+paragraph in the prompt because it says how she carries herself rather than how she feels.
+
+**Explicit and inferred are kept apart.** `approved` is a separate input from `sentiment`, and a
+kind message does not move confidence at all. Being pleasant and saying the answer was right are
+different things, and a companion that conflated them would learn that politeness means she got
+it right.
+
+**She is slow to lose her nerve.** Confidence is asymmetric the opposite way to the Love Meter:
+rapport is quicker to break than to build, and self-belief is quicker to build than to break.
+One bad turn does not undo an approval; twenty do.
 
 ---
 

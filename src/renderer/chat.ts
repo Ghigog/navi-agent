@@ -18,6 +18,7 @@ declare global {
       ready(): void;
       send(text: string): void;
       cancel(): void;
+      approve(liked: boolean): void;
       hide(): void;
       openSettings(): void;
       onEvent(fn: (event: ChatEvent) => void): void;
@@ -57,6 +58,41 @@ function bubble(kind: 'user' | 'navi' | 'error' | 'note', text: string): HTMLDiv
   transcript.append(el);
   if (follow) transcript.scrollTop = transcript.scrollHeight;
   return el;
+}
+
+/**
+ * The approval affordance (NAV-101).
+ *
+ * One click on the reply it is about, rather than a command she has to interpret. The central
+ * loop of the pet relationship had no input at all before this: the user could be nice to her,
+ * and could not tell her she was right.
+ *
+ * It disappears once used. A second press would score the same reply twice, and leaving it there
+ * afterwards invites exactly that.
+ */
+function attachApproval(target: HTMLDivElement): void {
+  const row = document.createElement('div');
+  row.className = 'approval';
+
+  const press = (liked: boolean) => () => {
+    window.naviChat?.approve(liked);
+    row.replaceChildren(document.createTextNode(liked ? 'she took that to heart' : 'noted'));
+    row.classList.add('used');
+  };
+
+  for (const [label, liked, title] of [
+    ['👍', true, 'Tell her that was right. It raises her confidence and she remembers how you liked it.'],
+    ['👎', false, 'Tell her that was not what you wanted.'],
+  ] as const) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener('click', press(liked));
+    row.append(button);
+  }
+
+  target.append(row);
 }
 
 function setBusy(next: boolean): void {
@@ -124,7 +160,9 @@ window.naviChat?.onEvent((event) => {
       break;
 
     case 'emotion':
-      mood.textContent = `${event.emotion} · ${event.relationship.replace('_', ' ')}`;
+      // Her three stats, in the order a person cares about them: how she feels, how she carries
+      // herself, and what she calls you. A pet whose stats are invisible cannot be looked after.
+      mood.textContent = `${event.emotion} · ${event.confidence} · ${event.relationship.replace('_', ' ')}`;
       dot.style.background = `rgb(${event.tint.r}, ${event.tint.g}, ${event.tint.b})`;
       break;
 
@@ -154,6 +192,9 @@ window.naviChat?.onEvent((event) => {
       // then stopped. Saying so beats an empty pause the user has to interpret.
       if (event.cancelled) bubble('note', 'stopped');
       else if (event.text === '') bubble('note', 'she had nothing to say');
+      // Only on a reply she actually gave: there is nothing to approve of about silence, and
+      // approving a cancelled turn would score an interruption.
+      else if (reply !== null) attachApproval(reply);
       reply = null;
       setBusy(false);
       break;
