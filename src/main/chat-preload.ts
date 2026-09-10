@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('naviChat', {
   cancel: () => ipcRenderer.send('chat:cancel'),
   /** "That was good" / "that wasn't" on the last reply (NAV-101). */
   approve: (liked: boolean) => ipcRenderer.send('chat:approve', liked),
+  /** The answer to a confirmation card (NAV-91). Answered by id: two can be up at once. */
+  confirm: (id: number, said: boolean) => ipcRenderer.send('chat:confirm', { id, said }),
   hide: () => ipcRenderer.send('chat:hide'),
   openSettings: () => ipcRenderer.send('settings:open'),
   onEvent: (fn: (event: unknown) => void) =>

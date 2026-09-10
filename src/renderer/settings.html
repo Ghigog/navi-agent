@@ -269,6 +269,23 @@
     -webkit-user-select: text;
     user-select: text;
   }
+  #policy-log {
+    margin-top: 8px;
+    max-height: 190px;
+    overflow-y: auto;
+    font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #cdd2e2;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  #policy-log div {
+    padding: 2px 0;
+    border-top: 1px solid var(--line);
+  }
+  #halted-state.stopped {
+    color: var(--bad, #f08c8c);
+  }
+
   .memory-item .when {
     color: var(--faint);
     font-size: 11.5px;
@@ -396,6 +413,48 @@
           <input type="number" id="activeFps" data-setting="activeFps" min="1" max="120" step="1" />
           <span class="note" style="margin: 0">fps while she is busy</span>
         </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Acting on your machine</h2>
+      <p class="note">
+        Navi cannot click or type yet — the native helper is not built. This is the gate it will
+        pass through when it is, and it ships first on purpose: a gate written after the thing it
+        gates is a gate written to let the existing behaviour through.
+      </p>
+      <div class="field">
+        <label for="allowedApps">Allowed apps</label>
+        <input type="text" id="allowedApps" data-setting="allowedApps" spellcheck="false"
+               placeholder="com.example.notes, com.apple.mail" />
+        <p class="note">
+          Comma-separated bundle ids. Empty means she may act in nothing, which is the default.
+          Terminals, keychains, password managers, System Settings and Finder are refused
+          outright and cannot be added here.
+        </p>
+      </div>
+      <div class="field">
+        <label for="killHotkey">Stop key</label>
+        <input type="text" id="killHotkey" data-setting="killHotkey" spellcheck="false" />
+        <p class="note">
+          Halts anything in flight, immediately — the reply, her voice, and any action. It stays
+          stopped across a restart, so hitting it because something was going wrong does not
+          wear off.
+        </p>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <div class="row">
+          <span id="halted-state">…</span>
+          <button class="plain" id="resume" type="button" hidden>Start her again</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>What she has tried</label>
+        <div class="row">
+          <button class="plain" id="refresh-log" type="button">Refresh</button>
+        </div>
+        <div id="policy-log"></div>
       </div>
     </section>
 

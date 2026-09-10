@@ -18,6 +18,7 @@
 import { factTokens, FACT_BUDGET, MAX_EPISODES, type Memory } from '../shared/memory.js';
 import { upcoming, type Notes } from '../shared/notes.js';
 import { describeWhen } from '../shared/when.js';
+import { describeEntry, type AuditEntry } from '../shared/policy.js';
 
 import type { PromptRecord } from '../prompt/inspector.js';
 import type { SettingsView } from '../shared/settings.js';
@@ -38,6 +39,9 @@ declare global {
       memoryReset(): Promise<Memory>;
       notes(): Promise<Notes>;
       noteDelete(id: string): Promise<Notes>;
+      policyLog(): Promise<AuditEntry[]>;
+      policyHalted(): Promise<boolean>;
+      policyResume(): Promise<boolean>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
@@ -407,3 +411,53 @@ memoryReset.addEventListener('click', async (e) => {
   flashSaved();
 });
 document.addEventListener('click', disarmMemory);
+
+// ---------------------------------------------------------------------------
+// The safety gate (NAV-91)
+// ---------------------------------------------------------------------------
+
+const haltedState = $('halted-state');
+const resumeButton = $<HTMLButtonElement>('resume');
+const policyLog = $('policy-log');
+
+function renderHalted(halted: boolean): void {
+  // Precise about what "stopped" means: pressing it cancels the reply, her voice and anything
+  // in flight, and she will not act on the machine again until this button is pressed. She can
+  // still be talked to — halting a conversation is not what an emergency stop is for.
+  haltedState.textContent = halted
+    ? 'Stopped. She will not touch anything on your machine until you start her again. You can still talk to her.'
+    : 'Running. She has not been stopped.';
+  haltedState.classList.toggle('stopped', halted);
+  // Starting her again is deliberately its own act rather than something the stop key toggles:
+  // the moment you need the stop key is not a moment to be one keystroke from undoing it.
+  resumeButton.hidden = !halted;
+}
+
+async function loadPolicy(): Promise<void> {
+  renderHalted((await window.naviSettings?.policyHalted()) ?? false);
+
+  const log = (await window.naviSettings?.policyLog()) ?? [];
+  policyLog.replaceChildren();
+
+  if (log.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Nothing yet. She has not tried to do anything to your machine.';
+    policyLog.append(empty);
+    return;
+  }
+
+  // Newest first: what just happened is what you opened this to see.
+  for (const entry of [...log].reverse()) {
+    const line = document.createElement('div');
+    line.textContent = describeEntry(entry);
+    policyLog.append(line);
+  }
+}
+
+resumeButton.addEventListener('click', async () => {
+  renderHalted((await window.naviSettings?.policyResume()) ?? false);
+  flashSaved();
+});
+$('refresh-log').addEventListener('click', () => void loadPolicy());
+
+void loadPolicy();

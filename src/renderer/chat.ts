@@ -19,6 +19,7 @@ declare global {
       send(text: string): void;
       cancel(): void;
       approve(liked: boolean): void;
+      confirm(id: number, said: boolean): void;
       hide(): void;
       openSettings(): void;
       onEvent(fn: (event: ChatEvent) => void): void;
@@ -93,6 +94,49 @@ function attachApproval(target: HTMLDivElement): void {
   }
 
   target.append(row);
+}
+
+/**
+ * The confirmation card (NAV-91).
+ *
+ * Says what she wants to do, where, and why she is being asked, and defaults to nothing: an
+ * unanswered card is a no, and there is no way to answer one by pressing return without reading
+ * it. The user is being asked to let something change their machine, and the card is the only
+ * moment they get to say no.
+ */
+function askToAct(event: Extract<ChatEvent, { type: 'confirm' }>): void {
+  const card = bubble('note', '');
+  card.classList.add('confirm');
+
+  const what = document.createElement('div');
+  what.className = 'what';
+  what.textContent = event.app === '' ? `Navi wants to ${event.action}.` : `Navi wants to ${event.action} in ${event.app}.`;
+
+  const why = document.createElement('div');
+  why.className = 'why';
+  why.textContent = event.detail === '' ? event.reason : `${event.detail} — ${event.reason}`;
+
+  const row = document.createElement('div');
+  row.className = 'approval';
+
+  const answer = (said: boolean) => () => {
+    window.naviChat?.confirm(event.id, said);
+    card.replaceChildren(document.createTextNode(said ? `Allowed: ${event.action}` : `Refused: ${event.action}`));
+  };
+
+  const no = document.createElement('button');
+  no.type = 'button';
+  no.textContent = 'No';
+  no.addEventListener('click', answer(false));
+
+  const yes = document.createElement('button');
+  yes.type = 'button';
+  yes.textContent = 'Let her';
+  yes.addEventListener('click', answer(true));
+
+  // No in front of yes, and neither is focused. This is not a dialog to dismiss.
+  row.append(no, yes);
+  card.append(what, why, row);
 }
 
 function setBusy(next: boolean): void {
@@ -207,6 +251,10 @@ window.naviChat?.onEvent((event) => {
 
     case 'reminder':
       bubble('note', `⏰ ${event.text}`);
+      break;
+
+    case 'confirm':
+      askToAct(event);
       break;
 
     case 'listening':

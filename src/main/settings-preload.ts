@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('naviSettings', {
   /** Notes and reminders (NAV-100), shown in the same viewer and deleted one at a time. */
   notes: () => ipcRenderer.invoke('notes:get'),
   noteDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
+  /** The safety gate (NAV-91). The log is read-only from here; nothing may edit the record. */
+  policyLog: () => ipcRenderer.invoke('policy:log'),
+  policyHalted: () => ipcRenderer.invoke('policy:halted'),
+  policyResume: () => ipcRenderer.invoke('policy:resume'),
   emotion: () => ipcRenderer.invoke('emotion:get'),
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */

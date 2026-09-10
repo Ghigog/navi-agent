@@ -19,6 +19,7 @@ declare global {
       onBusy(fn: (busy: boolean) => void): void;
       onRates(fn: (r: { idle: number; active: number }) => void): void;
       onPoint(fn: (relative: { x: number; y: number } | null) => void): void;
+      onActing(fn: (acting: boolean) => void): void;
       requestChat(): void;
     };
   }
@@ -58,6 +59,14 @@ window.navi?.onPoint((relative) => {
   fairy.setPointer(relative);
   loop.markActive();
 });
+// She is acting on the machine: an amber light, distinct from the pale one that means thinking.
+// NAV-91 requires this to be visible whenever a write is in flight — the user must always know.
+const ACTING_LIGHT = { r: 255, g: 191, b: 0, pulsing: true };
+window.navi?.onActing((acting) => {
+  fairy.setStatusLight(acting ? ACTING_LIGHT : null);
+  loop.markActive();
+});
+
 // A cursor arriving over the fairy is motion worth spending frames on.
 window.navi?.onClickThrough((on) => {
   if (!on) loop.markActive();

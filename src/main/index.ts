@@ -31,6 +31,7 @@ import { createMemoryTools } from '../agent/recall.js';
 import { createNoteTools } from '../agent/notes.js';
 import { load as loadNotes, save as saveNotes } from './notes-store.js';
 import { createReminders, type Reminders } from './reminders.js';
+import { createGate, type Gate } from './gate.js';
 import { addNote, addReminder, deleteNote, searchNotes, upcoming } from '../shared/notes.js';
 import { forget, markUsed, prefer, recall, recordEpisode, remember } from '../shared/memory.js';
 import { createProvider } from '../agent/client.js';
@@ -55,6 +56,11 @@ let speaker: Speaker | null = null;
 // built before the conversation that owns one.
 let conversation: Conversation | null = null;
 let reminders: Reminders | null = null;
+let gate: Gate | null = null;
+
+/** Pending confirmation cards, keyed by the id the chat window answers with (NAV-91). */
+const pendingConfirmations = new Map<number, (said: boolean) => void>();
+let nextConfirmation = 0;
 
 app.whenReady().then(() => {
   const current = load();
@@ -192,9 +198,15 @@ app.whenReady().then(() => {
     registry,
     emotion: { load: loadEmotion, record: recordEmotion },
     memory,
-    // NAV-99: the crop is centred on where the cursor was when they asked, not on where it has
-    // drifted to by the time the model gets round to asking for a picture.
-    onSend: () => screenTools.freeze(),
+    onSend: () => {
+      // NAV-99: the crop is centred on where the cursor was when they asked, not on where it
+      // has drifted to by the time the model gets round to asking for a picture.
+      screenTools.freeze();
+      // And NAV-91's per-turn write budget refills. It is per *turn* rather than per session
+      // because a model that has decided to click will sometimes decide to click forever, and
+      // the natural unit of "she has done enough" is one thing the user asked for.
+      gate?.beginTurn();
+    },
     emit: (event) => {
       chat?.send('chat:event', event);
 
@@ -264,6 +276,37 @@ app.whenReady().then(() => {
     win?.webContents.send('busy', on);
   };
 
+  /**
+   * The kill switch (NAV-91).
+   *
+   * A global shortcut, because the moment you need it is the moment Navi has the focus and is
+   * doing something you did not want. It halts everything in flight and is remembered across a
+   * restart: a user who hit it because something was going wrong should not find her acting
+   * again after a relaunch.
+   */
+  const registerKillHotkey = (settings: Settings): boolean => {
+    const ok = globalShortcut.register(settings.killHotkey, () => {
+      gate?.halt();
+      save({ halted: true });
+      // Everything in flight, not only the acting: a turn she is mid-way through is part of
+      // what the user just told her to stop.
+      conversation?.cancel();
+      speaker?.stop();
+      for (const [id, resolve] of pendingConfirmations) {
+        pendingConfirmations.delete(id);
+        resolve(false);
+      }
+      chat?.send('chat:event', {
+        type: 'error',
+        message:
+          'Stopped. Navi will not touch anything on your machine until you start her again in ' +
+          'Settings. You can still talk to her.',
+      });
+    });
+    if (!ok) console.warn(`could not register kill switch ${settings.killHotkey} — another app owns it`);
+    return ok;
+  };
+
   const registerVoiceHotkey = (settings: Settings): boolean => {
     if (!settings.voiceInput) return true;
     const ok = globalShortcut.register(settings.voiceHotkey, () => setListening(!listening));
@@ -273,6 +316,7 @@ app.whenReady().then(() => {
 
   registerHotkey(current.hotkey);
   registerVoiceHotkey(current);
+  registerKillHotkey(current);
 
   // She wakes up in the state she was left in, at the frame rates that were configured. Sent
   // once the renderer is listening — before that the fairy draws in its neutral colour at the
@@ -295,6 +339,25 @@ app.whenReady().then(() => {
    */
   ipcMain.on('chat:approve', (_e, liked: unknown) => {
     if (typeof liked === 'boolean') conversation?.approve(liked);
+  });
+  ipcMain.on('chat:confirm', (_e, payload: unknown) => {
+    if (payload === null || typeof payload !== 'object') return;
+    const { id, said } = payload as { id?: unknown; said?: unknown };
+    if (typeof id !== 'number' || typeof said !== 'boolean') return;
+
+    const resolve = pendingConfirmations.get(id);
+    pendingConfirmations.delete(id);
+    resolve?.(said);
+  });
+
+  /** The audit log, for the panel that shows it. Read-only from the renderer's side. */
+  ipcMain.handle('policy:log', () => gate?.log() ?? []);
+  ipcMain.handle('policy:halted', () => gate?.halted() ?? false);
+  ipcMain.handle('policy:resume', () => {
+    gate?.resume();
+    save({ halted: false });
+    win?.webContents.send('acting', false);
+    return false;
   });
   ipcMain.on('chat:hide', () => chat?.hide());
   ipcMain.on('chat:open', () => {
@@ -385,6 +448,7 @@ app.whenReady().then(() => {
     // Everything that reads a setting once rather than per turn has to be told it changed.
     const hotkeyRegistered = registerHotkey(next.hotkey);
     const voiceHotkeyRegistered = registerVoiceHotkey(next);
+    registerKillHotkey(next);
     sendRates(next);
     speaker?.stop();
     speaker = buildSpeaker(next);
@@ -446,6 +510,38 @@ app.whenReady().then(() => {
       }
     });
   }
+
+  /**
+   * The safety gate (NAV-91). It has nothing to gate yet — NAV-90's helper does not exist — and
+   * it is here first on purpose: a gate written after the capability is a gate written to let
+   * the existing behaviour through. When the write tools arrive they call `gate.attempt` and do
+   * nothing else about safety.
+   */
+  gate = createGate({
+    allowedApps: () =>
+      load()
+        .allowedApps.split(',')
+        .map((a) => a.trim())
+        .filter((a) => a !== ''),
+    confirm: (action, decision) =>
+      new Promise<boolean>((resolve) => {
+        const id = nextConfirmation++;
+        pendingConfirmations.set(id, resolve);
+        if (win) chat?.show(win);
+        chat?.send('chat:event', {
+          type: 'confirm',
+          id,
+          action: action.name,
+          app: action.app ?? '',
+          detail: action.detail ?? '',
+          reason: decision.reason,
+        });
+      }),
+    // The user must always know when she is reaching outside her own window.
+    onActing: (acting) => win?.webContents.send('acting', acting),
+    onAudit: (entry) => console.log('action:', entry.verdict, entry.action.name, entry.reason),
+  });
+  if (current.halted) gate.halt();
 
   // Sweeps anything that came due while the app was closed, then arms for the next one.
   reminders.start();

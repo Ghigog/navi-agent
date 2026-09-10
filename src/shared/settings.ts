@@ -76,6 +76,24 @@ export interface Settings {
    * in their face every launch until they complied.
    */
   onboarded: boolean;
+
+  /**
+   * Applications Navi is allowed to act in, comma-separated (NAV-91).
+   *
+   * Empty by default, which denies everything: the allowlist is the gate's only source of yes,
+   * and a default that allowed anything would be a gate that opened itself. `DENIED_APPS` is
+   * not user-editable and overrides anything named here.
+   */
+  allowedApps: string;
+
+  /**
+   * The kill switch. Held stopped across a restart on purpose: a user who hit it because
+   * something was going wrong should not find her acting again after a relaunch.
+   */
+  halted: boolean;
+
+  /** Global shortcut that halts anything in flight, immediately. */
+  killHotkey: string;
 }
 
 export const DEFAULTS: Settings = {
@@ -97,6 +115,9 @@ export const DEFAULTS: Settings = {
   voiceSpeed: 1,
   speechModel: 'ggml-base.en.bin',
   onboarded: false,
+  allowedApps: '',
+  halted: false,
+  killHotkey: 'Shift+Command+Escape',
 };
 
 export const PROVIDERS: readonly Settings['provider'][] = ['ollama', 'openai'];

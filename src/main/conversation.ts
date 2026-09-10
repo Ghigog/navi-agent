@@ -67,7 +67,14 @@ export type ChatEvent =
    * anywhere near it — which is the point: a reminder that only fired while you were already
    * talking to her would not be worth setting.
    */
-  | { type: 'reminder'; text: string };
+  | { type: 'reminder'; text: string }
+  /**
+   * Navi wants to do something that changes the user's machine, and needs a yes (NAV-91).
+   *
+   * Emitted by the gate rather than by a turn, and answered by id, because the card can outlive
+   * the turn that raised it and two of them can be up at once.
+   */
+  | { type: 'confirm'; id: number; action: string; app: string; detail: string; reason: string };
 
 /** The slice of `main/emotion-store.ts` this needs. Narrowed so tests can stand it up in place. */
 export interface EmotionStore {
