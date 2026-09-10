@@ -31,6 +31,7 @@ declare global {
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
+      openOnboarding(): void;
       close(): void;
     };
   }
@@ -111,6 +112,10 @@ async function save(patch: Record<string, unknown>): Promise<void> {
       : '';
   flashSaved();
 }
+
+// The guide stays reachable after first run: the local-path setup instructions are the only
+// place they exist, and someone who started on cloud is exactly who needs them (NAV-92).
+$('open-onboarding').addEventListener('click', () => window.naviSettings?.openOnboarding());
 
 for (const el of bound) {
   el.addEventListener('change', () => {

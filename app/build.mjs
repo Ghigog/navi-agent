@@ -11,15 +11,18 @@ const targets = [
   { entryPoints: ['src/main/preload.ts'], outfile: 'dist/preload/index.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/chat-preload.ts'], outfile: 'dist/preload/chat.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/settings-preload.ts'], outfile: 'dist/preload/settings.cjs', platform: 'node', format: 'cjs' },
+  { entryPoints: ['src/main/onboarding-preload.ts'], outfile: 'dist/preload/onboarding.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/renderer/app.ts'], outfile: 'dist/renderer/app.js', platform: 'browser', format: 'esm' },
   { entryPoints: ['src/renderer/chat.ts'], outfile: 'dist/renderer/chat.js', platform: 'browser', format: 'esm' },
   { entryPoints: ['src/renderer/settings.ts'], outfile: 'dist/renderer/settings.js', platform: 'browser', format: 'esm' },
+  { entryPoints: ['src/renderer/onboarding.ts'], outfile: 'dist/renderer/onboarding.js', platform: 'browser', format: 'esm' },
 ];
 
 await mkdir('dist/renderer', { recursive: true });
 await cp('src/renderer/index.html', 'dist/renderer/index.html');
 await cp('src/renderer/chat.html', 'dist/renderer/chat.html');
 await cp('src/renderer/settings.html', 'dist/renderer/settings.html');
+await cp('src/renderer/onboarding.html', 'dist/renderer/onboarding.html');
 
 for (const t of targets) {
   const config = { ...t, bundle: true, sourcemap: true, target: 'node20', external: ['electron'] };

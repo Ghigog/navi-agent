@@ -10,13 +10,16 @@
  * `settings-window.ts`. Keep decisions out of here.
  */
 
-import { app, clipboard, globalShortcut, ipcMain, screen, type BrowserWindow } from 'electron';
+import { app, clipboard, globalShortcut, ipcMain, screen, shell, type BrowserWindow } from 'electron';
 import { unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createOverlay } from './overlay.js';
 import { createChatWindow, type ChatWindow } from './chat-window.js';
 import { createSettingsWindow, type SettingsWindow } from './settings-window.js';
+import { createOnboardingWindow, type OnboardingWindow } from './onboarding-window.js';
+import { ollamaModels, ollamaReachable, permissions, request } from './permissions.js';
+import { blockers, type OnboardingState, type PermissionKind } from '../shared/onboarding.js';
 import { attachClickThrough, type ClickThrough } from './click-through.js';
 import { createCursorSource, type CursorSource } from './cursor.js';
 import { createFollow, type Follow } from './follow.js';
@@ -36,6 +39,7 @@ import { view, type Settings } from '../shared/settings.js';
 let win: BrowserWindow | null = null;
 let chat: ChatWindow | null = null;
 let settings: SettingsWindow | null = null;
+let onboarding: OnboardingWindow | null = null;
 let clickThrough: ClickThrough | null = null;
 let cursor: CursorSource | null = null;
 let follow: Follow | null = null;
@@ -58,6 +62,7 @@ app.whenReady().then(() => {
   });
   chat = createChatWindow({ onVisibility: (open) => follow?.setPaused('chat', open) });
   settings = createSettingsWindow();
+  onboarding = createOnboardingWindow();
 
   // Tools reach the model as native schemas and the model picks; nothing here or anywhere else
   // inspects the user's text to choose one (NAV-83).
@@ -236,6 +241,42 @@ app.whenReady().then(() => {
     if (typeof message === 'string') chat?.send('chat:event', { type: 'error', message });
   });
 
+  /**
+   * First run (NAV-92).
+   *
+   * Everything the guide shows, in one call, so the checklist cannot render a provider state
+   * and a permission state read a second apart.
+   */
+  const onboardingState = async (): Promise<OnboardingState & { ollamaModels: string[] }> => {
+    const s = load();
+    const reachable = s.provider === 'ollama' ? await ollamaReachable(s.ollamaBaseUrl) : false;
+    return {
+      provider: { provider: s.provider, hasKey: s.openaiApiKey !== '', ollamaReachable: reachable },
+      permissions: permissions(),
+      wantsVoiceInput: s.voiceInput,
+      ollamaModels: reachable ? await ollamaModels(s.ollamaBaseUrl) : [],
+    };
+  };
+
+  ipcMain.handle('onboarding:status', onboardingState);
+  ipcMain.handle('onboarding:request', (_e, kind: unknown) => {
+    const kinds: PermissionKind[] = ['screen', 'accessibility', 'microphone'];
+    if (typeof kind !== 'string' || !kinds.includes(kind as PermissionKind)) return 'unknown';
+    return request(kind as PermissionKind);
+  });
+  ipcMain.handle('onboarding:open', (_e, url: unknown) => {
+    // Only the two links the guide offers. An IPC channel that opens any URL the renderer names
+    // is a channel that opens any URL anything reaching the renderer names.
+    const allowed = ['https://ollama.com/download', 'https://platform.openai.com/api-keys'];
+    if (typeof url === 'string' && allowed.includes(url)) void shell.openExternal(url);
+  });
+  ipcMain.on('onboarding:finish', () => {
+    save({ onboarded: true });
+    onboarding?.hide();
+    if (win) chat?.show(win);
+  });
+  ipcMain.on('onboarding:open', () => onboarding?.show());
+
   ipcMain.on('settings:open', () => settings?.show());
   ipcMain.on('settings:close', () => settings?.hide());
 
@@ -263,6 +304,26 @@ app.whenReady().then(() => {
   ipcMain.handle('clipboard:write', (_e, text: unknown) => {
     if (typeof text === 'string') clipboard.writeText(text);
   });
+
+  /**
+   * A new user gets the guide, once. Everyone else gets a fairy.
+   *
+   * Deferred to the overlay finishing its load so the guide opens over a Navi who is already on
+   * screen: the window is about her, and appearing before she does reads as a setup wizard for
+   * something you have not met.
+   */
+  if (!current.onboarded) {
+    win.webContents.once('did-finish-load', () => onboarding?.show());
+  } else {
+    // Not a nag — one line in the chat, on the first turn that needs something missing. A
+    // permission granted after first run is the common case, so this is checked at launch
+    // rather than trusted from the flag.
+    void onboardingState().then((state) => {
+      for (const problem of blockers(state)) {
+        chat?.send('chat:event', { type: 'error', message: problem.message });
+      }
+    });
+  }
 
   // The overlay is the app. It has no frame and cannot be closed by hand, but if it ever goes
   // away the hidden windows must not keep the process alive with nothing on screen.

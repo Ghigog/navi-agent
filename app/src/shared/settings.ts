@@ -66,6 +66,16 @@ export interface Settings {
   voiceSpeed: number;
   /** Whisper model, by filename in `bin`. */
   speechModel: string;
+
+  /**
+   * Whether first run has been completed (NAV-92).
+   *
+   * A flag rather than an inference from "is anything configured", because the two questions
+   * differ: a user who read the guide, chose the local path and has not started Ollama yet has
+   * finished onboarding and still has nothing configured. Inferring would put the window back
+   * in their face every launch until they complied.
+   */
+  onboarded: boolean;
 }
 
 export const DEFAULTS: Settings = {
@@ -86,6 +96,7 @@ export const DEFAULTS: Settings = {
   voiceName: 'en_US-amy-medium',
   voiceSpeed: 1,
   speechModel: 'ggml-base.en.bin',
+  onboarded: false,
 };
 
 export const PROVIDERS: readonly Settings['provider'][] = ['ollama', 'openai'];

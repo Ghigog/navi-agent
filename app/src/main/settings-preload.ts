@@ -20,5 +20,7 @@ contextBridge.exposeInMainWorld('naviSettings', {
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */
   copy: (text: string) => ipcRenderer.invoke('clipboard:write', text),
+  /** Reopens the first-run guide. The local-path instructions have to stay findable (NAV-92). */
+  openOnboarding: () => ipcRenderer.send('onboarding:open'),
   close: () => ipcRenderer.send('settings:close'),
 });
