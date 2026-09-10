@@ -177,7 +177,19 @@ nearly finished" into the fact that the windows all work.
    still fetches them.
 3. **NAV-92** onboarding — parallel, mostly product and copy. The settings window is most of its
    second half already.
-4. **NAV-89** prebuilt native helper.
+4. **NAV-97** companion-first identity — *parallel*, and mostly finished without anyone
+   closing it: the honesty-outranks-mood rule is in the identity layer with tests on it. What is
+   left is `mission_statement.md` and telling the **user** she has moods, which is a paragraph
+   inside NAV-92's onboarding copy rather than a pass of its own.
+5. **NAV-105 — retire the Godot app.** New. There was no ticket for the migration finishing,
+   which is how a port stays half-done for a year. The moment 1-4 give parity, delete the root
+   project; until then every ticket after it has to be asked "on which app?".
+
+After that, `backlog.md` → Implementation Order sections 3 and 4. The short version: companion
+depth (memory, notes, the approval loop) comes **before** computer use, because nothing in the
+owner's description needs Navi to click anything and NAV-90/91 are the largest and riskiest
+block in the backlog. NAV-89 folds into NAV-90 rather than standing alone — the Swift hotkey
+daemon it was written about died when the port moved to `globalShortcut`.
 
 ### Still owed on macOS, by a human
 
