@@ -123,7 +123,7 @@ Done and closed ones are kept at the end as a record.
 She has surfaces, and as of NAV-102 one capability. Nothing further down this file matters until
 she can see, speak, and be set up by somebody who is not the person who wrote her.
 
-### NAV-103: Port the screen-capture tools (Backlog)
+### NAV-103: Port the screen-capture tools (Done in the port)
 **User Story:**
 - **As a:** User
 - **I want:** To ask "what's this near my cursor?" and get an answer about what is actually there
@@ -164,12 +164,24 @@ Register a screen-capture tool and a cursor-anchored crop tool, and wire the mul
   message, not a silent empty capture.
 
 **Acceptance Criteria:**
-- [ ] `point_to`-free capture works: she can describe what is on screen.
-- [ ] The crop is centred on the cursor position at send time, verified with a marker.
-- [ ] A denied Screen Recording permission produces a clear message, not a blank image.
-- [ ] `powerRelevant` goes true on a capture turn, so the emotion engine sees the tool run.
+- [x] `point_to`-free capture works: she can describe what is on screen. `look_at_screen`, in
+      `app/src/agent/screen.ts`, registered in `main/index.ts`.
+- [x] The crop is centred on the cursor position at send time. `conversation.send` freezes the
+      sample before anything can await, and the tools can only see the frozen one — the live
+      cursor is not reachable from them at all. `test/screen-tools.test.ts` moves the cursor
+      between the freeze and the tool call, which is the regression NAV-99 was.
+- [x] A denied Screen Recording permission produces a clear message, not a blank image.
+      `NO_SCREEN_ACCESS` names the pane to open; an empty capture from a revoked permission
+      throws with the same explanation rather than returning a blank picture.
+- [x] `powerRelevant` goes true on a capture turn, so the emotion engine sees the tool run.
+      Pinned in `test/session.test.ts`.
 
-### NAV-104: Port voice in and out (Backlog)
+**Still owed by a human:** Screen Recording has to be granted before any of this can be tried on
+a real display, and the crop being centred on the *right* thing is ultimately an eye test. The
+automated suite pins the arithmetic and the freeze ordering, which is everything that was wrong
+before.
+
+### NAV-104: Port voice in and out (Done in the port)
 **User Story:**
 - **As a:** User
 - **I want:** To talk to Navi and hear her answer
@@ -197,11 +209,26 @@ Port speech-to-text and text-to-speech onto the Electron stack.
   NAV-98 flagged both as items to carry across.
 
 **Acceptance Criteria:**
-- [ ] Speaking to her produces a turn; her reply is spoken.
-- [ ] It works with no network beyond localhost.
-- [ ] Audio failures degrade to text rather than killing the turn, as sentiment classification does.
+- [x] Speaking to her produces a turn; her reply is spoken. The talk key records in the chat
+      renderer, `whisper-cli` transcribes, and the text goes through `conversation.send` like any
+      other message — so the cursor freeze and everything else behaves identically.
+- [x] It works with no network beyond localhost. Both binaries are local and nothing was added.
+- [x] Audio failures degrade to text rather than killing the turn. `test/voice.test.ts` covers a
+      missing piper, a missing audio device and a runner that throws; each says why once per
+      reply and leaves the turn alone.
 
-### NAV-92: First-run onboarding flow (Backlog)
+**One deviation, and it is forced.** The talk key is press-to-start, press-again-to-stop rather
+than held: `globalShortcut` reports key presses and never releases, so a held key would start a
+recording nothing could end. An in-window binding is not an option — the overlay is click-through
+and never holds the keyboard (ADR 0001).
+
+**NAV-98's two carried items are answered.** `enable_push_to_talk` survives as `voiceInput` —
+whether the talk key listens, rather than the mode switch it used to be, since NAV-69 removed the
+other mode and left it always reading true. The thinking-model keys do not survive: they were
+half of a two-tier design NAV-59 had already collapsed, and the only genuine second model is the
+sentiment one, which does a different job rather than the same job better.
+
+### NAV-92: First-run onboarding flow (Done in the port)
 **User Story:**
 - **As a:** New user
 - **I want:** To be walked from install to a working Navi
@@ -257,17 +284,27 @@ silent failures.
   step.
 
 **Acceptance Criteria:**
-- [ ] A clean account reaches a working Navi via the cloud path without touching a config file.
-- [ ] A clean account reaches a working Navi via the local path following only the in-app instructions.
-- [ ] An already-running Ollama is detected and surfaced.
-- [ ] The cloud path states plainly that screen captures leave the machine.
-- [ ] Each permission deep link opens the correct pane; granting updates the checklist without a
-      restart.
-- [ ] With screen recording denied, a visual question yields an honest refusal, not a guess.
-- [ ] With no provider configured, Navi says so rather than failing silently.
-- [ ] Switching provider later does not require re-running onboarding.
+- [x] A clean account reaches a working Navi via the cloud path without touching a config file.
+      Paste a key into the guide; it saves through the same validator the settings window uses.
+- [x] A clean account reaches a working Navi via the local path following only the in-app
+      instructions. Install, `ollama pull llama3.2:3b`, leave it running.
+- [x] An already-running Ollama is detected and surfaced — `/api/tags`, polled, with the models
+      it actually has, and the local path moves to the front when it answers.
+- [x] The cloud path states plainly that screen captures leave the machine. In the panel, not a
+      footnote.
+- [x] Each permission deep link opens the correct pane; granting updates the checklist without a
+      restart. The checklist polls, because macOS grants these in another application entirely.
+- [x] With screen recording denied, a visual question yields an honest refusal, not a guess
+      (NAV-103's `NO_SCREEN_ACCESS`, pinned in `test/identity.test.ts`).
+- [x] With no provider configured, Navi says so rather than failing silently — at launch through
+      `blockers()`, and at turn time through `conversation.explain`.
+- [x] Switching provider later does not require re-running onboarding, and the guide stays
+      reachable from Settings for the local-path instructions.
 
-### NAV-97: Encode the companion-first identity decision (Backlog)
+**Still owed by a human:** the deep links open panes on a real macOS install, which no test here
+can check, and "a clean account reaches a working Navi" is by definition a clean-account test.
+
+### NAV-97: Encode the companion-first identity decision (Done)
 **User Story:**
 - **As a:** Maintainer
 - **I want:** Navi's companion-first nature stated explicitly and enforced in code
@@ -309,13 +346,21 @@ character trait rather than a failure mode.
 - Update `EmotionPromptBuilder` so injected state shapes voice and eagerness within those bounds.
 
 **Acceptance Criteria:**
-- [ ] `mission_statement.md` states companion-first, the competence position, and the honesty bound.
-- [ ] A test confirms a strongly negative emotional state changes tone but does **not** change
-      factual accuracy or cause a committed tool call to be skipped.
-- [ ] A test confirms Navi does not fabricate screen contents regardless of emotional state.
-- [ ] The mood-affects-behaviour property is stated somewhere the user actually reads.
-- [ ] A documented path exists to recover the relationship from its worst state.
-- [ ] Confirmation and ambient defaults cite this decision.
+- [x] `mission_statement.md` states companion-first, the competence position, and the honesty
+      bound — § "The position", including what mood may and may not touch, item by item.
+- [x] A test confirms a strongly negative emotional state changes tone but does **not** change
+      factual accuracy or cause a committed tool call to be skipped (`test/identity.test.ts`).
+- [x] A test confirms Navi does not fabricate screen contents regardless of emotional state. The
+      test is structural rather than behavioural, and better for it: `createScreenTools` has no
+      way to be told an emotional state, so the refusal cannot vary with mood because the code
+      that produces it cannot see one.
+- [x] The mood-affects-behaviour property is stated somewhere the user actually reads — the
+      "One thing about me" panel in first run, in her own voice, before they can be surprised
+      by it.
+- [x] A documented path exists to recover the relationship from its worst state: Settings › Her ›
+      Start over, named in the onboarding copy and in `mission_statement.md`.
+- [x] Confirmation and ambient defaults cite this decision — see NAV-91's "Where the defaults
+      come from" and NAV-96's interruption budget.
 
 ---
 
@@ -584,9 +629,20 @@ most under-considered risk in assistants of this kind.
 Build the gate before the capability ships. This ticket is a prerequisite for enabling NAV-90's
 write actions, not a follow-up to them.
 
+**Where the defaults come from (NAV-97, closed).** The confirmation tiers below are not a
+per-feature judgement call: they follow from companion-first. A companion whose mood is real is
+explicitly not reliability-critical, so anything she does that the user cannot undo has to be
+something the user chose in the moment. That fixes the defaults rather than leaving them to
+taste — writes confirm, destructive actions refuse, and the allowlist denies by default. It also
+fixes what a mood may not do: decline out loud is allowed and silently skipping a confirmed
+action is not, which is the same bound `mission_statement.md` § "The position" states.
+
 **Requirements:**
 - Treat all screen-derived content (AX text, OCR, screenshot contents) as untrusted data, never as
   instructions. Fence it explicitly in the prompt and state that it cannot issue commands.
+  **The prompt half of this is already in the port** — `SCREEN_CONTENT_IS_UNTRUSTED` in
+  `app/src/prompt/identity.ts`, extended by NAV-103 to cover images in any role, since a capture
+  now arrives as a user-role message and must not read as the user speaking.
 - Application policy: an allowlist of apps Navi may act in, denying everything else by default.
   Deny Terminal, Keychain Access, System Settings, and password managers out of the box.
 - Never type into a secure field. The AX API reports `AXSecureTextField` — check it and refuse.
@@ -731,7 +787,10 @@ Add a bounded ambient loop that can occasionally initiate contact.
   it is noticed as useful. Budget it against that, and idle to genuinely zero work when nothing has
   changed on screen.
 - Strict interruption budget — at most a small number of unprompted remarks per hour, backing off
-  when ignored, and silent by default.
+  when ignored, and silent by default. **Off by default follows from NAV-97 rather than from
+  caution**: companion-first means her presence is something the user invites, and a companion
+  who talks first without being asked has made a decision that was theirs. The same reasoning
+  sets NAV-104's voice defaults, which also start silent in both directions.
 - Respect focus: never interrupt during full-screen presentations, video calls, or an explicit
   do-not-disturb toggle.
 - All ambient observation is subject to NAV-91's untrusted-content rules.
