@@ -2,6 +2,10 @@
 node_modules/
 dist/
 
+# Swift package build artifacts (NAV-90). `bin/navi-helper` is the committed, built binary —
+# same convention as bin/piper and bin/whisper-cli — this is only the intermediate build state.
+helper/.build/
+
 # Local scratch and test outputs
 scratch/
 *.wav

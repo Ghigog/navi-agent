@@ -39,7 +39,32 @@ export function permissions(): Permissions {
     accessibility: accessibilityStatus(),
     screen: mediaAccess('screen'),
     microphone: mediaAccess('microphone'),
+    // Filled in separately by `helperAccessibilityStatus` — a synchronous OS call cannot answer
+    // this one, since only the helper process itself can ask macOS whether *it* is trusted.
+    helperAccessibility: 'unknown',
   };
+}
+
+/**
+ * `navi-helper`'s own accessibility trust (NAV-90).
+ *
+ * Unlike every other permission in this file, this one cannot be read with a synchronous OS
+ * call — `AXIsProcessTrusted` answers for the calling process, and the calling process here is
+ * the helper, not Navi. `query` is `HelperHandle.status`, passed in rather than imported so this
+ * file stays free of `main/helper.ts`'s child-process machinery; `undefined` (the helper never
+ * started, e.g. because the binary is not built) and a rejected call are both reported the same
+ * way onboarding reports anything else it cannot determine yet: `'unknown'`, not `'denied'` — see
+ * the note on `PermissionState` for why that distinction matters.
+ */
+export async function helperAccessibilityStatus(query?: () => Promise<{ trusted: boolean }>): Promise<PermissionState> {
+  if (!GATED) return 'not-required';
+  if (!query) return 'unknown';
+  try {
+    const { trusted } = await query();
+    return trusted ? 'granted' : 'denied';
+  } catch {
+    return 'unknown';
+  }
 }
 
 /**
@@ -62,6 +87,15 @@ export async function request(kind: PermissionKind): Promise<PermissionState> {
     // The one call that legitimately shows the dialog: the user has just clicked the row.
     systemPreferences.isTrustedAccessibilityClient(true);
     return accessibilityStatus();
+  }
+
+  if (kind === 'helperAccessibility') {
+    // Nothing in this process can raise the dialog or answer for a different executable — only
+    // the helper can ask macOS whether *it* is trusted, and there is no prompt-only API for that
+    // the way plain Accessibility has one. Open the pane and say `'unknown'` rather than guess;
+    // the checklist re-reads the real status from `helperAccessibilityStatus` afterward.
+    openPane(kind);
+    return 'unknown';
   }
 
   openPane(kind);

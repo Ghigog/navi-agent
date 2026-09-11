@@ -40,6 +40,11 @@ Settings panes. Reopen it any time from Settings.
 For voice, `./setup_models.sh` fetches the whisper and piper models into `bin/`, and
 `./install_piper.sh` installs piper itself. Both halves of voice are off until you turn them on.
 
+For computer use (NAV-90), `./build_helper.sh` compiles the native accessibility helper and
+drops it at `bin/navi-helper`. It also needs Accessibility granted to it in System Settings ›
+Privacy & Security › Accessibility, as its own row separate from Navi's own grant — there is no
+API to do that from code, and the checklist tells you when it is missing.
+
 CI runs the four commands above on every push and pull request
 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml), NAV-82). It skips the Electron binary
 download, because nothing but `npm start` needs it — keep it that way: a suite that needs a
@@ -62,13 +67,13 @@ the code.
 
 ```
 src/prompt/     the system prompt. All prompt text lives here and nowhere else (NAV-85).
-src/agent/      provider seam, tool registry, the screen tools, the guidance tool, the memory and
-                note tools, the agent loop, turn assembly, and the two cheap side-calls
-                (appraisal, summary).
+src/agent/      provider seam, tool registry, the screen tools, the UI tools (NAV-90), the
+                guidance tool, the memory and note tools, the agent loop, turn assembly, and the
+                two cheap side-calls (appraisal, summary).
 src/main/       Electron main process: the four windows, the cursor poll that drives
-                click-through and following, capture, voice, the three stores, the reminder
-                timer, the guidance controller, the safety gate, settings, hotkeys, and
-                conversation.ts — the thing that finally calls takeTurn.
+                click-through and following, capture, voice, the native helper client (NAV-90),
+                the three stores, the reminder timer, the guidance controller, the safety gate,
+                settings, hotkeys, and conversation.ts — the thing that finally calls takeTurn.
 src/renderer/   the fairy canvas and its frame pacing, the chat surface, settings, first run,
                 and the microphone.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it
@@ -76,7 +81,10 @@ src/shared/     pure code used by both sides. No Electron imports — that is wh
                 redaction, onboarding readiness, the crop arithmetic, the motion maths, the
                 sentence splitter, the memory budgets, note search, time resolution and the
                 safety policy live here too.
-bin/            the local voice binaries. Models are fetched by setup_models.sh, not tracked.
+bin/            the local voice binaries, and navi-helper (NAV-90). Models are fetched by
+                setup_models.sh and not tracked; the binaries themselves are.
+helper/         navi-helper's own Swift package — window listing, the accessibility tree,
+                input synthesis, and its own XCTest suite. build_helper.sh compiles it into bin/.
 ```
 
 ## Things that are decided, and will look wrong if you don't know why

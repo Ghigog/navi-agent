@@ -46,7 +46,7 @@ const ready = $('ready');
 /** How often the checklist re-reads the world. Fast enough to feel live, slow enough to be free. */
 const POLL_MS = 1500;
 
-const ORDER: PermissionKind[] = ['screen', 'accessibility', 'microphone'];
+const ORDER: PermissionKind[] = ['screen', 'accessibility', 'helperAccessibility', 'microphone'];
 
 function renderPermissions(state: OnboardingState): void {
   // Rebuilt each poll rather than diffed: three rows, and the alternative is a cache that can
