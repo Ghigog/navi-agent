@@ -80,10 +80,13 @@ to click them, and pointing is NAV-103.
 | 12 | **NAV-89** Prebuilt signed helper | Folds into 11, and needs an Apple developer account nobody but the owner has. |
 | 13 | **NAV-96** Ambient presence | Last by its own dependency: ambient observation widens the prompt-injection surface NAV-91 closes, and on local models its real cost is battery and fan noise rather than tokens. |
 
-**NAV-106** sits outside that order and can be worked at any time. It is a *found* ticket — a
-feature that shipped in Godot across five tickets and that the port's plan never mentioned,
-because the only tickets referring to it were closed as superseded by the migration. Nothing
-depends on it and it depends on nothing beyond `flyTo`, which exists.
+**NAV-106** sat outside that order and could be worked at any time — a *found* ticket, a feature
+that shipped in Godot across five tickets and that the port's plan never mentioned, because the
+only tickets referring to it were closed as superseded by the migration. **Done.** `guide_through`
+takes a structured tool call, not a parsed stream (NAV-84 stands); `main/guidance.ts` is `flyTo`'s
+caller, sequencing on `follow.setPaused` under its own pause reason; the user drives it by keypress
+or click, with a generous backstop timeout rather than the Godot auto-advance; Escape ends it
+through the same path a cancelled reply already used.
 
 ### Dependency summary
 
@@ -103,9 +106,9 @@ it is how "what's this near my cursor?" stays broken for another six months.
 ### Not sequenced
 
 - **NAV-106** — step-by-step guidance. Found by audit rather than planned; see its own note in
-  section 4. Not sequenced because nothing depends on it.
+  section 4. Not sequenced because nothing depended on it. **Done.**
 - **NAV-87**, **NAV-88** — closed, superseded by the migration. Never implemented. Closing them
-  also, silently, dropped the guidance work they referred to; NAV-106 picks it back up.
+  also, silently, dropped the guidance work they referred to; NAV-106 picked it back up.
 - **NAV-98** — closed. Every line it names is in code the port does not carry; its two live items
   moved into NAV-104.
 
@@ -850,7 +853,7 @@ a capture arrives as a *user*-role message, because the chat schema has no place
 a tool message, so it is labelled as a picture and the identity rule now covers images in any
 role. The user role is the trusted one; a screenshot is not.
 
-### NAV-106: Port step-by-step guidance (Backlog)
+### NAV-106: Port step-by-step guidance (Done)
 **User Story:**
 - **As a:** User
 - **I want:** To ask Navi to walk me through something and have her point at each step in turn
@@ -895,15 +898,25 @@ A `guide_through` tool that takes an ordered list of steps and acts them out.
   here touches the user's machine, so it does not pass NAV-91's confirmation gate.
 - Bound the sequence length. A model that has decided to produce steps will produce forty.
 
+**Implementation note:** `prompt/types.ts`'s `ToolSchema` only has flat, single-valued
+parameters — no array or nested-object type, unlike the other tools' `string`/`number` args. Rather
+than widen that type (and `capabilitiesBody`, which renders it into the prompt) for one tool,
+`guide_through`'s single `steps` parameter is a JSON-encoded string the tool parses and validates
+itself, rejecting anything that is not exactly an array of `{text, x, y}`. It is still one tool
+call carrying the whole sequence, and no step is ever read out of the reply stream — the part
+NAV-84 actually cares about — but it is worth knowing this is a string-encoded array and not a
+schema-level one, in case a future tool wants the same shape and makes it worth widening the type
+for real.
+
 **Acceptance Criteria:**
-- [ ] "Walk me through changing my password" produces a sequence she acts out, one step at a time.
-- [ ] The user advances each step; nothing advances on its own inside the backstop timeout.
-- [ ] Escape ends it mid-sequence and following is restored.
-- [ ] With voice on, each step is spoken as it is reached, and abandoning the run stops her
+- [x] "Walk me through changing my password" produces a sequence she acts out, one step at a time.
+- [x] The user advances each step; nothing advances on its own inside the backstop timeout.
+- [x] Escape ends it mid-sequence and following is restored.
+- [x] With voice on, each step is spoken as it is reached, and abandoning the run stops her
       mid-sentence.
-- [ ] A sequence longer than the cap is truncated and she says so rather than silently dropping
+- [x] A sequence longer than the cap is truncated and she says so rather than silently dropping
       the tail.
-- [ ] No step text is ever parsed out of the reply stream (NAV-84).
+- [x] No step text is ever parsed out of the reply stream (NAV-84).
 
 ---
 

@@ -28,6 +28,7 @@ declare global {
       onTranscript(fn: (text: string) => void): void;
       audio(wav: Uint8Array | null): void;
       voiceError(message: string): void;
+      advanceGuide(): void;
     };
   }
 }
@@ -43,6 +44,10 @@ const dot = document.getElementById('dot') as HTMLDivElement;
 let busy = false;
 /** The bubble currently being streamed into, if any. */
 let reply: HTMLDivElement | null = null;
+/** True while a walk-through (NAV-106) is showing a step, so a keypress knows what it means. */
+let guiding = false;
+/** The current step's bubble, updated in place rather than appended anew each time. */
+let guideBar: HTMLDivElement | null = null;
 
 function atBottom(): boolean {
   return transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 40;
@@ -139,6 +144,40 @@ function askToAct(event: Extract<ChatEvent, { type: 'confirm' }>): void {
   card.append(what, why, row);
 }
 
+/**
+ * The step bar for a walk-through (NAV-106).
+ *
+ * One element, updated in place across steps, rather than a new bubble per step: a transcript
+ * that grew a line per step would read as a log of the walk-through rather than a place showing
+ * her current one.
+ */
+function showGuideStep(event: Extract<ChatEvent, { type: 'guide' }>): void {
+  guiding = true;
+  if (guideBar === null) {
+    guideBar = bubble('note', '');
+    guideBar.classList.add('guide');
+
+    const label = document.createElement('div');
+    label.className = 'what';
+
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.textContent = 'Next →';
+    next.title = 'Move to the next step. Enter or Space does the same.';
+    next.addEventListener('click', () => window.naviChat?.advanceGuide());
+
+    guideBar.append(label, next);
+  }
+  (guideBar.querySelector('.what') as HTMLDivElement).textContent =
+    `Step ${event.index + 1}/${event.total}: ${event.text}`;
+}
+
+function endGuideStep(): void {
+  guiding = false;
+  guideBar?.remove();
+  guideBar = null;
+}
+
 function setBusy(next: boolean): void {
   busy = next;
   input.disabled = next;
@@ -189,6 +228,15 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     window.naviChat?.openSettings();
   }
+});
+
+// Advancing a walk-through (NAV-106): a keypress or a click, per its ticket. The click is the
+// "Next →" button; this is the keypress half, gated on `guiding` so Enter and Space keep their
+// ordinary meaning — sending a message, typing a space — the rest of the time.
+document.addEventListener('keydown', (e) => {
+  if (!guiding || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  window.naviChat?.advanceGuide();
 });
 
 window.naviChat?.onFocus(() => input.focus());
@@ -262,6 +310,14 @@ window.naviChat?.onEvent((event) => {
       // knows how to stop.
       status.textContent = event.on ? 'listening…' : '';
       dot.classList.toggle('listening', event.on);
+      break;
+
+    case 'guide':
+      showGuideStep(event);
+      break;
+
+    case 'guideEnd':
+      endGuideStep();
       break;
   }
 });

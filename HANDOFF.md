@@ -94,12 +94,12 @@ something that looks like a mistake and is not.
 **She is finished, and nobody has watched her work.**
 
 Everything in the backlog is done except computer use. She follows the cursor; she can see the
-screen and the area around the cursor and point at what she saw; she speaks a sentence at a time
-and listens on a key; a stranger can get from install to a working Navi through a guided first
-run; she remembers you between sessions inside a fixed budget; she takes notes and fires
-reminders that survive a restart; she can tell when she did not understand you; and you can tell
-her she did well, which raises a stat and teaches her what you liked. 446 tests, all offline,
-typecheck clean, builds.
+screen and the area around the cursor and point at what she saw, or walk you through a sequence
+of points one step at a time; she speaks a sentence at a time and listens on a key; a stranger can
+get from install to a working Navi through a guided first run; she remembers you between sessions
+inside a fixed budget; she takes notes and fires reminders that survive a restart; she can tell
+when she did not understand you; and you can tell her she did well, which raises a stat and
+teaches her what you liked. 476 tests, all offline, typecheck clean, builds.
 
 **None of it has been seen working on a real Mac.** The suite runs at dpr 1 with no compositor,
 no transparency, no Spaces, no Screen Recording permission, no microphone and no audio device —
@@ -110,16 +110,16 @@ longer than it was, and every item on it is a thing no headless environment can 
 
 ### Step 3 — what to build next
 
-Two tickets. One needs a machine this environment does not have; the other was found by audit
-rather than planned.
+One ticket, and it needs a machine this environment does not have.
 
-**NAV-106 — step-by-step guidance.** Nothing depends on it and it depends on nothing beyond
-`flyTo`, which exists. It is here because a feature that shipped in Godot across five tickets
-(NAV-11, NAV-35, NAV-39, NAV-40, NAV-43) was never given a port ticket: the only tickets
-referring to it were NAV-87 and NAV-88, and closing those as superseded took the guidance work
-with them silently. **Worth reading as a warning about this backlog** — "closed as superseded"
-is not the same as "nothing in it mattered", and this was found by diffing deleted GDScript
-against the port rather than by anything written down.
+**NAV-106 — step-by-step guidance — is done.** It was a feature that shipped in Godot across five
+tickets (NAV-11, NAV-35, NAV-39, NAV-40, NAV-43) and never got a port ticket of its own: the only
+tickets referring to it were NAV-87 and NAV-88, and closing those as superseded took the guidance
+work with them silently. **Worth reading as a warning about this backlog** — "closed as
+superseded" is not the same as "nothing in it mattered", and this was found by diffing deleted
+GDScript against the port rather than by anything written down. `guide_through`
+(`src/agent/guidance.ts`) takes one structured tool call and `main/guidance.ts` is `flyTo`'s
+caller — see its ticket in `backlog.md` for what changed from the Godot version and why.
 
 **NAV-90 — the native accessibility helper.** Swift, a Mac, and Accessibility granted. It is the
 only thing standing between Navi and the "agent second" half of what she is, and two other

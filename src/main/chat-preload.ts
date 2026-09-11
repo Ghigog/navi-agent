@@ -37,4 +37,7 @@ contextBridge.exposeInMainWorld('naviChat', {
   /** What she heard. Rendered as the user's own message, because that is what it is. */
   onTranscript: (fn: (text: string) => void) =>
     ipcRenderer.on('voice:transcript', (_e, text: string) => fn(text)),
+
+  /** The user is done looking at this step (NAV-106): a click on the step bar, or Enter/Space. */
+  advanceGuide: () => ipcRenderer.send('guidance:advance'),
 });
