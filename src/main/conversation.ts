@@ -74,7 +74,15 @@ export type ChatEvent =
    * Emitted by the gate rather than by a turn, and answered by id, because the card can outlive
    * the turn that raised it and two of them can be up at once.
    */
-  | { type: 'confirm'; id: number; action: string; app: string; detail: string; reason: string };
+  | { type: 'confirm'; id: number; action: string; app: string; detail: string; reason: string }
+  /**
+   * A step-by-step walk-through (NAV-106) has reached a step. Emitted by `main/guidance.ts`
+   * rather than by a turn, because the tool call awaits the whole run — the chat window has to
+   * hear about each step as it happens, not only when `guide_through` finally returns.
+   */
+  | { type: 'guide'; index: number; total: number; text: string }
+  /** The walk-through ended: finished, aborted, or the sequence ran out. */
+  | { type: 'guideEnd' };
 
 /** The slice of `main/emotion-store.ts` this needs. Narrowed so tests can stand it up in place. */
 export interface EmotionStore {

@@ -62,12 +62,13 @@ the code.
 
 ```
 src/prompt/     the system prompt. All prompt text lives here and nowhere else (NAV-85).
-src/agent/      provider seam, tool registry, the screen tools, the memory and note tools, the
-                agent loop, turn assembly, and the two cheap side-calls (appraisal, summary).
+src/agent/      provider seam, tool registry, the screen tools, the guidance tool, the memory and
+                note tools, the agent loop, turn assembly, and the two cheap side-calls
+                (appraisal, summary).
 src/main/       Electron main process: the four windows, the cursor poll that drives
                 click-through and following, capture, voice, the three stores, the reminder
-                timer, the safety gate, settings, hotkeys, and conversation.ts — the thing that
-                finally calls takeTurn.
+                timer, the guidance controller, the safety gate, settings, hotkeys, and
+                conversation.ts — the thing that finally calls takeTurn.
 src/renderer/   the fairy canvas and its frame pacing, the chat surface, settings, first run,
                 and the microphone.
 src/shared/     pure code used by both sides. No Electron imports — that is what keeps it
@@ -275,9 +276,9 @@ the window when there is nothing to stop.
 The header carries her current emotion and relationship, tinted with the same colour she is,
 and says whether what you type stays on this machine.
 
-She has eight tools and the model picks between them: `look_at_screen`, `look_near_cursor`,
-`point_to`, `remember`, `note_preference`, `save_note`, `set_reminder` and `list_notes`. Nothing
-inspects what you typed to choose one.
+She has nine tools and the model picks between them: `look_at_screen`, `look_near_cursor`,
+`point_to`, `guide_through`, `remember`, `note_preference`, `save_note`, `set_reminder` and
+`list_notes`. Nothing inspects what you typed to choose one.
 
 A 👍 or 👎 on any reply tells her plainly how it went. It raises or lowers her confidence — the
 fourth stat, shown in the chat header beside her mood — and records *what* she did that you

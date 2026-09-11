@@ -23,6 +23,7 @@ import { blockers, type OnboardingState, type PermissionKind } from '../shared/o
 import { attachClickThrough, type ClickThrough } from './click-through.js';
 import { createCursorSource, type CursorSource } from './cursor.js';
 import { createFollow, type Follow } from './follow.js';
+import { createGuidance, type Guidance } from './guidance.js';
 import { createConversation, type Conversation } from './conversation.js';
 import { load, save } from './settings-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
@@ -37,6 +38,7 @@ import { forget, markUsed, prefer, recall, recordEpisode, remember } from '../sh
 import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
 import { createScreenTools } from '../agent/screen.js';
+import { createGuidanceTool } from '../agent/guidance.js';
 import { createScreenPort } from './screen.js';
 import { dismissCursorMarker, showCursorMarker } from './marker.js';
 import { createSpeaker, createTranscriber, type Speaker } from './voice.js';
@@ -53,6 +55,7 @@ let onboarding: OnboardingWindow | null = null;
 let clickThrough: ClickThrough | null = null;
 let cursor: CursorSource | null = null;
 let follow: Follow | null = null;
+let guidance: Guidance | null = null;
 let speaker: Speaker | null = null;
 // Declared out here because the chat window's close handler ends the session, and the window is
 // built before the conversation that owns one.
@@ -95,14 +98,41 @@ app.whenReady().then(() => {
   // Tools reach the model as native schemas and the model picks; nothing here or anywhere else
   // inspects the user's text to choose one (NAV-83).
   const registry = new ToolRegistry();
+  const screenPort = createScreenPort();
   const screenTools = createScreenTools({
-    screen: createScreenPort(),
+    screen: screenPort,
     cursor: () => cursor?.current() ?? screen.getCursorScreenPoint(),
     // Never rejects — a pointing gesture that goes wrong costs the gesture, not the turn.
     point: async (target) => follow?.flyTo(target),
     markAnchor: showCursorMarker,
   });
   for (const tool of screenTools.tools) registry.register(tool);
+
+  /**
+   * Step-by-step guidance (NAV-106). `guidance` is the sequencing controller built on `follow`;
+   * `guide_through` is the tool that validates and bounds what a model sends it. `speak` and
+   * `stopSpeaking` close over `speaker`, which does not exist yet at this point in startup —
+   * safe, because neither is called until a walk-through actually runs, well after it does.
+   */
+  guidance = createGuidance({
+    follow,
+    speak: (text) => {
+      if (load().voiceOutput) {
+        speaker?.push(`${text} `);
+        void speaker?.finish();
+      }
+    },
+    stopSpeaking: () => speaker?.stop(),
+    onStep: (step) => chat?.send('chat:event', { type: 'guide', ...step }),
+    onEnd: () => chat?.send('chat:event', { type: 'guideEnd' }),
+  });
+  registry.register(
+    createGuidanceTool({
+      displayAt: (p) => screenPort.displayAt(p),
+      cursor: () => cursor?.current() ?? screen.getCursorScreenPoint(),
+      guide: (steps) => guidance?.run(steps) ?? Promise.resolve({ shown: 0 }),
+    }),
+  );
 
   /**
    * Memory (NAV-93). Every write goes through the store so it reaches disk immediately: she
@@ -305,6 +335,7 @@ app.whenReady().then(() => {
       // Everything in flight, not only the acting: a turn she is mid-way through is part of
       // what the user just told her to stop.
       conversation?.cancel();
+      guidance?.abort();
       speaker?.stop();
       for (const [id, resolve] of pendingConfirmations) {
         pendingConfirmations.delete(id);
@@ -349,7 +380,13 @@ app.whenReady().then(() => {
     // The renderer is ours, but the boundary is still a boundary.
     if (typeof text === 'string') void conversation?.send(text);
   });
-  ipcMain.on('chat:cancel', () => conversation?.cancel());
+  ipcMain.on('chat:cancel', () => {
+    conversation?.cancel();
+    // Escape is "get out of what is happening now" (chat.ts), and a walk-through in progress is
+    // exactly that — the tool call it runs inside is still the thing `cancel` means to stop.
+    guidance?.abort();
+  });
+  ipcMain.on('guidance:advance', () => guidance?.advance());
   /**
    * The approval loop (NAV-101). Explicit, because being told beats being guessed at: the
    * sentiment classifier can notice praise, and noticing is not the same as being told.
@@ -577,6 +614,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   reminders?.stop();
+  guidance?.abort();
   speaker?.stop();
   clickThrough?.stop();
   follow?.stop();

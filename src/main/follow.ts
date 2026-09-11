@@ -11,9 +11,8 @@
  *
  * Ported from the Godot build's `FollowController.gd`, now deleted (NAV-105). That version also
  * carried `navigate_sequence` and the arrow drawing; the arrow arrived with NAV-103's `point_to`,
- * as `onFlight` below. A sequence of points is NAV-106, which is a *found* ticket — the guidance
- * feature it belongs to shipped in Godot across five tickets and the port's plan never mentioned
- * it, because the only tickets referring to it were closed as superseded by the migration.
+ * as `onFlight` below. A sequence of points is NAV-106's `main/guidance.ts`, built on `flyTo` and
+ * `setPaused` rather than as a second motion path.
  */
 
 import type { Point } from '../shared/geometry.js';
@@ -31,8 +30,12 @@ export interface FollowWindow {
  * Why she is standing still. A set rather than a boolean because the reasons overlap — the
  * chat window can be open while something else has also asked her to hold — and a boolean
  * would have whichever ended last decide for both.
+ *
+ * `'guidance'` is NAV-106's, kept separate from `'chat'` because the two end independently: a
+ * guided walk-through can run with the chat window open the whole time, and closing the chat
+ * window must not resume following out from under a walk-through still in progress.
  */
-export type PauseReason = 'chat';
+export type PauseReason = 'chat' | 'guidance';
 
 /** How long she holds a flight target before following again, when a caller does not say. */
 export const DEFAULT_HOLD_MS = 1500;

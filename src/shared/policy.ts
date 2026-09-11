@@ -65,7 +65,15 @@ export const DENIED_APPS: readonly string[] = [
 ];
 
 /** Reads. Nothing here changes anything on the user's machine. */
-export const READ_ACTIONS: readonly string[] = ['look_at_screen', 'look_near_cursor', 'observe_ui', 'point_to'];
+export const READ_ACTIONS: readonly string[] = [
+  'look_at_screen',
+  'look_near_cursor',
+  'observe_ui',
+  'point_to',
+  // NAV-106: she moves her own window and points, one step at a time. Nothing here touches the
+  // user's machine, so it is a read like `point_to` rather than something NAV-91 confirms.
+  'guide_through',
+];
 
 /** Writes. Everything that reaches out of Navi's own window and touches something. */
 export const WRITE_ACTIONS: readonly string[] = ['click_element', 'type_text', 'focus_window', 'press_key'];
