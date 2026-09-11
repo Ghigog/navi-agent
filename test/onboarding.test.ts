@@ -18,7 +18,7 @@ import {
 
 const ready: OnboardingState = {
   provider: { provider: 'ollama', hasKey: false, ollamaReachable: true },
-  permissions: { accessibility: 'granted', screen: 'granted', microphone: 'granted' },
+  permissions: { accessibility: 'granted', screen: 'granted', microphone: 'granted', helperAccessibility: 'granted' },
   wantsVoiceInput: false,
 };
 
@@ -53,7 +53,7 @@ describe('blockers', () => {
 
   it('treats a denied permission as a lost capability, not a dead app', () => {
     const blind = state({
-      permissions: { accessibility: 'granted', screen: 'denied', microphone: 'granted' },
+      permissions: { accessibility: 'granted', screen: 'denied', microphone: 'granted', helperAccessibility: 'granted' },
     });
     const [first] = blockers(blind);
 
@@ -69,26 +69,37 @@ describe('blockers', () => {
     // macOS says "not determined" until something tries. Telling a user they have denied a
     // permission they were never offered is its own kind of lying.
     const fresh = state({
-      permissions: { accessibility: 'unknown', screen: 'unknown', microphone: 'unknown' },
+      permissions: { accessibility: 'unknown', screen: 'unknown', microphone: 'unknown', helperAccessibility: 'unknown' },
     });
     expect(blockers(fresh)).toEqual([]);
   });
 
   it('only mentions the microphone to someone who turned the talk key on', () => {
-    const denied = { accessibility: 'granted', screen: 'granted', microphone: 'denied' } as const;
+    const denied = { accessibility: 'granted', screen: 'granted', microphone: 'denied', helperAccessibility: 'granted' } as const;
 
     expect(blockers(state({ permissions: denied }))).toEqual([]);
     expect(blockers(state({ permissions: denied, wantsVoiceInput: true }))[0]?.kind).toBe('microphone');
   });
 
+  it('treats a denied helper accessibility grant as a lost capability, not a dead app (NAV-90)', () => {
+    const noHands = state({
+      permissions: { accessibility: 'granted', screen: 'granted', microphone: 'granted', helperAccessibility: 'denied' },
+    });
+    const [first] = blockers(noHands);
+
+    expect(first?.kind).toBe('helperAccessibility');
+    expect(first?.fatal).toBe(false);
+    expect(usable(noHands)).toBe(true);
+  });
+
   it('puts what stops her working first', () => {
     const bad = state({
       provider: { provider: 'ollama', hasKey: false, ollamaReachable: false },
-      permissions: { accessibility: 'denied', screen: 'denied', microphone: 'denied' },
+      permissions: { accessibility: 'denied', screen: 'denied', microphone: 'denied', helperAccessibility: 'denied' },
       wantsVoiceInput: true,
     });
     expect(blockers(bad)[0]?.fatal).toBe(true);
-    expect(blockers(bad)).toHaveLength(4);
+    expect(blockers(bad)).toHaveLength(5);
   });
 });
 

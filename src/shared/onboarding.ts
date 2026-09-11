@@ -21,12 +21,19 @@
 export type PermissionState = 'granted' | 'denied' | 'unknown' | 'not-required';
 
 export interface Permissions {
-  /** Global shortcuts, and after NAV-90 the accessibility tree. */
+  /** Global shortcuts — Navi's own accessibility trust, not `navi-helper`'s. */
   accessibility: PermissionState;
   /** Screen capture. Without it, NAV-103's tools have nothing to look at. */
   screen: PermissionState;
   /** The talk key. Only needed when voice input is on. */
   microphone: PermissionState;
+  /**
+   * `navi-helper`'s own accessibility trust (NAV-90). A separate executable, so macOS tracks it
+   * separately from Navi's own `accessibility` grant above — granting one does not grant the
+   * other, and this is genuinely a second row for the user to find in the same System Settings
+   * pane, not a duplicate of the first.
+   */
+  helperAccessibility: PermissionState;
 }
 
 export interface ProviderReadiness {
@@ -49,6 +56,8 @@ export const SETTINGS_PANES = {
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
   screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
   microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+  // Same pane as `accessibility` — `navi-helper` gets its own row within it, not a pane of its own.
+  helperAccessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
 } as const;
 
 export type PermissionKind = keyof typeof SETTINGS_PANES;
@@ -72,6 +81,10 @@ export const PERMISSION_COPY: Record<PermissionKind, { title: string; why: strin
   microphone: {
     title: 'Microphone',
     why: 'Lets you talk to her instead of typing. Only needed if you turn the talk key on.',
+  },
+  helperAccessibility: {
+    title: 'Accessibility for navi-helper',
+    why: 'Lets her read what is on screen as real buttons and fields, and click or type for you, instead of only describing and pointing.',
   },
 };
 
@@ -134,6 +147,13 @@ export function blockers(state: OnboardingState): Blocker[] {
     out.push({
       kind: 'microphone',
       message: 'The microphone is off, so the talk key cannot hear you. Typing still works.',
+      fatal: false,
+    });
+  }
+  if (state.permissions.helperAccessibility === 'denied') {
+    out.push({
+      kind: 'helperAccessibility',
+      message: 'Accessibility for navi-helper is off, so Navi cannot read or act on other apps yet. She can still see a screenshot and point.',
       fatal: false,
     });
   }

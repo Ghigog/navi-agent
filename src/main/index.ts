@@ -18,7 +18,7 @@ import { createOverlay } from './overlay.js';
 import { createChatWindow, type ChatWindow } from './chat-window.js';
 import { createSettingsWindow, type SettingsWindow } from './settings-window.js';
 import { createOnboardingWindow, type OnboardingWindow } from './onboarding-window.js';
-import { ollamaModels, ollamaReachable, permissions, request } from './permissions.js';
+import { helperAccessibilityStatus, ollamaModels, ollamaReachable, permissions, request } from './permissions.js';
 import { blockers, type OnboardingState, type PermissionKind } from '../shared/onboarding.js';
 import { attachClickThrough, type ClickThrough } from './click-through.js';
 import { createCursorSource, type CursorSource } from './cursor.js';
@@ -39,7 +39,9 @@ import { createProvider } from '../agent/client.js';
 import { ToolRegistry } from '../agent/tools.js';
 import { createScreenTools } from '../agent/screen.js';
 import { createGuidanceTool } from '../agent/guidance.js';
+import { createUiTools } from '../agent/ui.js';
 import { createScreenPort } from './screen.js';
+import { startHelper, type HelperHandle } from './helper.js';
 import { dismissCursorMarker, showCursorMarker } from './marker.js';
 import { createSpeaker, createTranscriber, type Speaker } from './voice.js';
 import { createPlayer, createRunner, speakerPaths, whisperPaths } from './exec.js';
@@ -64,6 +66,7 @@ let reminders: Reminders | null = null;
 /** What she was feeling last, so a change can be spotted (emotions.md §9.2). */
 let lastEmotion: Emotion | null = null;
 let gate: Gate | null = null;
+let helper: HelperHandle | null = null;
 
 /** Pending confirmation cards, keyed by the id the chat window answers with (NAV-91). */
 const pendingConfirmations = new Map<number, (said: boolean) => void>();
@@ -468,7 +471,7 @@ app.whenReady().then(() => {
     const reachable = s.provider === 'ollama' ? await ollamaReachable(s.ollamaBaseUrl) : false;
     return {
       provider: { provider: s.provider, hasKey: s.openaiApiKey !== '', ollamaReachable: reachable },
-      permissions: permissions(),
+      permissions: { ...permissions(), helperAccessibility: await helperAccessibilityStatus(helper?.status) },
       wantsVoiceInput: s.voiceInput,
       ollamaModels: reachable ? await ollamaModels(s.ollamaBaseUrl) : [],
     };
@@ -476,7 +479,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('onboarding:status', onboardingState);
   ipcMain.handle('onboarding:request', (_e, kind: unknown) => {
-    const kinds: PermissionKind[] = ['screen', 'accessibility', 'microphone'];
+    const kinds: PermissionKind[] = ['screen', 'accessibility', 'microphone', 'helperAccessibility'];
     if (typeof kind !== 'string' || !kinds.includes(kind as PermissionKind)) return 'unknown';
     return request(kind as PermissionKind);
   });
@@ -597,6 +600,20 @@ app.whenReady().then(() => {
   });
   if (current.halted) gate.halt();
 
+  /**
+   * The native helper (NAV-90). Spawned here rather than lazily on first use: a missing or
+   * unbuilt binary should surface once, at startup, the same way a missing permission does — not
+   * as a surprise on the first `observe_ui` call mid-conversation.
+   *
+   * `gate.attempt` is passed straight through as `act_on_ui`'s gate dependency. `shared/policy.ts`
+   * decides, `gate.ts` remembers and confirms; this file wires the one to the other and nothing
+   * about safety is decided here or in `agent/ui.ts`.
+   */
+  helper = startHelper();
+  for (const tool of createUiTools({ port: helper.port, gate: { attempt: (action) => gate!.attempt(action) } })) {
+    registry.register(tool);
+  }
+
   // Sweeps anything that came due while the app was closed, then arms for the next one.
   reminders.start();
 
@@ -619,6 +636,7 @@ app.on('will-quit', () => {
   clickThrough?.stop();
   follow?.stop();
   cursor?.stop();
+  helper?.stop();
 });
 
 // The overlay is the app. Closing it means quitting, including on macOS.
