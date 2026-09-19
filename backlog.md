@@ -1156,8 +1156,15 @@ shape to NAV-92's OAuth-adjacent onboarding work and NAV-93's local-store patter
 store (`calendar.json` or equivalent), not an extension of memory or notes — commitments are
 neither inferred (memory) nor user-authored free text (notes).
 
+**This connects to the user's own calendar. Navi never ships or hosts one.** OAuth against the
+same Google Calendar account the user already uses — a personal Gmail calendar or a Google
+Workspace (organizational) one, both served by the same API and scope. The only new state is a
+local cache of what that account already contains.
+
 **Requirements:**
-- Read-only Google Calendar via OAuth. Request the narrowest scope that reads events.
+- Read-only Google Calendar via OAuth, against the user's existing account — personal or Google
+  Workspace. Request the narrowest scope that reads events (`calendar.readonly` or the equivalent
+  free/busy-only scope, whichever is narrower and still meets F1's needs).
 - Sync the next 24 hours every 5 minutes, plus a forced refresh at trigger time (when NAV-109's
   sensor fires a trigger phase).
 - Ignore all-day, declined, tentative, and events marked "free".
@@ -1165,13 +1172,19 @@ neither inferred (memory) nor user-authored free text (notes).
   settings (NAV-113).
 - Tokens in the OS keychain — not in `settings.json`, and covered by `shared/redact.ts` if any of
   it ever ends up in a log.
+- A Google Workspace account's admin can block third-party OAuth apps org-wide, or require an
+  approval step before a user can grant one. Detect that failure mode specifically (Google returns
+  a distinct error for an admin-blocked app) and say so in the connect flow, rather than showing
+  the same generic "connection failed" a wrong password would.
 
 **Acceptance Criteria:**
 - [ ] A confirmed, busy, timed event within 24 hours is cached locally after connecting a
-      calendar.
+      calendar — verified against both a personal Google account and a Google Workspace account.
 - [ ] An all-day, declined, tentative, or "free" event never reaches the cache.
 - [ ] Disconnecting the calendar removes cached events and the stored token.
 - [ ] A forced refresh at trigger time reflects a change made to the calendar seconds earlier.
+- [ ] An admin-blocked Workspace OAuth grant produces a message naming that specifically, not a
+      generic connection failure.
 - [ ] No calendar connected: nothing is read, and NAV-113's onboarding surfaces this rather than
       the app silently doing nothing.
 
