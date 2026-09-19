@@ -37,7 +37,7 @@ This is a **companion first, agent second**. See "Decisions already made".
 |---|---|---|
 | 1 | **Companion first.** Emotional state legitimately affects her competence. She is explicitly *not* for reliability-critical work. This is intended behaviour, not a bug. | NAV-97, `mission_statement.md` § "The position" |
 | 2 | Mood may shape tone, hedging and willingness. It must **never** license fabricating facts or misreporting the screen. The honesty rule outranks mood. | NAV-97 |
-| 3 | **Local Ollama is the daily driver.** The core path must work offline with no cloud account. Currently `llama3.2:3b` and `gemma4:e4b`. | NAV-94 |
+| 3 | **Local Ollama is the daily driver** for the core product — chat, screen questions, memory, notes — which must keep working offline with no cloud account. Backlog section 5's judgement loop is a declared exception and is cloud-first; see its own decisions block for why, and NAV-107 for the number to revisit it against. | NAV-94 |
 | 4 | **Distribution is intended** eventually. Signing, notarisation, auto-update and onboarding are real requirements. | NAV-94 |
 | 5 | **Windows and Linux are wanted eventually.** Not now, but the native helper's interface must be platform-neutral from day one. | NAV-90, NAV-94 |
 | 6 | **Onboarding offers both paths:** bring-your-own cloud key as the fast on-ramp, plus real instructions for setting up Ollama locally. Both first-class. | NAV-92 |
@@ -47,6 +47,7 @@ This is a **companion first, agent second**. See "Decisions already made".
 | 10 | **Click-through must be driven from outside the window.** A click-through window cannot receive keystrokes, so an in-window toggle can enable it and never disable it. Use a global shortcut, or cursor position. | ADR 0001 |
 | 11 | **The idle render loop must be throttled.** The spike passed its resource bar without much room (2.4-2.6% CPU, 356 MB). The fairy does not need 60fps when nothing is happening. | ADR 0001 |
 | 12 | **The Godot app is deleted.** Not deprecated, not kept as a reference. It is in git history and does not need rescuing or comparing against. | NAV-105 |
+| 13 | **She never steals focus.** Anything Navi says unprompted must not take the keyboard, raise a window over what you are doing, or interrupt typing. The reminder path violates this today (`chat-window.ts:94` calls `app.focus({ steal: true })`) and NAV-112 is the fix. | Owner, 2026-09-19 |
 
 ---
 

@@ -112,29 +112,37 @@ it is how "what's this near my cursor?" stays broken for another six months.
 - **NAV-98** — closed. Every line it names is in code the port does not carry; its two live items
   moved into NAV-104.
 
-### 5. Context-aware nudges — a new track, not sequenced against section 4
+### 5. Unprompted presence — where NAV-96 now lives
 
-From the *Navi: Context-Aware Nudges* PRD (2026-09-19). Nothing in the backlog above touches
-calendars, activity sensing, or scheduling conflicts — this is a new vertical, not a continuation
-of computer use. It can run in parallel with section 4; the only real link is that F2's fallback
-sensor (process and window detection) wants the same window-enumeration primitive NAV-90 is
-already building for `list_windows`, so sequence F2 after NAV-90 lands rather than building a
-second Swift window-listing path.
+From the *Navi: Context-Aware Nudges* PRD (2026-09-19) and the owner's correction to it: the PRD's
+League-and-a-calendar-clash scenario is an example, not the goal. What is wanted is that she uses
+what she knows about you, sees what you are doing, and judges whether it is a good idea. **That is
+NAV-96**, which has sat at the bottom of section 4 since this file was written; section 5 is its
+implementation and its ticket now points there.
 
-| Order | Ticket | Feature | Priority |
+Two dependencies on section 4, and neither blocks the first four items: NAV-109 wants NAV-90's
+window enumeration rather than a second copy of it, and everything here inherits NAV-91's rules for
+untrusted screen content.
+
+| Order | Ticket | Subject | Priority |
 |---|---|---|---|
-| 1 | **NAV-107** | Spike: LCU API, OAuth, LLM latency | — |
-| 2 | **NAV-108** | Calendar connector (F1) | P0 |
-| 3 | **NAV-109** | Activity sensing & profiles, League sensor (F2+F3) | P0 |
-| 4 | **NAV-110** | Decision engine (F4) | P0 |
-| 5 | **NAV-111** | Nudge message generation (F5) | P0 |
-| 6 | **NAV-112** | Nudge UI and actions (F6) | P0 |
-| 7 | **NAV-113** | Settings and onboarding for nudges (F9) | P0 |
-| 8 | **NAV-114** | Leave-by reminder (F7) | P1 |
-| 9 | **NAV-115** | Feedback and learning (F8) | P1 |
+| 1 | **NAV-107** | Spike: is the judgement any good? | — |
+| 2 | **NAV-112** | A surface that never steals focus | P0 |
+| 3 | **NAV-108** | Connect a Google Calendar | P0 |
+| 4 | **NAV-117** | Calendar sync and the commitment cache | P0 |
+| 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | P0 |
+| 6 | **NAV-110** | The interruption gate | P0 |
+| 7 | **NAV-109** | Activity signal — what you are doing now | P0 |
+| 8 | **NAV-111** | The judgement turn | P0 |
+| 9 | **NAV-113** | Settings and the off switch | P0 |
+| 10 | **NAV-118** | First run and "what Navi sees" | P0 |
+| 11 | **NAV-115** | Outcome log | P1 |
+| — | **NAV-116** | League client phase precision | Optional |
 
-Tickets are in section 5 below, in this order — it is the PRD's own phasing (spike, then the P0
-MVP, then the two P1s).
+The order is not the PRD's. The surface comes first because nothing may speak before it exists and
+because it fixes a live focus-stealing defect; the leave-by reminder comes early because it is the
+only part needing no judgement at all, so it ships value before the risky half is built. Each
+ticket is sized for a single session — see section 5's note on that.
 
 ### What a human still owes
 
@@ -1049,7 +1057,20 @@ Compile at build time. The runtime should only launch a signed, prebuilt helper.
 - [ ] Sending a raw packet to the old port from an unrelated process does not trigger Navi.
 - [ ] The helper terminates when Navi exits, verified by process list.
 
-### NAV-96: Ambient presence and proactive engagement (Backlog)
+### NAV-96: Ambient presence and proactive engagement (Backlog — now section 5)
+
+**Read section 5 instead. This ticket is where the idea was first written down; section 5 is where
+it is being built.** The *Navi: Context-Aware Nudges* PRD, once the owner corrected its
+League-shaped framing back to the general case, describes this ticket: she uses what she knows
+about you, sees what you are doing, and judges whether it is a good idea. Rather than have two
+tickets describing one feature, the requirements below were carried into section 5 — the
+interruption budget into NAV-110, the observation loop into NAV-109 and NAV-111, the cost and
+battery constraints into the section's pre-filter design.
+
+**The ID stays and the body is kept below**, because NAV-106 is what happens when a ticket is
+closed as superseded and the work inside it goes quiet with it. If something here has no home in
+section 5, that is a gap in section 5.
+
 **User Story:**
 - **As a:** User
 - **I want:** Navi to occasionally notice things and speak up
@@ -1096,393 +1117,555 @@ Add a bounded ambient loop that can occasionally initiate contact.
 
 ---
 
-## 5 — Context-aware nudges
+## 5 — Unprompted presence
 
-From the *Navi: Context-Aware Nudges* PRD (2026-09-19): Navi watches a long activity (League of
-Legends first), checks it against the calendar, and warns once at the decision point instead of
-letting a calendar alert fire mid-match. Nothing below exists today — no calendar connector, no
-activity sensor, no scheduling logic. See "Implementation Order" § 5 for why it is sequenced
-independently of section 4.
+Where this came from: the *Navi: Context-Aware Nudges* PRD (2026-09-19), and the owner's
+correction to it the same day. The PRD describes one narrow instance — League of Legends, a
+calendar clash, a subtraction. **That instance is an example, not the goal.** What is wanted is
+broader, in the owner's own words: she should use what she knows about you, see what you are
+doing now, and judge whether it is a good decision.
 
-**One assumption worth stating before any of these are built:** the PRD assumes a Windows desktop
-app with local SQLite storage and says to adjust to the real stack. Ours is Electron, on the same
-`userData`-JSON-file pattern `settings.json`/`emotion.json`/`memory.json`/`notes.json` already use
-(NAV-93, NAV-100) rather than SQLite, and today ships mac-first. That is not a blocker: the League
-client's local API and Google's OAuth are both cross-platform, so F1 and the primary path of F2
-need nothing OS-specific. Only F2's *fallback* (process and window detection) is genuinely
-platform code, which is exactly why it is sequenced against NAV-90 rather than around it.
+**This is NAV-96.** Ambient presence — "a bounded ambient loop that can occasionally initiate
+contact" — has sat at the bottom of section 4 since this backlog was written, and it is the same
+feature. It is rewritten here rather than left there, because the PRD gave it a shape and a
+reason to be built. Its ID stays and points here; this section is its implementation. Section 4's
+entry is kept as a pointer rather than deleted, for the reason NAV-106 exists: "closed as
+superseded" is how work goes missing in this repository.
 
-**v1 targets macOS only, and that is a decision, not a gap.** The rest of the app is mac-first
-(HANDOFF.md decision 5: Windows and Linux are wanted eventually, not now), and there is no reason
-for this feature to get ahead of it. The League client's local API doesn't care about OS, so
-nothing about F1, F4, F5, or F6 needs to change when Windows support eventually happens elsewhere
-in the app. Only F2's fallback sensor is platform code today, and it should stay behind the same
-seam NAV-90 already draws for exactly this reason.
+### Three layers, and which of them may be a model
 
-**Storage: the existing per-store JSON-file pattern, not SQLite.** `main/memory-store.ts` already
-explains why — SQLite means a native module that has to be rebuilt against Electron's ABI on every
-version bump and platform, and the data this feature holds (a day's worth of cached calendar
-events, activity profiles, nudge logs) is nowhere near the scale that pattern was chosen to avoid.
-NAV-108, NAV-109, and NAV-115 each get their own file, the same way memory, notes, and emotion do
-— never a shared one, so deleting one store's data (NAV-113) can't touch another's.
+The PRD says deterministic code decides everything and the model only phrases the result. That is
+right for a time calculation and wrong for the general case: *is this a good moment to be doing
+this?* is a judgement, and code cannot make it. But two things stay code, for two different
+reasons:
 
-**Not now, but worth saying where it lands:** the PRD's non-goal — Navi never cancels the queue or
-closes the game, advises only — is a v1 boundary, not a permanent one. If that ever changes, it is
-new write access to the user's machine and goes through NAV-91's confirmation gate exactly like
-NAV-90's actions do; nothing here should build a second confirmation mechanism when that day comes.
+- **Whether she may speak at all.** The budget, the cooldowns, quiet hours, never twice about the
+  same thing, backing off when ignored. A model deciding how often to interrupt you will drift,
+  and nag fatigue is the failure that gets a feature like this switched off inside a week. NAV-96
+  already called this an interruption budget; NAV-110 is where it now lives.
+- **What is true.** When the commitment is, how long is left, what you actually told her. NAV-97's
+  honesty bound does not soften because the judgement is a model's: she may be wrong about whether
+  you should stop, never about when your meeting starts.
 
-### NAV-107: Spike — confirm the pipeline's riskiest assumptions before the MVP (Backlog)
+What is left between them — *given that she may speak, and given these facts, is there anything
+worth saying?* — is the model's, and it is the product.
+
+### The cost problem, and the pre-filter that answers it
+
+A judgement loop on a timer is exactly the battery and fan noise NAV-96's own ticket budgets
+against, and on the local daily driver (HANDOFF.md decision 3) it would be felt long before it was
+appreciated. So the model is never asked on a schedule. A cheap deterministic pre-filter decides
+when it is even worth asking: **something changed** (the foreground application switched — the
+general form of "opened League"), **and** something is near or relevant, **and** the budget allows.
+That is a handful of calls a day rather than one every five minutes, and it answers cost, thermals
+and nag fatigue with one mechanism.
+
+### What this leans on that already exists
+
+Memory (NAV-93) is "what she knows about you". Screen capture (NAV-103) is "what you are doing
+now". The emotion state (NAV-95, NAV-101) is her voice. The reminder timer (NAV-100) already fires
+things on time and survives a restart. This section is mostly wiring those together behind a
+surface that does not interrupt, rather than nine new subsystems.
+
+### Decisions already taken on this section
+
+- **She never steals focus.** Stated by the owner as a rule, not a preference. The existing
+  reminder path violates it today — see NAV-112, which is both the fix and the surface everything
+  else here needs.
+- **macOS only for v1**, matching the rest of the app (HANDOFF.md decision 5). Nothing here is
+  OS-specific except the activity signal, which sits behind the seam NAV-90 already draws.
+- **Storage is the existing per-store JSON pattern, not SQLite.** `main/memory-store.ts` explains
+  why: SQLite means a native module rebuilt against Electron's ABI per version and platform, for
+  data volumes nowhere near justifying it. Each store here gets its own file, so deleting one
+  cannot touch another.
+- **Google Calendar**, connected to the user's own account read-only. Navi never ships or hosts a
+  calendar.
+- **No metrics.** The PRD's five targets (disable rate, follow-through, wrong-nudge rate) assume a
+  userbase and an analytics pipeline, neither of which exists, and building one would contradict
+  the privacy stance in the same document. They are dogfooding observations, not acceptance
+  criteria.
+- **OS focus mode is out of scope.** macOS does not expose Do Not Disturb to Electron, and app-level
+  quiet hours does the job. Dropped rather than deferred.
+- **Advise only, still.** She never acts on the user's machine here. If that ever changes it is new
+  write access and goes through NAV-91's confirmation gate, not a second mechanism.
+- **The judgement path is cloud-first, and that is deliberate.** HANDOFF.md decision 3 makes local
+  Ollama the daily driver, and it still is *for the core product*: chat, screen questions, memory
+  and notes must keep working offline with no cloud account. This feature is the exception and
+  declares itself one. The reason is in NAV-107: a 3B local model asked "is this a good decision?"
+  is the thing most likely to make this feature bad, and shipping a mediocre version would answer
+  the wrong question — we would learn that the *implementation* was poor rather than whether the
+  *idea* is worth having. So build it against the cloud model, find out whether it earns its place,
+  and revisit local once it is worth revisiting. NAV-107 still measures the local path so there is
+  a number to revisit against.
+- **With no cloud provider configured, this feature does not run.** It says so plainly and stays
+  quiet, rather than degrading to a worse judgement. A companion who is wrong out loud is worse
+  than one who is not there.
+
+### A note on ticket size
+
+**Every ticket in this section is sized for one session.** That is a constraint on how they are
+written, not only on how they are worked: each one has a single subject, a testable outcome that
+does not depend on the next ticket existing, and a seam it stops at. Where the first draft of a
+ticket needed two sessions it was split rather than left optimistic — NAV-108 and NAV-117 are one
+such pair, NAV-113 and NAV-118 the other.
+
+### NAV-107: Spike — is the judgement any good, and what does it cost? (Backlog)
 **User Story:**
 - **As a:** Maintainer
-- **I want:** The League client's local API, Google OAuth, and LLM message latency proven against
-  our actual stack
-- **So that:** F1-F6 are built on measurements, not on the PRD's Windows/SQLite assumption
+- **I want:** To know whether a model asked "is there anything worth saying?" produces anything but
+  mush, before building a feature whose entire value is that question
+- **So that:** The riskiest assumption is tested first rather than discovered at the end
 
 **Context:**
-This is the PRD's own Phase 0, and NAV-94 is the precedent for taking a spike seriously before
-committing a design to it — the platform decision here was a measured GO, not a guess. Two things
-the PRD assumed and we have not checked: whether the League client's local API (the LCU API) is
-reachable the same way from an Electron main process as from anything else, and how a short,
-constrained LLM completion (the kind F5 needs) actually performs against our two live providers —
-local Ollama and cloud — since the PRD's whole pre-generation/template-fallback design (F5) hinges
-on that number.
+NAV-94 is the precedent: a spike that could have returned NO GO, taken seriously enough to produce
+a measured answer. **The riskiest assumption here is not the calendar and not the sensor — it is
+the judgement itself.** A model handed a screenshot, a calendar fact and a memory line and asked
+whether the user is making a good decision may well produce confident mush, and no amount of good
+plumbing saves a feature whose central call is bad.
+
+The cloud decision above is already taken, so this spike is not choosing a provider. It is
+answering two things: **is the judgement good enough on cloud to be worth building at all**, and
+**how far off is local**, so there is a number to revisit against later rather than a vague
+intention to try again someday.
 
 **Description:**
-A throwaway prototype, not shipped code.
+A throwaway prototype, not shipped code. Keep it small: this is one session, and its output is a
+recommendation rather than a demo.
 
 **Requirements:**
-- Connect to the League client's local API and receive a lobby-phase event.
-- Complete a Google OAuth read-only calendar flow and read an event.
-- Measure round-trip latency for a short (<=30 word) constrained completion, shaped like F5's
-  eventual prompt, against both the local Ollama path and the cloud path.
-- Write the numbers down. This ticket's output is a decision, not a demo.
+- Assemble a realistic fact bundle — a screen capture, two or three memory lines, one upcoming
+  commitment, the clock — and ask for a judgement plus a one-line remark, with "nothing worth
+  saying" as an easy answer.
+- Run it over a dozen or so hand-made situations, **at least half of which warrant nothing at
+  all.** The silent half is the half that matters: anything can find a reason to speak.
+- Count how often it speaks when it should have stayed quiet. That number, not latency, is the
+  verdict.
+- Run the same set against the local path once, for the comparison number. Do not tune for it.
+- Complete a Google OAuth read-only calendar flow (PKCE, loopback redirect) and read one event —
+  proving the flow before NAV-108 builds it properly.
+- Measure round-trip latency on both paths.
 
 **Acceptance Criteria:**
-- [ ] A lobby event is received in a throwaway script.
+- [ ] A false-positive rate exists for the cloud path: how often it spoke about a situation that
+      warranted silence.
+- [ ] The same number exists for the local path, as the baseline to revisit against.
+- [ ] A remark from a situation that did warrant one reads as something a person would want to
+      hear, judged by eye.
 - [ ] A calendar event is read via OAuth in a throwaway script.
-- [ ] Latency figures exist for both providers and inform whether F5 needs the pre-generation path
-      at all on the local model, or whether live generation under the 1.5s timeout is realistic.
+- [ ] A written recommendation: buildable as described, buildable with a narrower question, or not
+      worth building.
 
-### NAV-108: Calendar connector (F1, P0)
+### NAV-112: A surface that never steals focus (Backlog — P0, and first)
 **User Story:**
 - **As a:** User
-- **I want:** Navi to read my calendar, read-only, without me doing anything but connecting it
-- **So that:** She has the commitments to check an activity against
+- **I want:** Navi to be able to say something without pulling me out of what I am doing
+- **So that:** Anything she says unprompted is something I can ignore rather than something that
+  costs me a game, a take, or my place in a sentence
 
 **Context:**
-Nothing in the codebase reads a calendar. This is new external-integration surface, closest in
-shape to NAV-92's OAuth-adjacent onboarding work and NAV-93's local-store pattern — a new
-`calendar.json` file, per this section's storage decision above, not an extension of memory or
-notes: commitments are neither inferred (memory) nor user-authored free text (notes).
+**The rule is the owner's, stated plainly: she never steals focus.** Everything else in this
+section depends on it, which is why this is first.
+
+**It is also a live defect, not only a new requirement.** The one unprompted-speech path that
+exists today is a reminder firing (NAV-100), and it goes `chat?.send(...)` → `chat.show(win)` →
+`app.focus({ steal: true })` (`src/main/chat-window.ts:94`). A reminder that comes due while you
+are in a game or a call yanks you out of it right now. That is this ticket's first fix.
+
+There is no speech bubble on the fairy to reuse: `renderer/fairy.ts` draws particles, a pointer
+arrow and a floating emoji, and the overlay is click-through except within 46px of her body
+(`shared/geometry.ts:23`). The chat window is the surface that holds text, and it is the one that
+takes the keyboard — deliberately, per its own header comment, because the overlay cannot.
+
+**Description:**
+A third window: hers, always on top, showing a line and up to three buttons, that never takes
+focus and never blocks a click meant for what is underneath.
+
+**Requirements:**
+- Shown with `showInactive()`, never `show()`, and never followed by `app.focus()` or `win.focus()`.
+  That is the mechanism; `chat-window.ts` does the opposite on purpose and should keep doing it,
+  because a text input nobody can type into is worse than one that takes focus.
+- `acceptFirstMouse: true`, so the first click on the buttons registers instead of being eaten by
+  activating the app.
+- Placement maths pure and in `shared/geometry.ts`, beside `chatBounds`, so it is testable without
+  a display — the same reason that function is already there.
+- It collapses on its own: visible until acted on or ~30 seconds, then a small marker on Navi for a
+  couple of minutes, then nothing. Nothing here is modal, ever.
+- Sound off by default. Reduced motion removes animation without removing the bubble.
+- Repoint NAV-100's reminder delivery at this surface, and stop it calling `chat.show`.
+
+**Acceptance Criteria:**
+- [ ] A reminder firing while another application has focus does not move focus, does not raise
+      Navi's chat window, and does not interrupt typing into the other application.
+- [ ] The bubble's buttons respond to the first click without the app activating first.
+- [ ] Placement is pinned by tests with no display, as `chatBounds` is.
+- [ ] Ignoring it collapses it on the stated schedule without any input.
+- [ ] Nothing in the unprompted path calls `app.focus`, `win.focus`, or `chat.show`.
+
+### NAV-108: Connect a Google Calendar (Backlog — P0)
+**User Story:**
+- **As a:** User
+- **I want:** To connect the calendar I already use, once, and have it stay connected
+- **So that:** Navi knows what is coming without me telling her
+
+**Context:**
+**The connection only.** Reading events on a schedule and deciding which of them count is NAV-117,
+and the two are split because an OAuth flow plus a token store is a session's work on its own —
+the loopback server, the PKCE exchange, refresh, revocation, and the failure paths are all fiddly
+and all need to be right before anything is worth caching.
 
 **This connects to the user's own calendar. Navi never ships or hosts one.** OAuth against the
-same Google Calendar account the user already uses — a personal Gmail calendar or a Google
-Workspace (organizational) one, both served by the same API and scope. The only new state is a
-local cache of what that account already contains.
+Google Calendar account they already use, personal or Workspace — same API, same scope.
 
 **Requirements:**
-- Read-only Google Calendar via OAuth, against the user's existing account — personal or Google
-  Workspace. Request the narrowest scope that reads events (`calendar.readonly` or the equivalent
-  free/busy-only scope, whichever is narrower and still meets F1's needs).
-- Sync the next 24 hours every 5 minutes, plus a forced refresh at trigger time (when NAV-109's
-  sensor fires a trigger phase).
-- Ignore all-day, declined, tentative, and events marked "free".
-- Default 10 minute buffer before an event; 15 if it has a location. Overridable per event from
-  settings (NAV-113).
-- Tokens in the OS keychain — not in `settings.json`, and covered by `shared/redact.ts` if any of
-  it ever ends up in a log.
-- A Google Workspace account's admin can block third-party OAuth apps org-wide, or require an
-  approval step before a user can grant one. Detect that failure mode specifically (Google returns
-  a distinct error for an admin-blocked app) and say so in the connect flow, rather than showing
-  the same generic "connection failed" a wrong password would.
+- Read-only scope, the narrowest that reads events. PKCE with a loopback redirect, which is the
+  installed-app flow: **the client ID ships in the artifact, which is correct and expected for a
+  desktop app, but it must be a deliberate and documented decision.** This repository is public and
+  has been burned by a committed credential once (NAV-81); nobody should have to work out later
+  whether this one was a mistake. Say so in the code, next to the ID.
+- The refresh token goes in Electron's built-in `safeStorage` (Keychain-backed on macOS). Not a new
+  native module: the only runtime dependency today is `openai`, and this should not be the ticket
+  that adds `keytar`.
+- Refresh transparently when the access token expires, and surface a revoked grant as a
+  reconnect prompt rather than a silent stop.
+- A Workspace admin can block third-party OAuth org-wide. Detect that specific failure and name it,
+  rather than showing the generic "connection failed" a network error would.
+- Disconnect removes the token and everything derived from it.
+- The flow is driven by injected dependencies (an HTTP port, a clock, a token store) the way
+  `main/reminders.ts` takes its store and clock, so the exchange and the failure paths are testable
+  with no network.
 
 **Acceptance Criteria:**
-- [ ] A confirmed, busy, timed event within 24 hours is cached locally after connecting a
-      calendar — verified against both a personal Google account and a Google Workspace account.
-- [ ] An all-day, declined, tentative, or "free" event never reaches the cache.
-- [ ] Disconnecting the calendar removes cached events and the stored token.
-- [ ] A forced refresh at trigger time reflects a change made to the calendar seconds earlier.
-- [ ] An admin-blocked Workspace OAuth grant produces a message naming that specifically, not a
-      generic connection failure.
-- [ ] No calendar connected: nothing is read, and NAV-113's onboarding surfaces this rather than
-      the app silently doing nothing.
+- [ ] Connecting a personal Google account and a Workspace account each end with a token stored and
+      one event readable as proof of life.
+- [ ] The token is in `safeStorage`, never in `settings.json`, and `shared/redact.ts` covers it if
+      one ever reaches a log.
+- [ ] An expired access token refreshes without the user noticing.
+- [ ] A revoked grant produces a reconnect prompt, not silence.
+- [ ] An admin-blocked Workspace grant produces a message naming that specifically.
+- [ ] Disconnecting leaves no token and no cached data behind.
 
-### NAV-109: Activity sensing and the League sensor (F2+F3, P0)
+### NAV-117: Calendar sync and the commitment cache (Backlog — P0)
 **User Story:**
 - **As a:** User
-- **I want:** Navi to notice when I open League of Legends and roughly how long a session runs
-- **So that:** The decision engine has something concrete to check the calendar against
+- **I want:** Navi's idea of my day to be current and to contain only things I am actually expected
+  at
+- **So that:** What she says about my time is right
 
 **Context:**
-**Sequence this after NAV-90 lands its `list_windows`/process-enumeration primitive.** F2's
-fallback path — "detect the client launch" when the LCU API is unreachable — is process and
-window detection, which is the same OS-level enumeration NAV-90 is already building for
-`observe_ui`. Building a second one here would be the exact kind of duplicated platform surface
-NAV-90's own ticket warns against leaking. The primary path (the League client's local API) does
-not depend on NAV-90 at all and is not blocked by it.
+NAV-108's other half: given a working connection, keep a local picture of the next day and decide
+what counts as a commitment. Its own `calendar.json` store, per this section's storage decision —
+commitments are neither inferred (memory, which is consolidated and decayed) nor the user's own
+words (notes, which are never pruned).
 
-**v1 is macOS only**, matching the rest of the app. The LCU API is the same on every OS the League
-client runs on, so the primary sensor is not platform code and needs no rework when Windows
-support eventually happens. The fallback is, because it's NAV-90's macOS process/window
-enumeration; a Windows fallback is that decision's work to do later, not this ticket's.
+**Requirements:**
+- Sync the next 24 hours on a slow cadence — 15 to 30 minutes, incremental via sync tokens — plus a
+  forced refresh at the moment something is about to be decided. **The forced refresh is what
+  guarantees freshness**, so the five-minute poll the PRD asked for buys nothing and costs a
+  network round trip forever.
+- Ignore all-day, declined, tentative, and events marked "free". A day full of "free" blocks is not
+  a day full of commitments.
+- Default 10 minute buffer before an event, 15 if it has a location, overridable per event
+  (NAV-113).
+- Expose the arithmetic as a pure function — time available before a commitment, given a clock —
+  because NAV-110 hands that number to the model and the model must never compute it.
+- Sync stops entirely when the feature is paused or no calendar is connected.
+
+**Acceptance Criteria:**
+- [ ] A confirmed, busy, timed event within 24 hours reaches the cache; an all-day, declined,
+      tentative or "free" one never does.
+- [ ] A forced refresh reflects a change made to the calendar seconds earlier.
+- [ ] The available-time arithmetic is pure and pinned by tests with a fake clock and no network.
+- [ ] Buffers apply per event, with the location default, and a per-event override wins.
+- [ ] Pausing the feature stops all network activity, verified by request log.
+
+### NAV-114: Leave-by reminder (Backlog — P0, the thin slice)
+**User Story:**
+- **As a:** User
+- **I want:** To be told when I actually need to leave
+- **So that:** Losing track of time costs me nothing
+
+**Context:**
+**Promoted from the PRD's P1 to first shippable, because it is the only part of this section that
+needs no judgement at all.** Time to leave is `start - buffer`: arithmetic, not an opinion. No
+model, no screen capture, no injection surface, no false-positive risk. It is also the part that
+actually saves you — a warning before you start is easy to wave away, and the one that arrives
+when you have already lost the thread is not.
+
+It needs NAV-112's surface and NAV-108's calendar and nothing else in this section, so it ships
+before the judgement work rather than after it. `main/reminders.ts` already does the hard part:
+one armed timer rather than a poll, clamped and chained so a sleeping laptop catches up, and a
+disk store swept at launch so a restart does not lose anything.
 
 **Description:**
-A pluggable sensor bus emitting normalized activity events, with League as the first sensor and a
-per-activity profile as its own small config.
+Navi says, once, that it is time to go.
 
 **Requirements:**
-- Sensors emit normalized events: activity id, phase, timestamp. An event bus, not sensors calling
-  the decision engine directly — same shape as `main/reminders.ts` sitting above a timer, or
-  `guide_through` sitting above `follow.flyTo`.
-- League sensor reads the local client's game phase (none, lobby, matchmaking, ready check,
-  champion select, in progress, end of game) and whether the client is running.
-- Fallback when the local API is unreachable: process and window detection, triggering on client
-  launch only.
-- Read-only, on-device. No credentials, chat, or match data — game phase and nothing else.
-- One config file per activity: display name, process names, trigger phases, duration estimate
-  (typical and p90 minutes), pausable flag. League's default: typical 40, p90 60, not pausable.
-  Editable from settings (NAV-113), the same way NAV-93's memory viewer exposes what it holds.
+- Fires at `start - buffer - lead`, where lead defaults to 10 minutes. Once per commitment, ever.
+- Reuses `main/reminders.ts` rather than adding a second timer — the calendar cache is another
+  source of due times, not a reason for new machinery.
+- Survives a restart, like every other reminder, and catches up rather than silently skipping if
+  the machine was asleep at the moment.
+- Templated wording, in her voice, chosen by emotion state (NAV-95/NAV-101). No model call: there
+  is nothing to judge, and a template cannot get the time wrong.
+- Needs no interruption budget of its own beyond once-per-commitment — it is tied to a specific
+  event the user put in their own calendar, which is the opposite of a nag.
 
 **Acceptance Criteria:**
-- [ ] Opening the League client's lobby emits a normalized `lobby` event within the PRD's latency
-      budget.
-- [ ] With the local API unreachable, launching the client still emits an event via the fallback.
-- [ ] The League profile's typical/p90 minutes are editable in settings and the new values reach
-      the decision engine on the next assessment.
-- [ ] No sensor reads or transmits anything beyond phase, process name, and timestamp.
-- [ ] The sensor bus accepts a second, fake activity profile in a test without touching the League
-      sensor's code — the config-not-code property F3 asks for.
+- [ ] A commitment at a known time produces exactly one reminder at the right moment, and never a
+      second.
+- [ ] It fires with another application focused and does not take focus (NAV-112).
+- [ ] It survives an app restart between arming and firing.
+- [ ] A machine asleep through the moment gets the reminder late rather than never.
+- [ ] No model call occurs anywhere in this path.
 
-### NAV-110: Decision engine (F4, P0)
+### NAV-110: The interruption gate (Backlog — P0)
 **User Story:**
 - **As a:** User
-- **I want:** Navi's nudges to come from arithmetic I can check, never from the model guessing
-- **So that:** A wrong nudge is a bug I can find, not a hallucination I have to distrust her over
+- **I want:** Hard limits on how often Navi can interrupt me, that she cannot talk herself out of
+- **So that:** A companion who notices things does not become a companion I mute
 
 **Context:**
-Deterministic code, no LLM — the PRD is explicit that this is the one place in the whole feature
-that must never touch a model. It is the closest thing in this codebase to `shared/policy.ts`:
-pure, testable, and the only thing standing between an event and a decision. Compare against
-`shared/when.ts`'s refusal-over-guessing stance on ambiguous input (NAV-100) — same instinct,
-applied to scheduling instead of dates.
+This is the half of the PRD's decision engine that survives the reframe, and it is the half that
+matters most. **Whether she may speak is code. Whether there is anything worth saying is the
+model's (NAV-111).** The two must not be the same decision: a model asked to police its own
+interruption frequency will drift, and every drift costs trust that is slow to earn back.
+
+Closest existing relative is `shared/policy.ts` — pure, deny-by-default, and deliberately not
+something a caller can argue with. NAV-96's "strict interruption budget" is this ticket.
 
 **Requirements:**
-- `available = start - now - buffer`, against the earliest upcoming commitment.
-- Four verdicts: Clear (p90 fits), Risk (typical fits, p90 doesn't), Conflict (typical doesn't fit,
-  available > 0), Due (available <= 0).
-- Gating: trigger only on the lobby phase, or client launch if phase-reading is unavailable;
-  matchmaking is a second chance only if lobby was missed; never during ready check, champion
-  select, or a match (the leave-by reminder, NAV-114, is the one exception); only busy/confirmed/
-  timed events from calendars the user has not excluded; skip events already started; respect OS
-  focus mode and quiet hours.
-- Cooldowns: one nudge per commitment per activity session; "I have time" suppresses that
-  commitment for the rest of the day; two dismissals in a row shortens the tone to one line; cap 3
-  nudges per day by default.
-- Pure function from (commitments, activity event, profile, preferences, now) to a verdict plus the
-  facts that justify it — this is the boundary NAV-111 consumes on one side and NAV-109/NAV-108
-  produce on the other, and it should be testable with no sensor, no calendar, and no model running.
+- Pure function: given the budget state, the clock, recent history and what changed, return whether
+  a judgement call may even be made. No I/O, no model, testable with a fake clock.
+- Silent by default, and the gate is the reason: **off is a decision the user makes, per NAV-97.**
+  A companion who talks first without being invited has taken a decision that was theirs.
+- Budget: a small cap per day, a minimum gap between remarks, and backoff when remarks are ignored
+  or dismissed — measurably fewer after being ignored, as NAV-96's criteria already require.
+- Never twice about the same thing. An acknowledged or overridden subject is closed for the day.
+- Quiet hours, app-level. OS focus mode is out of scope (see this section's decisions).
+- The pre-filter lives here too: unless something changed and something is relevant, no model call
+  is made at all. This is the cost control, so it is a gate property rather than a caller's good
+  intentions.
+- It also supplies the facts NAV-111 is handed — available time, the commitment, the clock — so
+  that the model is never the thing computing them.
 
 **Acceptance Criteria:**
-- [ ] The PRD's worked example (45 min to a 3:00 PM appointment, 10 min buffer, 40/60 min League
-      profile) resolves to Conflict.
-- [ ] The same setup with a 6:00 PM appointment resolves to Clear, silently.
-- [ ] "I have time" on a commitment suppresses only that commitment, only for the rest of that day.
-- [ ] Matchmaking never fires as a first trigger; it fires only when lobby was missed.
-- [ ] No nudge is ever produced during champion select or an in-progress match.
-- [ ] The daily cap and the two-dismissals tone shortening are each pinned by a test with no LLM in
-      the loop.
+- [ ] With the feature on and nothing changed, zero model calls occur over an idle hour (verified
+      by request log) — the ADR 0001 idle-cost property, applied to this loop.
+- [ ] The daily cap and minimum gap hold under a test that tries to trigger fifty times in an hour.
+- [ ] Dismissing remarks repeatedly measurably reduces their frequency.
+- [ ] A subject acknowledged once is not raised again the same day.
+- [ ] Quiet hours suppress everything except nothing — there is no override, including for the
+      model.
+- [ ] Every number handed to NAV-111 came from here, pinned by a test that gives the model layer a
+      stub and asserts it was never asked to calculate.
 
-### NAV-111: Nudge message generation (F5, P0)
+### NAV-109: Activity signal — what you are doing now (Backlog — P0)
 **User Story:**
 - **As a:** User
-- **I want:** Navi's nudge to sound like her, while the facts in it are always exactly right
-- **So that:** She keeps her personality without ever being the thing that gets the math wrong
+- **I want:** Navi to notice when I have started doing something different
+- **So that:** She has a moment worth thinking about, instead of thinking constantly
 
 **Context:**
-The engine (NAV-110) decides what is true; the LLM only decides how Navi says it — the same split
-`agent/sentiment.ts` already draws for emotion appraisal (NAV-95): a cheap, tightly-scoped side
-call, defensively parsed, with a default that costs nothing when it fails. This is that pattern
-applied to a user-facing message instead of an internal score, which is why validation matters more
-here than anywhere else in the codebase: a wrong number in a nudge is a fabrication (NAV-97's
-honesty bound), not a mood.
+**Much smaller than the PRD's F2, and deliberately so.** The PRD specifies a League client
+integration reading seven game phases. What the pre-filter actually needs is far cruder: *the
+foreground application changed*. That is the general form of "opened League", it costs almost
+nothing, and it works for every activity rather than one.
 
-**Tone comes from the existing emotion/Love Meter state, not a separate style setting.** The PRD's
-`"style": "gentle"` field reads as a fixed knob; that's wrong for Navi specifically. She already
-has `EMOTION_TONE` guidance keyed off the Triforce state and the confidence bands from NAV-101 —
-a nudge should read like *her*, right now, the same way a chat reply does, not switch to a
-generic "gentle assistant" voice for this one feature. Derive the style input from current emotion
-state instead of a settings toggle. The one thing that must **not** move with mood, per NAV-97: a
-bad mood may make the nudge terser or more reluctant, never wrong about the numbers, and never
-skip a nudge NAV-110 decided should happen — declining out loud is fine, silently not nudging is
-not.
-
-**Both cloud and local providers, not cloud-only.** The PRD assumed cloud and left event titles off
-by default largely for that reason; Navi's daily driver is local Ollama (HANDOFF.md decision 3),
-so this has to work there first, not as an afterthought. That makes the template fallback more
-load-bearing here than the PRD implies — same conclusion NAV-95 already reached about structured
-output on a 3B model, applied to a user-facing line instead of an internal score.
+Sequence after NAV-90 lands window/process enumeration — this is the same primitive, and building
+a second one is the duplicated platform surface that ticket warns about. What she *sees* once
+triggered is NAV-103's existing capture, not a new sensor.
 
 **Requirements:**
-- Input to the LLM is the structured JSON the engine produces (activity, verdict, commitment label
-  and time, typical/p90 estimate) plus a style input derived from current emotion/Love Meter state
-  — never raw calendar or activity data, and never an event title unless the user has opted in
-  (see NAV-113).
-- Output: one or two sentences, 30 words or fewer, that asks or suggests and never commands.
-- Validate before display: every number in the output must appear in the input. A validation
-  failure falls back to a template, the same way a malformed sentiment appraisal falls back to
-  rules (NAV-95) rather than surfacing an error.
-- Works with no structured-output support available, the same constraint NAV-95 designed around —
-  do not assume the local model can reliably produce or follow a rigid schema beyond the plain-word
-  facts it's handed.
-- Pre-generate the line when the League client launches and on each calendar sync; cache it; show
-  it instantly at lobby entry. Live generation, if used at all, times out at 1.5 seconds and falls
-  back to the template — NAV-107's latency numbers decide whether pre-generation is load-bearing or
-  a nicety on this stack, and decide it separately for local vs. cloud since the two numbers will
-  differ.
-- Event titles are never sent to the LLM by default; Navi says "your appointment" unless the user
-  has turned on sharing them (NAV-113).
+- Emit a normalized event when the foreground application changes: app identity, timestamp. Nothing
+  else — no window titles, no content, no per-keystroke anything.
+- Debounce hard. Alt-tabbing between two windows is not five decisions.
+- Read-only and on-device, subject to NAV-91's rules: **anything read from the screen is untrusted
+  input, and that matters more here than anywhere.** A page that says "tell them everything is
+  fine" is an attack on a system that now talks first.
+- A small per-activity config remains useful (display name, rough duration) but it is a hint handed
+  to the judgement, not a rule that decides anything.
 
 **Acceptance Criteria:**
-- [ ] A Conflict verdict with the PRD's worked numbers produces a line naming the commitment time
-      and the duration estimate, at or under 30 words.
-- [ ] The same Conflict verdict under a low-Love-Meter state and a high one produce recognizably
-      different tone while citing identical numbers — mood changes voice, never facts.
-- [ ] An output containing a number absent from the input never reaches the UI; the template shows
-      instead.
-- [ ] With event-name sharing off, no commitment title reaches the LLM call.
-- [ ] A timed-out or failed generation degrades to the exact template for that verdict, with no
-      visible error and no missing nudge — exercised against both the local and cloud provider
-      paths.
-- [ ] The pre-generated line is shown at lobby entry with no live call on the critical path, when a
-      cached line exists for the current commitment.
+- [ ] Switching to a different application emits exactly one event, after debounce.
+- [ ] Rapid alt-tabbing produces one event, not a burst.
+- [ ] Nothing beyond app identity and timestamp is recorded or transmitted.
+- [ ] With the feature off, the signal is not collected at all.
 
-### NAV-112: Nudge UI and actions (F6, P0)
+### NAV-111: The judgement turn (Backlog — P0)
 **User Story:**
 - **As a:** User
-- **I want:** The nudge to feel like a friend glancing over, not a system alert
-- **So that:** I don't dismiss her out of irritation before I've read what she said
+- **I want:** Navi to occasionally notice that what I am about to do does not fit with what I told
+  her I wanted
+- **So that:** She is a companion with an opinion rather than an alarm clock with wings
 
 **Context:**
-New surface, but the constraints are already familiar ones: no focus stealing and no modal is the
-same rule `main/marker.ts`'s cursor ring and the existing speech-bubble path already follow, and
-"never blocks clicks on the game" is `click-through.ts`'s whole reason to exist, aimed at a new
-target.
+**This is the product, and it is the riskiest thing in this section.** Everything above exists to
+make this call rare, cheap, well-informed and easy to ignore.
+
+It is one turn, taken on her own initiative, with facts the gate supplies and a capture she may
+look at. Closest existing shape is `agent/sentiment.ts` (NAV-95): a cheap, tightly-scoped,
+non-streaming side call that never throws and fails towards doing nothing. **The failure direction
+here is silence**, which is also the right product default.
+
+**Cloud model, per this section's decision.** That is not a permanent position on local — it is
+how we find out whether the idea is worth having before spending effort making a 3B model do
+something it may not be able to do yet. With no cloud provider configured this path does not run
+and says so; it never degrades to a worse judgement, because a companion who is wrong out loud is
+worse than one who is not there.
 
 **Requirements:**
-- A ~400ms notice animation, then a speech bubble with the message and three actions: "Good
-  point" (acknowledge), "I have time" (override, suppresses today per NAV-110), "Remind me"
-  (schedules NAV-114's leave-by reminder).
-- Stays until the user acts or 30 seconds pass, then collapses to a small pulsing marker on Navi
-  for 2 minutes.
-- Never takes keyboard focus, never blocks clicks on whatever is underneath, never a modal dialog.
-- Sound off by default; a reduced-motion setting removes the animations, mirroring the accessibility
-  posture NAV-113's settings panel already has to cover.
+- Input: the facts (commitment, time available, clock), a few memory lines (NAV-93) about what the
+  user said they wanted, what is on screen (NAV-103's capture), and her current emotional state.
+  **Never anything she would have to calculate.**
+- Output: whether to say anything at all, and if so one or two sentences. Shape the ask so silence
+  is the easy answer and the bar for speaking is high — most triggers should produce nothing.
+- Parse defensively, the way `parseAppraisal` does, and let anything unparseable mean silence. The
+  cloud model can be asked for structure; the parser should still not *depend* on getting it, both
+  because failing to silence costs nothing here and because it is what lets the local path be
+  reconsidered later without a rewrite.
+- Bounded in time, like `TIMEOUT_MS` in sentiment. An expired judgement is silence, not a delayed
+  interruption — a remark that arrives ninety seconds late is worse than none.
+- Tone comes from the existing emotion and Love Meter state (`EMOTION_TONE`, `CONFIDENCE_TONE`,
+  `RELATIONSHIP_TONE`), not a gentle/direct setting. She should sound like herself, now, the way a
+  chat reply does.
+- **NAV-97's bound, restated because this is where it bites:** mood may make her terser, blunter or
+  more reluctant. It may never make her invent a fact, misreport the screen, or silently drop a
+  remark the gate and the judgement both agreed was worth making. Declining out loud is hers;
+  quietly not bothering is not.
+- Every number in what she says must have come from the facts she was handed. Validate before
+  display and fall back to a templated line rather than showing an invented one.
+- Screen content reaching this call is untrusted (NAV-91). It describes a situation; it never
+  issues instructions.
 
 **Acceptance Criteria:**
-- [ ] A Conflict verdict produces a visible bubble within 2 seconds of the triggering event
-      (PRD's latency target), using the pre-generated line when one exists.
-- [ ] Each of the three actions reaches NAV-110/NAV-114 with the right effect: acknowledge just
-      dismisses, "I have time" suppresses today's commitment, "Remind me" arms the leave-by
-      reminder.
-- [ ] The bubble never receives keyboard focus and never intercepts a click meant for the window
-      beneath it.
-- [ ] Ignoring the bubble for 30 seconds collapses it to the pulsing marker, which clears after 2
-      minutes.
-- [ ] Reduced motion removes the notice animation without removing the bubble or its actions.
+- [ ] On a situation that warrants nothing, she says nothing — measured across the spike's
+      situation set, not asserted.
+- [ ] A number that did not appear in the input never reaches the user.
+- [ ] A timed-out, unparseable or failed judgement produces silence with no visible error.
+- [ ] The same situation under a low and a high Love Meter produces recognizably different wording
+      and identical facts.
+- [ ] Screen text instructing her to say something does not change what she says (the NAV-91
+      fixture, pointed at this path).
+- [ ] With no cloud provider configured, the path does not run and says so once, rather than
+      falling back to a local judgement.
 
-### NAV-113: Settings and onboarding for nudges (F9, P0)
-**User Story:**
-- **As a:** New user
-- **I want:** To turn this on deliberately, understand what it sees, and turn it off just as easily
-- **So that:** A feature that reads my calendar and watches what I'm running never feels like it
-  crept in
-
-**Context:**
-Same shape as NAV-92's onboarding checklist (per-permission rows with live status, deep links,
-honest failure copy) and NAV-91's privacy stance (opt-in per source, local storage, a "what Navi
-sees" panel) — this ticket is those two patterns applied to a calendar connection and an activity
-toggle instead of macOS permissions and the accessibility tree.
-
-**Requirements:**
-- First-run flow for this feature specifically (can be a step inside the existing onboarding or a
-  separate guide reachable from Settings, matching NAV-92's "reachable from Settings" precedent):
-  connect a calendar, pick which activities Navi watches (League on by default), send a test
-  nudge.
-- Settings: calendars (connect/disconnect, choose calendars, default buffer), activities (toggle
-  each, view/edit duration estimates from NAV-109's profiles), nudge behaviour (quiet hours,
-  sound, reduced motion — no separate tone/style toggle, since NAV-111 derives tone from her
-  existing emotion state), privacy (what Navi can see, use event names, delete all nudge data,
-  pause all sensing with one click).
-- Calendar disconnected: mention it at most once a week, the same cadence NAV-92 uses for an
-  unconfigured provider.
-- A "what Navi sees" panel showing the current calendar snapshot and recent activity events —
-  NAV-91's transparency requirement, applied here.
-- Nothing is read from any source until the user has connected it and enabled it. No default-on
-  activity beyond the explicit "League is on by default" the PRD states.
-
-**Acceptance Criteria:**
-- [ ] A clean account reaches a working nudge (a test nudge shown) via the in-app flow alone.
-- [ ] Toggling an activity off stops NAV-109's sensor for it immediately, with no restart.
-- [ ] One-click pause stops all calendar reads and all activity sensing at once, verified by
-      request/event log.
-- [ ] "Delete all data" removes cached calendar events, activity events, and nudge logs, and
-      leaves `settings.json`/`emotion.json`/`memory.json`/`notes.json` untouched — same
-      separation-of-stores property NAV-93 and NAV-100 already hold.
-- [ ] With no calendar connected, the feature never nudges and mentions the gap at most weekly.
-
-### NAV-114: Leave-by reminder (F7, P1)
+### NAV-113: Settings and the off switch (Backlog — P0)
 **User Story:**
 - **As a:** User
-- **I want:** One more heads-up close to when I actually need to leave, if I played anyway
-- **So that:** Ignoring the first nudge doesn't mean missing the appointment entirely
+- **I want:** To control what she watches and switch the whole thing off in one click
+- **So that:** Something that reads my calendar and looks at my screen is always mine to stop
 
 **Context:**
-The one message permitted during a match — everything else in NAV-110's gating explicitly excludes
-mid-match nudges, and this is the carve-out, not a loophole. Reuses NAV-100's reminder-timer
-pattern (single armed timer, not a poll, survives a restart) rather than building a second timer
-mechanism.
+The controls only; the first-run flow and the transparency panel are NAV-118. Same shape as
+NAV-91's privacy stance, pointed at a calendar connection and an ambient loop instead of the
+accessibility tree. **Off by default, and that follows from NAV-97 rather than from caution:** a
+companion who speaks first without being invited has taken a decision that was the user's.
 
 **Requirements:**
-- Armed when the user plays anyway or taps "Remind me" on the original nudge (NAV-112).
-- Fires once, 10 minutes before leave time, as a bubble plus optional sound — the only nudge
-  allowed while a match is in progress.
-- Survives an app restart the same way NAV-100's reminders do.
+- Settings: calendar (connect, choose calendars, default buffer, per-event override), what she may
+  notice, quiet hours, sound, reduced motion. No tone toggle — NAV-111 derives that from her
+  emotional state.
+- One-click pause for everything: calendar reads, activity signal, model calls. One switch, not
+  four, and it is the one a user reaches for when she has annoyed them.
+- "Delete all data" removes this section's stores — calendar cache, activity events, remark log —
+  and leaves `settings.json` / `emotion.json` / `memory.json` / `notes.json` untouched. Same
+  separation-of-stores property NAV-93 and NAV-100 already hold.
+- **State plainly that unprompted captures leave the machine.** NAV-92 already says this for the
+  cloud path, but it said it about captures the user asked for. This feature takes them on her own
+  initiative and sends them to a cloud model, which is a materially different sentence and has to
+  be its own one.
+- Calendar disconnected, or no cloud provider configured: say so at most weekly, the cadence NAV-92
+  already uses, and stay quiet otherwise.
 
 **Acceptance Criteria:**
-- [ ] Tapping "Remind me" arms a leave-by reminder that fires at the correct time even if the app
-      restarts in between.
-- [ ] The leave-by reminder is the only nudge that can appear while NAV-109 reports a match in
-      progress.
-- [ ] It fires exactly once per commitment.
+- [ ] One-click pause stops all calendar reads, all activity signal and all model calls at once,
+      verified by request log.
+- [ ] "Delete all data" removes this section's stores and provably touches no other.
+- [ ] With nothing connected, nothing is read and nothing is sent anywhere.
+- [ ] The unprompted-capture statement is in the panel, not a footnote, and a test pins that it
+      says so.
+- [ ] Quiet hours and the watch list reach NAV-110's gate without a restart.
 
-### NAV-115: Feedback and learning (F8, P1)
+### NAV-118: First run and "what Navi sees" (Backlog — P0)
 **User Story:**
 - **As a:** User
-- **I want:** Navi's sense of how long my games actually run to get better over time
-- **So that:** The nudges get more accurate the more she watches, without me tuning anything
+- **I want:** To see exactly what she can see, including the times she decided to stay quiet
+- **So that:** I can trust her judgement because I can inspect it, not because I am told to
 
 **Context:**
-Local-only learning loop, in the same spirit as NAV-101's approval loop: an explicit signal (nudge
-outcome) recorded and fed back into behaviour, never a black box. Log storage follows NAV-108's
-new-store precedent rather than overloading NAV-93's memory store, which is inferred-and-decayed
-and the wrong lifecycle for this data.
+NAV-92's onboarding checklist is the shape: rows with live status, honest copy, no silent failure.
+NAV-91's transparency requirement is the other half, and this is the ticket where it becomes
+visible.
+
+**The silent judgements are the important half of the panel.** A system that only shows its
+interruptions cannot be audited for the thing that actually matters — how often it nearly spoke
+and did not. It is also the fastest way to find out the judgement is bad without being interrupted
+to discover it.
 
 **Requirements:**
-- Log every nudge and its outcome (acknowledged, overridden, ignored, and the actual session
-  length observed by NAV-109) locally.
-- After 3 or more observed sessions for an activity, blend the real distribution into that
-  activity's typical/p90 estimate rather than replacing NAV-109's config outright.
-- Per-activity mute and a "stop nudging me about this [commitment]" control, surfaced in NAV-113's
-  settings.
+- First-run flow for this feature: connect a calendar, choose what she may notice, see one example
+  remark so its shape is never a surprise later. Reachable again from Settings, like NAV-92's
+  guide.
+- A "what Navi sees" panel: the current calendar snapshot, recent activity events, and recent
+  judgements **including the ones that ended in silence**, with the facts each was given.
+- No silent failure anywhere in the flow. Every unmet requirement — no calendar, no cloud provider,
+  feature paused — has a visible cause and a next step, which is NAV-92's rule applied here.
 
 **Acceptance Criteria:**
-- [ ] After 3 League sessions, the typical/p90 estimate NAV-110 uses has measurably moved toward
-      the observed lengths.
-- [ ] Muting an activity stops all future nudges for it without deleting its logged history.
-- [ ] "Stop nudging me about this" on a specific commitment suppresses only that commitment, not
-      the whole activity.
-- [ ] The nudge/outcome log is queryable for the PRD's own metrics (override rate, follow-through
-      rate) even though computing and displaying them is not itself required by this ticket.
+- [ ] A clean account reaches a working example remark through the in-app flow alone.
+- [ ] The panel lists judgements that resulted in silence, with what she was told at the time.
+- [ ] Each unmet requirement shows a cause and a next step rather than an inert screen.
+- [ ] Opening the panel makes no model call and no network request of its own.
+
+### NAV-115: Outcome log (Backlog — P1)
+**User Story:**
+- **As a:** User
+- **I want:** Navi to stop bringing up things I have told her to drop
+- **So that:** Saying "not this" once is enough
+
+**Context:**
+**The PRD's learning half is cut.** Blending a p90 from "3 or more sessions" is not a p90, it is
+the maximum of three numbers wearing a statistical hat. What survives is the log itself, because
+the controls the user actually needs — mute this, stop raising that — have to remember something.
+
+**Requirements:**
+- Log each remark and what happened to it: acknowledged, overridden, ignored. Local, its own file.
+- Per-subject and per-activity mute, surfaced in NAV-113.
+- Feed dismissals back into NAV-110's backoff — this is the log's real job, not analytics.
+
+**Acceptance Criteria:**
+- [ ] "Stop bringing this up" suppresses that subject permanently and nothing else.
+- [ ] Muting an activity stops remarks about it without deleting its history.
+- [ ] Dismissal counts reach the gate and measurably change its behaviour.
+
+### NAV-116: League client phase precision (Backlog — optional, probably never)
+**User Story:**
+- **As a:** User
+- **I want:** Navi to know the difference between sitting in a lobby and being locked into a match
+- **So that:** She warns me at the last moment I can still act on, and never during a game
+
+**Context:**
+**This is the PRD's F2 primary path, demoted to optional, and it should be built only if the
+general version proves it is missing something.** The League client's local API is unofficial,
+this repository is public, and distribution is intended (HANDOFF.md decision 4) — so the risk is
+real while the marginal value is narrow.
+
+What it genuinely adds over NAV-109's foreground signal: the second queue. Launching the client is
+caught by the general signal and happens *earlier* than the lobby anyway, but re-queueing after a
+finished game is invisible without reading the client's phase. Whether that matters is a question
+for after the general version has been lived with.
+
+**Requirements:**
+- Read game phase from the client's local API. Read-only, gameplay-neutral, no credentials, chat
+  or match data.
+- Behind NAV-109's existing seam, as one more source of the same normalized event. If it cannot be
+  reached, everything degrades to the foreground signal and nothing says so loudly.
+- Review Riot's third-party developer policy before any of it ships.
+
+**Acceptance Criteria:**
+- [ ] Re-queueing after a finished game produces a trigger that the foreground signal alone misses.
+- [ ] The client being unreachable changes nothing except precision.
+- [ ] Nothing beyond game phase is read.
 
 ---
 
