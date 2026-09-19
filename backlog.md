@@ -1209,7 +1209,7 @@ does not depend on the next ticket existing, and a seam it stops at. Where the f
 ticket needed two sessions it was split rather than left optimistic — NAV-108 and NAV-117 are one
 such pair, NAV-113 and NAV-118 the other.
 
-### NAV-107: Spike — is the judgement any good, and what does it cost? (Backlog)
+### NAV-107: Spike — is the judgement any good, and what does it cost? (Backlog — harness built, run pending)
 **User Story:**
 - **As a:** Maintainer
 - **I want:** To know whether a model asked "is there anything worth saying?" produces anything but
@@ -1251,9 +1251,23 @@ recommendation rather than a demo.
 - [ ] The same number exists for the local path, as the baseline to revisit against.
 - [ ] A remark from a situation that did warrant one reads as something a person would want to
       hear, judged by eye.
-- [ ] A calendar event is read via OAuth in a throwaway script.
+- [x] A calendar event is read via OAuth in a throwaway script — `spike/nav-107/oauth.mjs`, PKCE
+      plus a loopback redirect, unrun (see below).
 - [ ] A written recommendation: buildable as described, buildable with a narrower question, or not
       worth building.
+
+**What is built and what is not.** The harness is done: fifteen hand-made situations
+(`spike/nav-107/situations.mjs`, ten warrant silence), a judge shaped like `agent/sentiment.ts` —
+cheap, non-streaming, time-bounded, parsed defensively, failing towards silence on anything
+unparseable — and a runner that reports the false-positive rate per path plus one prompt-injection
+check. `spike/nav-107/oauth.mjs` does the PKCE loopback exchange and reads one event.
+
+**None of it has been run.** This is the human-hands half, not a shortcut: it needs a cloud API
+key, a reachable local Ollama for the baseline, and a Google Cloud OAuth client, none of which
+exist in this environment. Run `spike/nav-107/run.mjs` and `spike/nav-107/oauth.mjs` (see
+`spike/nav-107/README.md`), fill in the two false-positive rates and the recommendation above, and
+retire `spike/` the way NAV-94's was retired once the verdict is recorded here. **NAV-111 does not
+start until that recommendation says to build it.**
 
 ### NAV-112: A surface that never steals focus (Backlog — P0, and first)
 **User Story:**
