@@ -10,6 +10,11 @@ Two questions, matching the ticket:
    (`situations.mjs`), at least half of which warrant silence, run against whichever of the cloud
    and local paths are actually configured. Reports the false-positive rate (spoke when it
    should not have) for each, plus a one-off prompt-injection check.
+   Two cloud options: OpenAI, or Gemini via its OpenAI-compatible endpoint — Gemini's free tier
+   costs nothing for this many calls, which is why it's worth having as an option here. **Free
+   tier only for this spike.** Its terms let Google use what you send it to improve their models;
+   fine for made-up situations, not for NAV-111's real call, which carries an actual screen
+   capture.
 2. **`oauth.mjs`** — does the Google Calendar OAuth shape work at all? PKCE, a loopback
    redirect, one event read. Proves the flow before NAV-108 builds it properly with a real token
    store, refresh, and revocation handling.
@@ -18,13 +23,19 @@ Two questions, matching the ticket:
 
 ```
 # the judgement question — needs at least one of:
-OPENAI_API_KEY=sk-...            node spike/nav-107/run.mjs      # cloud path
+OPENAI_API_KEY=sk-...            node spike/nav-107/run.mjs      # cloud path, OpenAI
+GEMINI_API_KEY=...               node spike/nav-107/run.mjs      # cloud path, Gemini (free)
 # Ollama running locally is picked up automatically if reachable # local baseline
+
+# any combination may be set at once — each configured path runs and reports separately
 
 # the calendar question — needs a Google Cloud project with the Calendar API enabled and an
 # OAuth client (type: Desktop app)
 GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... node spike/nav-107/oauth.mjs
 ```
+
+Getting a Gemini key: https://aistudio.google.com/apikey — sign in, create a key, no billing
+required for the free tier.
 
 ## What this environment could not do
 
