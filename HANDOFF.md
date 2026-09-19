@@ -65,8 +65,9 @@ and is never pruned. Resetting any one of them must not touch the others.
   decisions that will look wrong if you do not know why they were made. It absorbed the port's
   own README when NAV-105 moved the app to the root.
 - **[`backlog.md`](backlog.md)** — the plan. Opens with **Implementation Order**; sections 1, 2
-  and 3 are done, and section 4 is down to NAV-90 and the two tickets behind it. **Ticket IDs
-  are identity, not sequence.** New tickets continue from NAV-106.
+  and 3 are done, section 4 is down to NAV-90 and the two tickets behind it, and section 5 is
+  unprompted presence, which is where the next work is. **Ticket IDs are identity, not sequence.**
+  New tickets continue from NAV-118.
 - **[`done.md`](done.md)** — historical index of 114 completed tickets, plus an accuracy audit
   explaining why the full bodies were removed. Bodies remain in git history at `81a2e83`.
 - `mission_statement.md`, `emotions.md` — design docs, current, and worth reading. The mission
@@ -111,31 +112,75 @@ longer than it was, and every item on it is a thing no headless environment can 
 
 ### Step 3 — what to build next
 
-One ticket, and it needs a machine this environment does not have.
+**Backlog section 5 — unprompted presence.** Written 2026-09-19 from the *Context-Aware Nudges*
+PRD and the owner's correction to it. Twelve tickets, ordered, each sized for one session. Read
+section 5's header before any individual ticket: the decisions block and the three-layer split are
+what the tickets assume rather than repeat.
 
-**NAV-106 — step-by-step guidance — is done.** It was a feature that shipped in Godot across five
-tickets (NAV-11, NAV-35, NAV-39, NAV-40, NAV-43) and never got a port ticket of its own: the only
-tickets referring to it were NAV-87 and NAV-88, and closing those as superseded took the guidance
-work with them silently. **Worth reading as a warning about this backlog** — "closed as
-superseded" is not the same as "nothing in it mattered", and this was found by diffing deleted
-GDScript against the port rather than by anything written down. `guide_through`
-(`src/agent/guidance.ts`) takes one structured tool call and `main/guidance.ts` is `flyTo`'s
-caller — see its ticket in `backlog.md` for what changed from the Godot version and why.
+**The one-sentence version of what it is.** Navi uses what she knows about you (NAV-93's memory),
+sees what you are doing (NAV-103's capture), and occasionally judges that it is worth saying
+something. The PRD's League-of-Legends-and-a-calendar-clash scenario is an *example* of that, not
+the goal — building the narrow version is the main way to get this wrong.
 
-**NAV-90 — the native accessibility helper.** Swift, a Mac, and Accessibility granted. It is the
-only thing standing between Navi and the "agent second" half of what she is, and two other
-tickets are queued behind it: NAV-89 packages and signs it, NAV-96's ambient presence needs the
-AX tree it provides.
+**Three layers, and which of them may be a model.** This is the load-bearing design decision:
 
-Two things to know before starting it, both now written at the top of its ticket:
+- **Whether she may speak is code** (NAV-110). Budget, cooldowns, quiet hours, never twice about
+  the same thing. A model policing its own interruption frequency drifts, and nag fatigue is what
+  gets a feature like this muted in a week.
+- **Whether there is anything worth saying is the model's** (NAV-111). That is the product, and it
+  is the part most likely to be bad — NAV-107 exists to find out before the rest is built on it.
+- **Every fact is code's** (NAV-117). NAV-97's honesty bound does not soften because the judgement
+  is a model's: she may be wrong about whether you should stop, never about when your meeting is.
 
-- **NAV-91 is done and is waiting on this ticket for two inputs.** The gate is only as honest as
-  what it is told. `secureField` must come from a real `AXSecureTextField` read rather than a
-  caller's say-so, and `app` must be a bundle id the OS reported rather than a string the model
-  produced. Every write tool calls `gate.attempt` and does nothing else about safety.
-- **Define the wire protocol platform-neutrally on day one.** Windows and Linux are wanted
-  eventually (decision 5), and leaking `AXUIElement` specifics across the seam means rewriting
-  every call site later.
+**Start here, in this order:**
+
+1. **NAV-107 — the spike.** Throwaway. Answers whether a model asked "is there anything worth
+   saying?" stays quiet when it should. That number gates NAV-111's design, so do it first even
+   though it ships nothing.
+2. **NAV-112 — the surface that never steals focus.** Worth doing whatever the spike says, because
+   it fixes a defect that is live right now: the only unprompted path in the app today
+   (`reminders` → `chat.show` → `app.focus({ steal: true })`) pulls you out of whatever you are
+   doing. Decision 13.
+3. **NAV-108, then NAV-117** — connect a calendar, then sync and cache it.
+4. **NAV-114 — the leave-by reminder.** The thin slice that ships real value: pure arithmetic, no
+   model, no screen capture, no injection surface.
+
+Then the judgement half: NAV-110 → NAV-109 → NAV-111 → NAV-113 → NAV-118 → NAV-115.
+
+**NAV-96 is section 5 now.** Its ID and body stay in section 4 and point there. Do not close it —
+that is exactly how the guidance work went quiet before NAV-106 found it by diffing deleted
+GDScript.
+
+**NAV-90 — the native accessibility helper — is still open and still needs a Mac**, Swift, and
+Accessibility granted. It is the "agent second" half of what Navi is, and NAV-89 is queued behind
+it. Section 5 does *not* block on it: only NAV-109's activity signal wants its window enumeration,
+and that is the seventh item. Two things its ticket says at the top: NAV-91 is done and waiting on
+it for two honest inputs (`secureField` from a real `AXSecureTextField` read, `app` from an
+OS-reported bundle id), and the wire protocol must be platform-neutral from day one.
+
+### Step 4 — things that will save you an hour
+
+Found by reading the code during section 5's planning. All still true as of 2026-09-19.
+
+- **`npm install` first.** A fresh container has no `node_modules`, and `npm test` fails with
+  `vitest: not found` in a way that looks like a broken suite and is not. Then `npm test` and
+  `npm run typecheck`, both under a second, both before pushing.
+- **`main/reminders.ts` is the module to copy.** Deps injected as plain functions, clock included,
+  no Electron import — which is why a reminder set for next Tuesday can be fired in a millisecond
+  under test. Every new module in section 5 should look like it.
+- **`agent/sentiment.ts` is the model-call pattern.** Cheap, non-streaming, time-bounded, parsed
+  defensively, and failing towards the answer that changes nothing. NAV-111 is that shape with
+  silence as the safe direction.
+- **`showInactive()` plus `acceptFirstMouse: true`** is how a window shows without taking focus and
+  still gets its first click. `main/chat-window.ts` deliberately does the opposite — it needs the
+  keyboard — and should keep doing so.
+- **The overlay cannot hold the bubble.** It is 200px, click-through except within 46px of her body
+  (`shared/geometry.ts:23`), and `renderer/fairy.ts` draws particles, a pointer arrow and a
+  floating emoji — there is no speech bubble anywhere to reuse. NAV-112 is a third window.
+- **Placement maths goes in `shared/geometry.ts`** next to `chatBounds`, pure, so it is testable
+  with no display. That is why `chatBounds` is already there.
+- **Only one runtime dependency exists** (`openai`). Electron's built-in `safeStorage` covers the
+  Keychain; do not be the session that adds `keytar`.
 
 ---
 
