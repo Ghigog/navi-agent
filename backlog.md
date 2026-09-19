@@ -112,6 +112,30 @@ it is how "what's this near my cursor?" stays broken for another six months.
 - **NAV-98** — closed. Every line it names is in code the port does not carry; its two live items
   moved into NAV-104.
 
+### 5. Context-aware nudges — a new track, not sequenced against section 4
+
+From the *Navi: Context-Aware Nudges* PRD (2026-09-19). Nothing in the backlog above touches
+calendars, activity sensing, or scheduling conflicts — this is a new vertical, not a continuation
+of computer use. It can run in parallel with section 4; the only real link is that F2's fallback
+sensor (process and window detection) wants the same window-enumeration primitive NAV-90 is
+already building for `list_windows`, so sequence F2 after NAV-90 lands rather than building a
+second Swift window-listing path.
+
+| Order | Ticket | Feature | Priority |
+|---|---|---|---|
+| 1 | **NAV-107** | Spike: LCU API, OAuth, LLM latency | — |
+| 2 | **NAV-108** | Calendar connector (F1) | P0 |
+| 3 | **NAV-109** | Activity sensing & profiles, League sensor (F2+F3) | P0 |
+| 4 | **NAV-110** | Decision engine (F4) | P0 |
+| 5 | **NAV-111** | Nudge message generation (F5) | P0 |
+| 6 | **NAV-112** | Nudge UI and actions (F6) | P0 |
+| 7 | **NAV-113** | Settings and onboarding for nudges (F9) | P0 |
+| 8 | **NAV-114** | Leave-by reminder (F7) | P1 |
+| 9 | **NAV-115** | Feedback and learning (F8) | P1 |
+
+Tickets are in section 5 below, in this order — it is the PRD's own phasing (spike, then the P0
+MVP, then the two P1s).
+
 ### What a human still owes
 
 Sections 1, 2 and 3 are complete in code and in tests, along with NAV-91 from section 4, and none
@@ -1069,6 +1093,334 @@ Add a bounded ambient loop that can occasionally initiate contact.
 - [ ] No interruption during a full-screen application.
 - [ ] Settings displays observation frequency and cost for the current session.
 - [ ] On battery with nothing changing on screen, ambient mode performs no model calls.
+
+---
+
+## 5 — Context-aware nudges
+
+From the *Navi: Context-Aware Nudges* PRD (2026-09-19): Navi watches a long activity (League of
+Legends first), checks it against the calendar, and warns once at the decision point instead of
+letting a calendar alert fire mid-match. Nothing below exists today — no calendar connector, no
+activity sensor, no scheduling logic. See "Implementation Order" § 5 for why it is sequenced
+independently of section 4.
+
+**One assumption worth stating before any of these are built:** the PRD assumes a Windows desktop
+app with local SQLite storage and says to adjust to the real stack. Ours is Electron, on the same
+`userData`-JSON-file pattern `settings.json`/`emotion.json`/`memory.json`/`notes.json` already use
+(NAV-93, NAV-100) rather than SQLite, and today ships mac-first. That is not a blocker: the League
+client's local API and Google's OAuth are both cross-platform, so F1 and the primary path of F2
+need nothing OS-specific. Only F2's *fallback* (process and window detection) is genuinely
+platform code, which is exactly why it is sequenced against NAV-90 rather than around it.
+
+### NAV-107: Spike — confirm the pipeline's riskiest assumptions before the MVP (Backlog)
+**User Story:**
+- **As a:** Maintainer
+- **I want:** The League client's local API, Google OAuth, and LLM message latency proven against
+  our actual stack
+- **So that:** F1-F6 are built on measurements, not on the PRD's Windows/SQLite assumption
+
+**Context:**
+This is the PRD's own Phase 0, and NAV-94 is the precedent for taking a spike seriously before
+committing a design to it — the platform decision here was a measured GO, not a guess. Two things
+the PRD assumed and we have not checked: whether the League client's local API (the LCU API) is
+reachable the same way from an Electron main process as from anything else, and how a short,
+constrained LLM completion (the kind F5 needs) actually performs against our two live providers —
+local Ollama and cloud — since the PRD's whole pre-generation/template-fallback design (F5) hinges
+on that number.
+
+**Description:**
+A throwaway prototype, not shipped code.
+
+**Requirements:**
+- Connect to the League client's local API and receive a lobby-phase event.
+- Complete a Google OAuth read-only calendar flow and read an event.
+- Measure round-trip latency for a short (<=30 word) constrained completion, shaped like F5's
+  eventual prompt, against both the local Ollama path and the cloud path.
+- Write the numbers down. This ticket's output is a decision, not a demo.
+
+**Acceptance Criteria:**
+- [ ] A lobby event is received in a throwaway script.
+- [ ] A calendar event is read via OAuth in a throwaway script.
+- [ ] Latency figures exist for both providers and inform whether F5 needs the pre-generation path
+      at all on the local model, or whether live generation under the 1.5s timeout is realistic.
+
+### NAV-108: Calendar connector (F1, P0)
+**User Story:**
+- **As a:** User
+- **I want:** Navi to read my calendar, read-only, without me doing anything but connecting it
+- **So that:** She has the commitments to check an activity against
+
+**Context:**
+Nothing in the codebase reads a calendar. This is new external-integration surface, closest in
+shape to NAV-92's OAuth-adjacent onboarding work and NAV-93's local-store pattern, but it is a new
+store (`calendar.json` or equivalent), not an extension of memory or notes — commitments are
+neither inferred (memory) nor user-authored free text (notes).
+
+**Requirements:**
+- Read-only Google Calendar via OAuth. Request the narrowest scope that reads events.
+- Sync the next 24 hours every 5 minutes, plus a forced refresh at trigger time (when NAV-109's
+  sensor fires a trigger phase).
+- Ignore all-day, declined, tentative, and events marked "free".
+- Default 10 minute buffer before an event; 15 if it has a location. Overridable per event from
+  settings (NAV-113).
+- Tokens in the OS keychain — not in `settings.json`, and covered by `shared/redact.ts` if any of
+  it ever ends up in a log.
+
+**Acceptance Criteria:**
+- [ ] A confirmed, busy, timed event within 24 hours is cached locally after connecting a
+      calendar.
+- [ ] An all-day, declined, tentative, or "free" event never reaches the cache.
+- [ ] Disconnecting the calendar removes cached events and the stored token.
+- [ ] A forced refresh at trigger time reflects a change made to the calendar seconds earlier.
+- [ ] No calendar connected: nothing is read, and NAV-113's onboarding surfaces this rather than
+      the app silently doing nothing.
+
+### NAV-109: Activity sensing and the League sensor (F2+F3, P0)
+**User Story:**
+- **As a:** User
+- **I want:** Navi to notice when I open League of Legends and roughly how long a session runs
+- **So that:** The decision engine has something concrete to check the calendar against
+
+**Context:**
+**Sequence this after NAV-90 lands its `list_windows`/process-enumeration primitive.** F2's
+fallback path — "detect the client launch" when the LCU API is unreachable — is process and
+window detection, which is the same OS-level enumeration NAV-90 is already building for
+`observe_ui`. Building a second one here would be the exact kind of duplicated platform surface
+NAV-90's own ticket warns against leaking. The primary path (the League client's local API) does
+not depend on NAV-90 at all and is not blocked by it.
+
+**Description:**
+A pluggable sensor bus emitting normalized activity events, with League as the first sensor and a
+per-activity profile as its own small config.
+
+**Requirements:**
+- Sensors emit normalized events: activity id, phase, timestamp. An event bus, not sensors calling
+  the decision engine directly — same shape as `main/reminders.ts` sitting above a timer, or
+  `guide_through` sitting above `follow.flyTo`.
+- League sensor reads the local client's game phase (none, lobby, matchmaking, ready check,
+  champion select, in progress, end of game) and whether the client is running.
+- Fallback when the local API is unreachable: process and window detection, triggering on client
+  launch only.
+- Read-only, on-device. No credentials, chat, or match data — game phase and nothing else.
+- One config file per activity: display name, process names, trigger phases, duration estimate
+  (typical and p90 minutes), pausable flag. League's default: typical 40, p90 60, not pausable.
+  Editable from settings (NAV-113), the same way NAV-93's memory viewer exposes what it holds.
+
+**Acceptance Criteria:**
+- [ ] Opening the League client's lobby emits a normalized `lobby` event within the PRD's latency
+      budget.
+- [ ] With the local API unreachable, launching the client still emits an event via the fallback.
+- [ ] The League profile's typical/p90 minutes are editable in settings and the new values reach
+      the decision engine on the next assessment.
+- [ ] No sensor reads or transmits anything beyond phase, process name, and timestamp.
+- [ ] The sensor bus accepts a second, fake activity profile in a test without touching the League
+      sensor's code — the config-not-code property F3 asks for.
+
+### NAV-110: Decision engine (F4, P0)
+**User Story:**
+- **As a:** User
+- **I want:** Navi's nudges to come from arithmetic I can check, never from the model guessing
+- **So that:** A wrong nudge is a bug I can find, not a hallucination I have to distrust her over
+
+**Context:**
+Deterministic code, no LLM — the PRD is explicit that this is the one place in the whole feature
+that must never touch a model. It is the closest thing in this codebase to `shared/policy.ts`:
+pure, testable, and the only thing standing between an event and a decision. Compare against
+`shared/when.ts`'s refusal-over-guessing stance on ambiguous input (NAV-100) — same instinct,
+applied to scheduling instead of dates.
+
+**Requirements:**
+- `available = start - now - buffer`, against the earliest upcoming commitment.
+- Four verdicts: Clear (p90 fits), Risk (typical fits, p90 doesn't), Conflict (typical doesn't fit,
+  available > 0), Due (available <= 0).
+- Gating: trigger only on the lobby phase, or client launch if phase-reading is unavailable;
+  matchmaking is a second chance only if lobby was missed; never during ready check, champion
+  select, or a match (the leave-by reminder, NAV-114, is the one exception); only busy/confirmed/
+  timed events from calendars the user has not excluded; skip events already started; respect OS
+  focus mode and quiet hours.
+- Cooldowns: one nudge per commitment per activity session; "I have time" suppresses that
+  commitment for the rest of the day; two dismissals in a row shortens the tone to one line; cap 3
+  nudges per day by default.
+- Pure function from (commitments, activity event, profile, preferences, now) to a verdict plus the
+  facts that justify it — this is the boundary NAV-111 consumes on one side and NAV-109/NAV-108
+  produce on the other, and it should be testable with no sensor, no calendar, and no model running.
+
+**Acceptance Criteria:**
+- [ ] The PRD's worked example (45 min to a 3:00 PM appointment, 10 min buffer, 40/60 min League
+      profile) resolves to Conflict.
+- [ ] The same setup with a 6:00 PM appointment resolves to Clear, silently.
+- [ ] "I have time" on a commitment suppresses only that commitment, only for the rest of that day.
+- [ ] Matchmaking never fires as a first trigger; it fires only when lobby was missed.
+- [ ] No nudge is ever produced during champion select or an in-progress match.
+- [ ] The daily cap and the two-dismissals tone shortening are each pinned by a test with no LLM in
+      the loop.
+
+### NAV-111: Nudge message generation (F5, P0)
+**User Story:**
+- **As a:** User
+- **I want:** Navi's nudge to sound like her, while the facts in it are always exactly right
+- **So that:** She keeps her personality without ever being the thing that gets the math wrong
+
+**Context:**
+The engine (NAV-110) decides what is true; the LLM only decides how Navi says it — the same split
+`agent/sentiment.ts` already draws for emotion appraisal (NAV-95): a cheap, tightly-scoped side
+call, defensively parsed, with a default that costs nothing when it fails. This is that pattern
+applied to a user-facing message instead of an internal score, which is why validation matters more
+here than anywhere else in the codebase: a wrong number in a nudge is a fabrication (NAV-97's
+honesty bound), not a mood.
+
+**Requirements:**
+- Input to the LLM is the structured JSON the engine produces (activity, verdict, commitment label
+  and time, typical/p90 estimate, style) — never raw calendar or activity data, and never an event
+  title unless the user has opted in (see NAV-113).
+- Output: one or two sentences, 30 words or fewer, that asks or suggests and never commands.
+- Validate before display: every number in the output must appear in the input. A validation
+  failure falls back to a template, the same way a malformed sentiment appraisal falls back to
+  rules (NAV-95) rather than surfacing an error.
+- Pre-generate the line when the League client launches and on each calendar sync; cache it; show
+  it instantly at lobby entry. Live generation, if used at all, times out at 1.5 seconds and falls
+  back to the template — NAV-107's latency numbers decide whether pre-generation is load-bearing or
+  a nicety on this stack.
+- Event titles are never sent to the LLM by default; Navi says "your appointment" unless the user
+  has turned on sharing them (NAV-113).
+
+**Acceptance Criteria:**
+- [ ] A Conflict verdict with the PRD's worked numbers produces a line naming the commitment time
+      and the duration estimate, at or under 30 words.
+- [ ] An output containing a number absent from the input never reaches the UI; the template shows
+      instead.
+- [ ] With event-name sharing off, no commitment title reaches the LLM call.
+- [ ] A timed-out or failed generation degrades to the exact template for that verdict, with no
+      visible error and no missing nudge.
+- [ ] The pre-generated line is shown at lobby entry with no live call on the critical path, when a
+      cached line exists for the current commitment.
+
+### NAV-112: Nudge UI and actions (F6, P0)
+**User Story:**
+- **As a:** User
+- **I want:** The nudge to feel like a friend glancing over, not a system alert
+- **So that:** I don't dismiss her out of irritation before I've read what she said
+
+**Context:**
+New surface, but the constraints are already familiar ones: no focus stealing and no modal is the
+same rule `main/marker.ts`'s cursor ring and the existing speech-bubble path already follow, and
+"never blocks clicks on the game" is `click-through.ts`'s whole reason to exist, aimed at a new
+target.
+
+**Requirements:**
+- A ~400ms notice animation, then a speech bubble with the message and three actions: "Good
+  point" (acknowledge), "I have time" (override, suppresses today per NAV-110), "Remind me"
+  (schedules NAV-114's leave-by reminder).
+- Stays until the user acts or 30 seconds pass, then collapses to a small pulsing marker on Navi
+  for 2 minutes.
+- Never takes keyboard focus, never blocks clicks on whatever is underneath, never a modal dialog.
+- Sound off by default; a reduced-motion setting removes the animations, mirroring the accessibility
+  posture NAV-113's settings panel already has to cover.
+
+**Acceptance Criteria:**
+- [ ] A Conflict verdict produces a visible bubble within 2 seconds of the triggering event
+      (PRD's latency target), using the pre-generated line when one exists.
+- [ ] Each of the three actions reaches NAV-110/NAV-114 with the right effect: acknowledge just
+      dismisses, "I have time" suppresses today's commitment, "Remind me" arms the leave-by
+      reminder.
+- [ ] The bubble never receives keyboard focus and never intercepts a click meant for the window
+      beneath it.
+- [ ] Ignoring the bubble for 30 seconds collapses it to the pulsing marker, which clears after 2
+      minutes.
+- [ ] Reduced motion removes the notice animation without removing the bubble or its actions.
+
+### NAV-113: Settings and onboarding for nudges (F9, P0)
+**User Story:**
+- **As a:** New user
+- **I want:** To turn this on deliberately, understand what it sees, and turn it off just as easily
+- **So that:** A feature that reads my calendar and watches what I'm running never feels like it
+  crept in
+
+**Context:**
+Same shape as NAV-92's onboarding checklist (per-permission rows with live status, deep links,
+honest failure copy) and NAV-91's privacy stance (opt-in per source, local storage, a "what Navi
+sees" panel) — this ticket is those two patterns applied to a calendar connection and an activity
+toggle instead of macOS permissions and the accessibility tree.
+
+**Requirements:**
+- First-run flow for this feature specifically (can be a step inside the existing onboarding or a
+  separate guide reachable from Settings, matching NAV-92's "reachable from Settings" precedent):
+  connect a calendar, pick which activities Navi watches (League on by default), send a test
+  nudge.
+- Settings: calendars (connect/disconnect, choose calendars, default buffer), activities (toggle
+  each, view/edit duration estimates from NAV-109's profiles), nudge style (gentle/direct, quiet
+  hours, sound), privacy (what Navi can see, use event names, delete all nudge data, pause all
+  sensing with one click).
+- Calendar disconnected: mention it at most once a week, the same cadence NAV-92 uses for an
+  unconfigured provider.
+- A "what Navi sees" panel showing the current calendar snapshot and recent activity events —
+  NAV-91's transparency requirement, applied here.
+- Nothing is read from any source until the user has connected it and enabled it. No default-on
+  activity beyond the explicit "League is on by default" the PRD states.
+
+**Acceptance Criteria:**
+- [ ] A clean account reaches a working nudge (a test nudge shown) via the in-app flow alone.
+- [ ] Toggling an activity off stops NAV-109's sensor for it immediately, with no restart.
+- [ ] One-click pause stops all calendar reads and all activity sensing at once, verified by
+      request/event log.
+- [ ] "Delete all data" removes cached calendar events, activity events, and nudge logs, and
+      leaves `settings.json`/`emotion.json`/`memory.json`/`notes.json` untouched — same
+      separation-of-stores property NAV-93 and NAV-100 already hold.
+- [ ] With no calendar connected, the feature never nudges and mentions the gap at most weekly.
+
+### NAV-114: Leave-by reminder (F7, P1)
+**User Story:**
+- **As a:** User
+- **I want:** One more heads-up close to when I actually need to leave, if I played anyway
+- **So that:** Ignoring the first nudge doesn't mean missing the appointment entirely
+
+**Context:**
+The one message permitted during a match — everything else in NAV-110's gating explicitly excludes
+mid-match nudges, and this is the carve-out, not a loophole. Reuses NAV-100's reminder-timer
+pattern (single armed timer, not a poll, survives a restart) rather than building a second timer
+mechanism.
+
+**Requirements:**
+- Armed when the user plays anyway or taps "Remind me" on the original nudge (NAV-112).
+- Fires once, 10 minutes before leave time, as a bubble plus optional sound — the only nudge
+  allowed while a match is in progress.
+- Survives an app restart the same way NAV-100's reminders do.
+
+**Acceptance Criteria:**
+- [ ] Tapping "Remind me" arms a leave-by reminder that fires at the correct time even if the app
+      restarts in between.
+- [ ] The leave-by reminder is the only nudge that can appear while NAV-109 reports a match in
+      progress.
+- [ ] It fires exactly once per commitment.
+
+### NAV-115: Feedback and learning (F8, P1)
+**User Story:**
+- **As a:** User
+- **I want:** Navi's sense of how long my games actually run to get better over time
+- **So that:** The nudges get more accurate the more she watches, without me tuning anything
+
+**Context:**
+Local-only learning loop, in the same spirit as NAV-101's approval loop: an explicit signal (nudge
+outcome) recorded and fed back into behaviour, never a black box. Log storage follows NAV-108's
+new-store precedent rather than overloading NAV-93's memory store, which is inferred-and-decayed
+and the wrong lifecycle for this data.
+
+**Requirements:**
+- Log every nudge and its outcome (acknowledged, overridden, ignored, and the actual session
+  length observed by NAV-109) locally.
+- After 3 or more observed sessions for an activity, blend the real distribution into that
+  activity's typical/p90 estimate rather than replacing NAV-109's config outright.
+- Per-activity mute and a "stop nudging me about this [commitment]" control, surfaced in NAV-113's
+  settings.
+
+**Acceptance Criteria:**
+- [ ] After 3 League sessions, the typical/p90 estimate NAV-110 uses has measurably moved toward
+      the observed lengths.
+- [ ] Muting an activity stops all future nudges for it without deleting its logged history.
+- [ ] "Stop nudging me about this" on a specific commitment suppresses only that commitment, not
+      the whole activity.
+- [ ] The nudge/outcome log is queryable for the PRD's own metrics (override rate, follow-through
+      rate) even though computing and displaying them is not itself required by this ticket.
 
 ---
 
