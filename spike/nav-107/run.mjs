@@ -3,10 +3,17 @@
 // and reports the number that matters — how often the judge spoke when it should have stayed
 // quiet. See README.md for what has to be set up before this produces a real verdict.
 //
-//   OPENAI_API_KEY=sk-...            node spike/nav-107/run.mjs
-//   OLLAMA_BASE_URL=http://localhost:11434  (default; only used if reachable)
+//   OPENAI_API_KEY=sk-...             node spike/nav-107/run.mjs   # cloud, OpenAI
+//   GEMINI_API_KEY=...                node spike/nav-107/run.mjs   # cloud, Gemini (free tier)
+//   OLLAMA_BASE_URL=http://localhost:11434  (default; only used if reachable)         # local
 //
-// With neither reachable, this prints why and exits 1 rather than fabricating a result.
+// Any combination may be set at once; each configured path runs and reports separately. With
+// none reachable, this prints why and exits 1 rather than fabricating a result.
+//
+// Gemini is here because its free tier costs nothing for a dozen-odd calls — genuinely useful
+// for this throwaway measurement. It is not a candidate for NAV-111 itself on the free tier: the
+// real feature's call carries an actual screen capture, and the free tier's terms let Google use
+// what you send it to improve their models. That trade only makes sense for made-up situations.
 
 import OpenAI from 'openai';
 import { injectionSituation, situations } from './situations.mjs';
@@ -14,6 +21,8 @@ import { judge } from './judge.mjs';
 
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2:3b';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash';
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 
 async function ollamaReachable(baseUrl) {
   try {
@@ -31,9 +40,19 @@ async function buildPaths() {
 
   if (process.env.OPENAI_API_KEY) {
     paths.push({
-      name: 'cloud',
+      name: 'cloud-openai',
       client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
       model: OPENAI_MODEL,
+    });
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    // Gemini serves an OpenAI-compatible endpoint, so this needs no new client library — same
+    // `openai` package, just pointed elsewhere. https://ai.google.dev/gemini-api/docs/openai
+    paths.push({
+      name: 'cloud-gemini',
+      client: new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey: process.env.GEMINI_API_KEY }),
+      model: GEMINI_MODEL,
     });
   }
 
@@ -102,9 +121,10 @@ async function main() {
   const paths = await buildPaths();
   if (paths.length === 0) {
     console.error(
-      'No provider reachable. Set OPENAI_API_KEY for the cloud path, or run Ollama locally ' +
-        '(OLLAMA_BASE_URL, default http://localhost:11434) for the local baseline. This spike ' +
-        'measures a real model, not a mock, so there is nothing to run without one.',
+      'No provider reachable. Set OPENAI_API_KEY or GEMINI_API_KEY for a cloud path, or run ' +
+        'Ollama locally (OLLAMA_BASE_URL, default http://localhost:11434) for the local ' +
+        'baseline. This spike measures a real model, not a mock, so there is nothing to run ' +
+        'without one.',
     );
     process.exitCode = 1;
     return;
