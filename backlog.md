@@ -1112,6 +1112,25 @@ client's local API and Google's OAuth are both cross-platform, so F1 and the pri
 need nothing OS-specific. Only F2's *fallback* (process and window detection) is genuinely
 platform code, which is exactly why it is sequenced against NAV-90 rather than around it.
 
+**v1 targets macOS only, and that is a decision, not a gap.** The rest of the app is mac-first
+(HANDOFF.md decision 5: Windows and Linux are wanted eventually, not now), and there is no reason
+for this feature to get ahead of it. The League client's local API doesn't care about OS, so
+nothing about F1, F4, F5, or F6 needs to change when Windows support eventually happens elsewhere
+in the app. Only F2's fallback sensor is platform code today, and it should stay behind the same
+seam NAV-90 already draws for exactly this reason.
+
+**Storage: the existing per-store JSON-file pattern, not SQLite.** `main/memory-store.ts` already
+explains why — SQLite means a native module that has to be rebuilt against Electron's ABI on every
+version bump and platform, and the data this feature holds (a day's worth of cached calendar
+events, activity profiles, nudge logs) is nowhere near the scale that pattern was chosen to avoid.
+NAV-108, NAV-109, and NAV-115 each get their own file, the same way memory, notes, and emotion do
+— never a shared one, so deleting one store's data (NAV-113) can't touch another's.
+
+**Not now, but worth saying where it lands:** the PRD's non-goal — Navi never cancels the queue or
+closes the game, advises only — is a v1 boundary, not a permanent one. If that ever changes, it is
+new write access to the user's machine and goes through NAV-91's confirmation gate exactly like
+NAV-90's actions do; nothing here should build a second confirmation mechanism when that day comes.
+
 ### NAV-107: Spike — confirm the pipeline's riskiest assumptions before the MVP (Backlog)
 **User Story:**
 - **As a:** Maintainer
@@ -1152,9 +1171,9 @@ A throwaway prototype, not shipped code.
 
 **Context:**
 Nothing in the codebase reads a calendar. This is new external-integration surface, closest in
-shape to NAV-92's OAuth-adjacent onboarding work and NAV-93's local-store pattern, but it is a new
-store (`calendar.json` or equivalent), not an extension of memory or notes — commitments are
-neither inferred (memory) nor user-authored free text (notes).
+shape to NAV-92's OAuth-adjacent onboarding work and NAV-93's local-store pattern — a new
+`calendar.json` file, per this section's storage decision above, not an extension of memory or
+notes: commitments are neither inferred (memory) nor user-authored free text (notes).
 
 **This connects to the user's own calendar. Navi never ships or hosts one.** OAuth against the
 same Google Calendar account the user already uses — a personal Gmail calendar or a Google
@@ -1201,6 +1220,11 @@ window detection, which is the same OS-level enumeration NAV-90 is already build
 `observe_ui`. Building a second one here would be the exact kind of duplicated platform surface
 NAV-90's own ticket warns against leaking. The primary path (the League client's local API) does
 not depend on NAV-90 at all and is not blocked by it.
+
+**v1 is macOS only**, matching the rest of the app. The LCU API is the same on every OS the League
+client runs on, so the primary sensor is not platform code and needs no rework when Windows
+support eventually happens. The fallback is, because it's NAV-90's macOS process/window
+enumeration; a Windows fallback is that decision's work to do later, not this ticket's.
 
 **Description:**
 A pluggable sensor bus emitting normalized activity events, with League as the first sensor and a
@@ -1282,29 +1306,53 @@ applied to a user-facing message instead of an internal score, which is why vali
 here than anywhere else in the codebase: a wrong number in a nudge is a fabrication (NAV-97's
 honesty bound), not a mood.
 
+**Tone comes from the existing emotion/Love Meter state, not a separate style setting.** The PRD's
+`"style": "gentle"` field reads as a fixed knob; that's wrong for Navi specifically. She already
+has `EMOTION_TONE` guidance keyed off the Triforce state and the confidence bands from NAV-101 —
+a nudge should read like *her*, right now, the same way a chat reply does, not switch to a
+generic "gentle assistant" voice for this one feature. Derive the style input from current emotion
+state instead of a settings toggle. The one thing that must **not** move with mood, per NAV-97: a
+bad mood may make the nudge terser or more reluctant, never wrong about the numbers, and never
+skip a nudge NAV-110 decided should happen — declining out loud is fine, silently not nudging is
+not.
+
+**Both cloud and local providers, not cloud-only.** The PRD assumed cloud and left event titles off
+by default largely for that reason; Navi's daily driver is local Ollama (HANDOFF.md decision 3),
+so this has to work there first, not as an afterthought. That makes the template fallback more
+load-bearing here than the PRD implies — same conclusion NAV-95 already reached about structured
+output on a 3B model, applied to a user-facing line instead of an internal score.
+
 **Requirements:**
 - Input to the LLM is the structured JSON the engine produces (activity, verdict, commitment label
-  and time, typical/p90 estimate, style) — never raw calendar or activity data, and never an event
-  title unless the user has opted in (see NAV-113).
+  and time, typical/p90 estimate) plus a style input derived from current emotion/Love Meter state
+  — never raw calendar or activity data, and never an event title unless the user has opted in
+  (see NAV-113).
 - Output: one or two sentences, 30 words or fewer, that asks or suggests and never commands.
 - Validate before display: every number in the output must appear in the input. A validation
   failure falls back to a template, the same way a malformed sentiment appraisal falls back to
   rules (NAV-95) rather than surfacing an error.
+- Works with no structured-output support available, the same constraint NAV-95 designed around —
+  do not assume the local model can reliably produce or follow a rigid schema beyond the plain-word
+  facts it's handed.
 - Pre-generate the line when the League client launches and on each calendar sync; cache it; show
   it instantly at lobby entry. Live generation, if used at all, times out at 1.5 seconds and falls
   back to the template — NAV-107's latency numbers decide whether pre-generation is load-bearing or
-  a nicety on this stack.
+  a nicety on this stack, and decide it separately for local vs. cloud since the two numbers will
+  differ.
 - Event titles are never sent to the LLM by default; Navi says "your appointment" unless the user
   has turned on sharing them (NAV-113).
 
 **Acceptance Criteria:**
 - [ ] A Conflict verdict with the PRD's worked numbers produces a line naming the commitment time
       and the duration estimate, at or under 30 words.
+- [ ] The same Conflict verdict under a low-Love-Meter state and a high one produce recognizably
+      different tone while citing identical numbers — mood changes voice, never facts.
 - [ ] An output containing a number absent from the input never reaches the UI; the template shows
       instead.
 - [ ] With event-name sharing off, no commitment title reaches the LLM call.
 - [ ] A timed-out or failed generation degrades to the exact template for that verdict, with no
-      visible error and no missing nudge.
+      visible error and no missing nudge — exercised against both the local and cloud provider
+      paths.
 - [ ] The pre-generated line is shown at lobby entry with no live call on the critical path, when a
       cached line exists for the current commitment.
 
@@ -1361,9 +1409,10 @@ toggle instead of macOS permissions and the accessibility tree.
   connect a calendar, pick which activities Navi watches (League on by default), send a test
   nudge.
 - Settings: calendars (connect/disconnect, choose calendars, default buffer), activities (toggle
-  each, view/edit duration estimates from NAV-109's profiles), nudge style (gentle/direct, quiet
-  hours, sound), privacy (what Navi can see, use event names, delete all nudge data, pause all
-  sensing with one click).
+  each, view/edit duration estimates from NAV-109's profiles), nudge behaviour (quiet hours,
+  sound, reduced motion — no separate tone/style toggle, since NAV-111 derives tone from her
+  existing emotion state), privacy (what Navi can see, use event names, delete all nudge data,
+  pause all sensing with one click).
 - Calendar disconnected: mention it at most once a week, the same cadence NAV-92 uses for an
   unconfigured provider.
 - A "what Navi sees" panel showing the current calendar snapshot and recent activity events —
