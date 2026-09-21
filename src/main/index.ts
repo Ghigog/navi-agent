@@ -27,6 +27,8 @@ import { createFollow, type Follow } from './follow.js';
 import { createGuidance, type Guidance } from './guidance.js';
 import { createConversation, type Conversation } from './conversation.js';
 import { load, save } from './settings-store.js';
+import { createCalendarConnection } from './calendar-connection.js';
+import { createCalendarTokenStore } from './calendar-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
 import { load as loadMemory, reset as resetMemory, save as saveMemory } from './memory-store.js';
 import { createMemoryTools } from '../agent/recall.js';
@@ -50,6 +52,24 @@ import { lastPrompt } from '../prompt/inspector.js';
 import { describe, tintFor, type Emotion } from '../shared/emotion.js';
 import { emojiFor } from '../shared/emoji.js';
 import { view, type Settings } from '../shared/settings.js';
+
+/**
+ * NAV-108: a Desktop-app OAuth client ID is meant to ship inside the artifact — Google's own docs
+ * say so, because PKCE (not a client secret) is what actually protects this client type's token
+ * exchange. That is a deliberate, documented decision, recorded here so nobody has to work out
+ * later whether it repeats NAV-81's mistake (a live key committed by accident). It does not:
+ * NAV-81's key worked on its own; this ID is useless to anyone without a user completing their
+ * own consent screen and a loopback exchange on their own machine.
+ *
+ * Neither value is filled in here, because doing so needs a Google Cloud project that only the
+ * project owner can create — that is credentials a coding session cannot supply for itself. Set
+ * `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` to connect a real account; until
+ * then `calendar:connect` recognises it is unconfigured and does nothing.
+ */
+const CALENDAR_CLIENT_ID = process.env['GOOGLE_CALENDAR_CLIENT_ID'] ?? '';
+const CALENDAR_CLIENT_SECRET = process.env['GOOGLE_CALENDAR_CLIENT_SECRET'] ?? '';
+/** Arbitrary fixed loopback port for the OAuth redirect. Local only; never reachable off the machine. */
+const CALENDAR_OAUTH_PORT = 53682;
 
 let win: BrowserWindow | null = null;
 let chat: ChatWindow | null = null;
@@ -530,6 +550,23 @@ app.whenReady().then(() => {
     conversation?.describeState();
     return { view: view(next), hotkeyRegistered, voiceHotkeyRegistered };
   });
+
+  /**
+   * The calendar connection (NAV-108). The connection only — reading events on a schedule and
+   * deciding what counts as a commitment is NAV-117, which hands `ensureAccessToken` to whatever
+   * it builds. Nothing here yet calls `connect` or `disconnect` on its own; that button is
+   * NAV-113's, and this is the IPC surface for it to call.
+   */
+  const calendarConnection = createCalendarConnection({
+    clientId: CALENDAR_CLIENT_ID,
+    clientSecret: CALENDAR_CLIENT_SECRET,
+    port: CALENDAR_OAUTH_PORT,
+    tokenStore: createCalendarTokenStore(),
+    openUrl: (url) => void shell.openExternal(url),
+  });
+  ipcMain.handle('calendar:status', () => calendarConnection.status());
+  ipcMain.handle('calendar:connect', () => calendarConnection.connect());
+  ipcMain.handle('calendar:disconnect', () => calendarConnection.disconnect());
 
   /** The memory viewer (NAV-93): anything she remembers, the user can see and remove. */
   ipcMain.handle('memory:get', () => loadMemory());
