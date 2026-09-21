@@ -21,7 +21,10 @@ import { judge } from './judge.mjs';
 
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2:3b';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash';
+// gemini-2.0-flash was retired; Google's own 404 on it names the replacement below. Override
+// with GEMINI_MODEL if that name has moved on again by the time this actually gets run — this
+// spike does not warrant tracking Google's release cadence.
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.6-flash';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 
 async function ollamaReachable(baseUrl) {
