@@ -48,7 +48,13 @@ async function buildPaths() {
   if (process.env.OPENAI_API_KEY) {
     paths.push({
       name: 'cloud-openai',
-      client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }),
+      // maxRetries: 0 on every path — the openai SDK retries 429/5xx twice by default, which
+      // means one paced `judge()` call could silently fire up to 3 real HTTP requests seconds
+      // apart. That's invisible with a generous quota but defeats Gemini's pacing below outright
+      // (found live: hitting a single 429 burned through the rest of that minute's budget before
+      // our own next call was even due) and it breaks the "one call, one attempt" shape
+      // judge.mjs is supposed to have either way.
+      client: new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0 }),
       model: OPENAI_MODEL,
     });
   }
@@ -58,7 +64,7 @@ async function buildPaths() {
     // `openai` package, just pointed elsewhere. https://ai.google.dev/gemini-api/docs/openai
     paths.push({
       name: 'cloud-gemini',
-      client: new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey: process.env.GEMINI_API_KEY }),
+      client: new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey: process.env.GEMINI_API_KEY, maxRetries: 0 }),
       model: GEMINI_MODEL,
       // Free tier caps at 5 requests/minute per model — found by running into the 429 live.
       // 16 calls (15 situations + the injection check) fired back-to-back blew through that in
@@ -72,7 +78,11 @@ async function buildPaths() {
   if (await ollamaReachable(ollamaBaseUrl)) {
     paths.push({
       name: 'local',
-      client: new OpenAI({ baseURL: `${ollamaBaseUrl.replace(/\/+$/, '')}/v1`, apiKey: 'ollama' }),
+      client: new OpenAI({
+        baseURL: `${ollamaBaseUrl.replace(/\/+$/, '')}/v1`,
+        apiKey: 'ollama',
+        maxRetries: 0,
+      }),
       model: OLLAMA_MODEL,
     });
   }
