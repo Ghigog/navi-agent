@@ -71,4 +71,16 @@ describe('redact', () => {
     expect(redact(null)).toBe(null);
     expect(redact(undefined)).toBe(undefined);
   });
+
+  it('masks a calendar refresh and access token (NAV-108), by the same name match as any other secret', () => {
+    const out = redact({ refreshToken: KEY, accessToken: 'ya29.abc', expiresAt: 1_700_000_000_000 }) as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(out)).not.toContain(KEY);
+    expect(out['refreshToken']).toBe(`<redacted:${KEY.length} chars>`);
+    expect(out['accessToken']).toBe('<redacted:8 chars>');
+    // Not a secret by name, and worth being able to see in a log.
+    expect(out['expiresAt']).toBe(1_700_000_000_000);
+  });
 });

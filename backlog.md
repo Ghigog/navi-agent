@@ -128,7 +128,7 @@ untrusted screen content.
 |---|---|---|---|
 | 1 | **NAV-107** | Spike: is the judgement any good? | — |
 | 2 | **NAV-112** | A surface that never steals focus | **Done** |
-| 3 | **NAV-108** | Connect a Google Calendar | P0 |
+| 3 | **NAV-108** | Connect a Google Calendar | Built — unrun against a real Google account |
 | 4 | **NAV-117** | Calendar sync and the commitment cache | P0 |
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | P0 |
 | 6 | **NAV-110** | The interruption gate | P0 |
@@ -1337,7 +1337,7 @@ but NAV-100's repoint passes none — there is nothing yet for a reminder to dec
 click just dismisses for now; NAV-114 is expected to be the first caller with real choices to
 offer.
 
-### NAV-108: Connect a Google Calendar (Backlog — P0)
+### NAV-108: Connect a Google Calendar (Backlog — built, one AC needs a real Google account)
 **User Story:**
 - **As a:** User
 - **I want:** To connect the calendar I already use, once, and have it stay connected
@@ -1372,13 +1372,36 @@ Google Calendar account they already use, personal or Workspace — same API, sa
 
 **Acceptance Criteria:**
 - [ ] Connecting a personal Google account and a Workspace account each end with a token stored and
-      one event readable as proof of life.
-- [ ] The token is in `safeStorage`, never in `settings.json`, and `shared/redact.ts` covers it if
+      one event readable as proof of life. **Needs a real Google Cloud OAuth client and a human at
+      a keyboard — see below.**
+- [x] The token is in `safeStorage`, never in `settings.json`, and `shared/redact.ts` covers it if
       one ever reaches a log.
-- [ ] An expired access token refreshes without the user noticing.
-- [ ] A revoked grant produces a reconnect prompt, not silence.
-- [ ] An admin-blocked Workspace grant produces a message naming that specifically.
-- [ ] Disconnecting leaves no token and no cached data behind.
+- [x] An expired access token refreshes without the user noticing.
+- [x] A revoked grant produces a reconnect prompt, not silence.
+- [x] An admin-blocked Workspace grant produces a message naming that specifically.
+- [x] Disconnecting leaves no token and no cached data behind.
+
+**What is built.** `shared/calendar-oauth.ts` is PKCE, the auth URL, and reading what Google's
+redirect or token endpoint is actually saying — pure, no imports, using the global Web Crypto API
+rather than `node:crypto` so it stays consistent with the rest of `shared/`.
+`main/calendar-connection.ts` is the flow itself — connect, disconnect, `ensureAccessToken` — built
+the way `main/reminders.ts` is: no Electron import, every side effect (the loopback listener, the
+token endpoint, the proof-of-life read, revoke) arrives as an injected dependency with a real
+default, so `test/calendar-connection.test.ts` drives every path above with no network and no
+browser. `main/calendar-store.ts` is the one file that touches `safeStorage`, and is thin wiring on
+purpose, the same as `settings-store.ts`. `main/index.ts` wires up `calendar:status`,
+`calendar:connect` and `calendar:disconnect` over IPC; nothing calls them yet, since the button
+that would is NAV-113's.
+
+**The one thing this session could not do: get a real Google Cloud OAuth client ID.** That is
+credentials only the project owner can create, so `CALENDAR_CLIENT_ID` /
+`CALENDAR_CLIENT_SECRET` in `main/index.ts` read from `GOOGLE_CALENDAR_CLIENT_ID` /
+`GOOGLE_CALENDAR_CLIENT_SECRET` and are empty by default — `connect()` recognises that and does
+nothing rather than opening a browser at a blank client id. Set those two variables to a real
+Desktop-app OAuth client (Calendar API enabled, `calendar.readonly` scope) and the flow is ready to
+run end to end. Until someone does that and drives it once against a personal account and a
+Workspace account, the first acceptance criterion stays open — everything downstream of the
+network boundary is proven by test, the boundary itself is not.
 
 ### NAV-117: Calendar sync and the commitment cache (Backlog — P0)
 **User Story:**
