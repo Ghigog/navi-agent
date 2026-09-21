@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createOverlay } from './overlay.js';
 import { createChatWindow, type ChatWindow } from './chat-window.js';
+import { createBubbleWindow, type BubbleWindow } from './bubble-window.js';
 import { createSettingsWindow, type SettingsWindow } from './settings-window.js';
 import { createOnboardingWindow, type OnboardingWindow } from './onboarding-window.js';
 import { helperAccessibilityStatus, ollamaModels, ollamaReachable, permissions, request } from './permissions.js';
@@ -52,6 +53,7 @@ import { view, type Settings } from '../shared/settings.js';
 
 let win: BrowserWindow | null = null;
 let chat: ChatWindow | null = null;
+let bubble: BubbleWindow | null = null;
 let settings: SettingsWindow | null = null;
 let onboarding: OnboardingWindow | null = null;
 let clickThrough: ClickThrough | null = null;
@@ -95,6 +97,7 @@ app.whenReady().then(() => {
       if (!open) void conversation?.endSession();
     },
   });
+  bubble = createBubbleWindow();
   settings = createSettingsWindow();
   onboarding = createOnboardingWindow();
 
@@ -166,15 +169,22 @@ app.whenReady().then(() => {
     write: (next) => saveNotes(next),
     fire: (due) => {
       for (const note of due) {
-        // Shown in the chat, and the window is opened for it: a reminder nobody sees is not a
-        // reminder. She says it aloud too when voice is on, which is the case it is for.
+        // Kept in the chat transcript, so it is there if the chat window is opened later, but
+        // no longer what puts it on screen (NAV-112): a reminder firing must not steal focus
+        // from whatever the user is doing, and `chat.show` always did.
         chat?.send('chat:event', { type: 'reminder', text: note.text });
         if (load().voiceOutput) {
           speaker?.push(`You asked me to remind you: ${note.text}. `);
           void speaker?.finish();
         }
       }
-      if (win) chat?.show(win);
+      // One bubble, even when several came due in the same sweep — it says the first and the
+      // rest are still in the transcript, rather than a stack of surfaces fighting for the spot.
+      const [first, ...rest] = due;
+      if (win && first) {
+        const text = rest.length === 0 ? first.text : `${first.text} (+${rest.length} more)`;
+        bubble?.show(win, { text: `⏰ ${text}` });
+      }
       win?.webContents.send('summoned');
     },
   });
@@ -420,6 +430,14 @@ app.whenReady().then(() => {
   ipcMain.on('chat:open', () => {
     if (win) chat?.show(win);
   });
+
+  /**
+   * The bubble (NAV-112). Nothing yet gives it more than an acknowledgement button, so any click
+   * just dismisses it — the surface is generic ahead of NAV-114, which will be its first caller
+   * with something to decide between.
+   */
+  ipcMain.on('bubble:action', () => bubble?.dismiss());
+  ipcMain.on('bubble:dismiss', () => bubble?.dismiss());
 
   /**
    * A finished recording. Transcribed locally, then sent as an ordinary turn — so everything

@@ -1,0 +1,123 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Navi</title>
+<style>
+  /* Transparent and frameless, like the chat window; the card is the whole visible surface. */
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    color: #e9e9ef;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #card {
+    box-sizing: border-box;
+    height: 100%;
+    margin: 6px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 14px;
+    background: rgba(22, 23, 30, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transform: translateY(2px);
+    transition:
+      opacity 180ms ease,
+      transform 180ms ease;
+  }
+  #card.shown {
+    opacity: 1;
+    transform: none;
+  }
+
+  #text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  #buttons {
+    display: flex;
+    gap: 6px;
+  }
+  #buttons button {
+    flex: none;
+    border: 0;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font: inherit;
+    background: rgba(255, 255, 255, 0.1);
+    color: inherit;
+  }
+  #buttons button:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /* The collapsed state (NAV-112): a dot, not a card, and never itself the reason a reminder
+     mattered less. */
+  #marker {
+    display: none;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: rgba(255, 191, 0, 0.85);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  body.collapsed #card {
+    display: none;
+  }
+  body.collapsed #marker {
+    display: block;
+  }
+
+  /* Reduced motion removes the animation, never the bubble itself. */
+  @media (prefers-reduced-motion: reduce) {
+    #card {
+      transition: none;
+    }
+  }
+</style>
+
+<div id="card">
+  <div id="text"></div>
+  <div id="buttons"></div>
+</div>
+<div id="marker"></div>
+
+<script>
+  const card = document.getElementById('card');
+  const text = document.getElementById('text');
+  const buttons = document.getElementById('buttons');
+
+  window.naviBubble.onShow((message) => {
+    document.body.classList.remove('collapsed');
+    text.textContent = message.text;
+    buttons.replaceChildren(
+      ...message.buttons.map((b) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = b.label;
+        button.addEventListener('click', () => window.naviBubble.action(b.id));
+        return button;
+      }),
+    );
+    // Rendered before the transition-in runs; a class toggled on the same frame it is added
+    // never transitions.
+    requestAnimationFrame(() => card.classList.add('shown'));
+  });
+
+  window.naviBubble.onCollapse(() => {
+    card.classList.remove('shown');
+    document.body.classList.add('collapsed');
+  });
+</script>
