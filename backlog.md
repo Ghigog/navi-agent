@@ -127,7 +127,7 @@ untrusted screen content.
 | Order | Ticket | Subject | Priority |
 |---|---|---|---|
 | 1 | **NAV-107** | Spike: is the judgement any good? | — |
-| 2 | **NAV-112** | A surface that never steals focus | P0 |
+| 2 | **NAV-112** | A surface that never steals focus | **Done** |
 | 3 | **NAV-108** | Connect a Google Calendar | P0 |
 | 4 | **NAV-117** | Calendar sync and the commitment cache | P0 |
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | P0 |
@@ -1269,7 +1269,7 @@ exist in this environment. Run `spike/nav-107/run.mjs` and `spike/nav-107/oauth.
 retire `spike/` the way NAV-94's was retired once the verdict is recorded here. **NAV-111 does not
 start until that recommendation says to build it.**
 
-### NAV-112: A surface that never steals focus (Backlog — P0, and first)
+### NAV-112: A surface that never steals focus (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to be able to say something without pulling me out of what I am doing
@@ -1308,12 +1308,34 @@ focus and never blocks a click meant for what is underneath.
 - Repoint NAV-100's reminder delivery at this surface, and stop it calling `chat.show`.
 
 **Acceptance Criteria:**
-- [ ] A reminder firing while another application has focus does not move focus, does not raise
+- [x] A reminder firing while another application has focus does not move focus, does not raise
       Navi's chat window, and does not interrupt typing into the other application.
-- [ ] The bubble's buttons respond to the first click without the app activating first.
-- [ ] Placement is pinned by tests with no display, as `chatBounds` is.
-- [ ] Ignoring it collapses it on the stated schedule without any input.
-- [ ] Nothing in the unprompted path calls `app.focus`, `win.focus`, or `chat.show`.
+- [x] The bubble's buttons respond to the first click without the app activating first.
+- [x] Placement is pinned by tests with no display, as `chatBounds` is.
+- [x] Ignoring it collapses it on the stated schedule without any input.
+- [x] Nothing in the unprompted path calls `app.focus`, `win.focus`, or `chat.show`.
+
+**`main/bubble-window.ts` is `chat-window.ts`'s mirror image.** Same frameless, transparent,
+always-on-top treatment; opposite mechanism. `showInactive()` instead of `show()`, no `focus()`
+call anywhere in it, `focusable: false` as a second line of defence against a future edit adding
+one back, and `acceptFirstMouse: true` so a button's first click registers instead of activating
+the app. It reuses `chatBounds` for placement rather than adding a second copy of the same maths
+at a different size — `chatBounds` was already pure, already tested, and already sat right next to
+where this needed to go.
+
+**The collapse is a plain setTimeout chain, not a poll.** Full bubble for `BUBBLE_VISIBLE_MS`
+(30s) or until a button is clicked, whichever is first; then `win.setIgnoreMouseEvents(true)` and
+a small dot at `MARKER_SIZE` for `MARKER_VISIBLE_MS` (2 minutes); then hidden. Every stage clears
+the one before it, so acting on it early never leaves a stale timer waiting to fire.
+
+**NAV-100's reminder delivery now calls `bubble.show`, never `chat.show`.** The chat transcript
+still gets the reminder text, so it is there if the chat window is opened for some other reason,
+but opening it is no longer what puts the reminder on screen.
+
+**The surface is generic ahead of its next caller.** `BubbleMessage` carries up to three buttons,
+but NAV-100's repoint passes none — there is nothing yet for a reminder to decide between. Any
+click just dismisses for now; NAV-114 is expected to be the first caller with real choices to
+offer.
 
 ### NAV-108: Connect a Google Calendar (Backlog — P0)
 **User Story:**

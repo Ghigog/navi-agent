@@ -47,7 +47,7 @@ This is a **companion first, agent second**. See "Decisions already made".
 | 10 | **Click-through must be driven from outside the window.** A click-through window cannot receive keystrokes, so an in-window toggle can enable it and never disable it. Use a global shortcut, or cursor position. | ADR 0001 |
 | 11 | **The idle render loop must be throttled.** The spike passed its resource bar without much room (2.4-2.6% CPU, 356 MB). The fairy does not need 60fps when nothing is happening. | ADR 0001 |
 | 12 | **The Godot app is deleted.** Not deprecated, not kept as a reference. It is in git history and does not need rescuing or comparing against. | NAV-105 |
-| 13 | **She never steals focus.** Anything Navi says unprompted must not take the keyboard, raise a window over what you are doing, or interrupt typing. The reminder path violates this today (`chat-window.ts:94` calls `app.focus({ steal: true })`) and NAV-112 is the fix. | Owner, 2026-09-19 |
+| 13 | **She never steals focus.** Anything Navi says unprompted must not take the keyboard, raise a window over what you are doing, or interrupt typing. The reminder path used to violate this (`chat-window.ts:94` calls `app.focus({ steal: true })`); NAV-112 repointed it at `main/bubble-window.ts`, a third window that never calls `focus()` at all. | Owner, 2026-09-19 |
 
 ---
 
@@ -137,10 +137,10 @@ the goal — building the narrow version is the main way to get this wrong.
 1. **NAV-107 — the spike.** Throwaway. Answers whether a model asked "is there anything worth
    saying?" stays quiet when it should. That number gates NAV-111's design, so do it first even
    though it ships nothing.
-2. **NAV-112 — the surface that never steals focus.** Worth doing whatever the spike says, because
-   it fixes a defect that is live right now: the only unprompted path in the app today
-   (`reminders` → `chat.show` → `app.focus({ steal: true })`) pulls you out of whatever you are
-   doing. Decision 13.
+2. **NAV-112 — the surface that never steals focus. Done.** Fixed the defect that was live: the
+   only unprompted path in the app (`reminders` → `chat.show` → `app.focus({ steal: true })`) no
+   longer touches the chat window at all — `main/bubble-window.ts` shows a line via
+   `showInactive()` and collapses on its own. Decision 13.
 3. **NAV-108, then NAV-117** — connect a calendar, then sync and cache it.
 4. **NAV-114 — the leave-by reminder.** The thin slice that ships real value: pure arithmetic, no
    model, no screen capture, no injection surface.

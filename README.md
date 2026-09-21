@@ -70,7 +70,7 @@ src/prompt/     the system prompt. All prompt text lives here and nowhere else (
 src/agent/      provider seam, tool registry, the screen tools, the UI tools (NAV-90), the
                 guidance tool, the memory and note tools, the agent loop, turn assembly, and the
                 two cheap side-calls (appraisal, summary).
-src/main/       Electron main process: the four windows, the cursor poll that drives
+src/main/       Electron main process: the five windows, the cursor poll that drives
                 click-through and following, capture, voice, the native helper client (NAV-90),
                 the three stores, the reminder timer, the guidance controller, the safety gate,
                 settings, hotkeys, and conversation.ts — the thing that finally calls takeTurn.

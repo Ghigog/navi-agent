@@ -10,6 +10,7 @@ const targets = [
   { entryPoints: ['src/main/index.ts'], outfile: 'dist/main/index.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/preload.ts'], outfile: 'dist/preload/index.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/chat-preload.ts'], outfile: 'dist/preload/chat.cjs', platform: 'node', format: 'cjs' },
+  { entryPoints: ['src/main/bubble-preload.ts'], outfile: 'dist/preload/bubble.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/settings-preload.ts'], outfile: 'dist/preload/settings.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/main/onboarding-preload.ts'], outfile: 'dist/preload/onboarding.cjs', platform: 'node', format: 'cjs' },
   { entryPoints: ['src/renderer/app.ts'], outfile: 'dist/renderer/app.js', platform: 'browser', format: 'esm' },
@@ -26,6 +27,9 @@ await cp('src/renderer/onboarding.html', 'dist/renderer/onboarding.html');
 // No entry point of its own: marker.html carries its own inline script, because the window it
 // belongs to lives for 600ms and has no IPC surface to justify a preload.
 await cp('src/renderer/marker.html', 'dist/renderer/marker.html');
+// Same reasoning for bubble.html's script — it is small enough to stay inline even though, unlike
+// marker.html, it does have a preload (naviBubble) to talk to.
+await cp('src/renderer/bubble.html', 'dist/renderer/bubble.html');
 
 for (const t of targets) {
   const config = { ...t, bundle: true, sourcemap: true, target: 'node20', external: ['electron'] };
