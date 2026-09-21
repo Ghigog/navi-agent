@@ -29,6 +29,8 @@ import { createConversation, type Conversation } from './conversation.js';
 import { load, save } from './settings-store.js';
 import { createCalendarConnection } from './calendar-connection.js';
 import { createCalendarTokenStore } from './calendar-store.js';
+import { createCalendarSync, type CalendarSync } from './calendar-sync.js';
+import { clear as clearCalendarCache, load as loadCalendarCache, save as saveCalendarCache } from './calendar-cache-store.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
 import { load as loadMemory, reset as resetMemory, save as saveMemory } from './memory-store.js';
 import { createMemoryTools } from '../agent/recall.js';
@@ -85,6 +87,7 @@ let speaker: Speaker | null = null;
 // built before the conversation that owns one.
 let conversation: Conversation | null = null;
 let reminders: Reminders | null = null;
+let calendarSync: CalendarSync | null = null;
 /** What she was feeling last, so a change can be spotted (emotions.md §9.2). */
 let lastEmotion: Emotion | null = null;
 let gate: Gate | null = null;
@@ -552,10 +555,8 @@ app.whenReady().then(() => {
   });
 
   /**
-   * The calendar connection (NAV-108). The connection only — reading events on a schedule and
-   * deciding what counts as a commitment is NAV-117, which hands `ensureAccessToken` to whatever
-   * it builds. Nothing here yet calls `connect` or `disconnect` on its own; that button is
-   * NAV-113's, and this is the IPC surface for it to call.
+   * The calendar connection (NAV-108). Nothing here yet calls `connect` or `disconnect` on its
+   * own; that button is NAV-113's, and this is the IPC surface for it to call.
    */
   const calendarConnection = createCalendarConnection({
     clientId: CALENDAR_CLIENT_ID,
@@ -564,9 +565,29 @@ app.whenReady().then(() => {
     tokenStore: createCalendarTokenStore(),
     openUrl: (url) => void shell.openExternal(url),
   });
+
+  /**
+   * The commitment cache (NAV-117). Keeps the next 24 hours current on a slow timer, plus a forced
+   * refresh right before NAV-110 or NAV-111 needs to decide something. `enabled` is just "is a
+   * calendar connected" until NAV-113 adds a pause switch — this hook is where that plugs in.
+   */
+  calendarSync = createCalendarSync({
+    read: loadCalendarCache,
+    write: (next) => saveCalendarCache(next),
+    ensureAccessToken: () => calendarConnection.ensureAccessToken(),
+    enabled: () => calendarConnection.status().state === 'connected',
+  });
   ipcMain.handle('calendar:status', () => calendarConnection.status());
-  ipcMain.handle('calendar:connect', () => calendarConnection.connect());
-  ipcMain.handle('calendar:disconnect', () => calendarConnection.disconnect());
+  ipcMain.handle('calendar:connect', async () => {
+    const status = await calendarConnection.connect();
+    if (status.state === 'connected') void calendarSync?.refreshNow();
+    return status;
+  });
+  ipcMain.handle('calendar:disconnect', async () => {
+    await calendarConnection.disconnect();
+    calendarSync?.stop();
+    clearCalendarCache();
+  });
 
   /** The memory viewer (NAV-93): anything she remembers, the user can see and remove. */
   ipcMain.handle('memory:get', () => loadMemory());
@@ -672,6 +693,9 @@ app.whenReady().then(() => {
   // Sweeps anything that came due while the app was closed, then arms for the next one.
   reminders.start();
 
+  // Only arms a timer at all when a calendar is already connected — nothing to sync otherwise.
+  calendarSync.start();
+
   // The overlay is the app. It has no frame and cannot be closed by hand, but if it ever goes
   // away the hidden windows must not keep the process alive with nothing on screen.
   win.on('closed', () => app.quit());
@@ -686,6 +710,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   reminders?.stop();
+  calendarSync?.stop();
   guidance?.abort();
   speaker?.stop();
   clickThrough?.stop();

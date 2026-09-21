@@ -129,7 +129,7 @@ untrusted screen content.
 | 1 | **NAV-107** | Spike: is the judgement any good? | — |
 | 2 | **NAV-112** | A surface that never steals focus | **Done** |
 | 3 | **NAV-108** | Connect a Google Calendar | Built — unrun against a real Google account |
-| 4 | **NAV-117** | Calendar sync and the commitment cache | P0 |
+| 4 | **NAV-117** | Calendar sync and the commitment cache | **Done** |
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | P0 |
 | 6 | **NAV-110** | The interruption gate | P0 |
 | 7 | **NAV-109** | Activity signal — what you are doing now | P0 |
@@ -1403,7 +1403,7 @@ run end to end. Until someone does that and drives it once against a personal ac
 Workspace account, the first acceptance criterion stays open — everything downstream of the
 network boundary is proven by test, the boundary itself is not.
 
-### NAV-117: Calendar sync and the commitment cache (Backlog — P0)
+### NAV-117: Calendar sync and the commitment cache (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi's idea of my day to be current and to contain only things I am actually expected
@@ -1430,12 +1430,34 @@ words (notes, which are never pruned).
 - Sync stops entirely when the feature is paused or no calendar is connected.
 
 **Acceptance Criteria:**
-- [ ] A confirmed, busy, timed event within 24 hours reaches the cache; an all-day, declined,
-      tentative or "free" one never does.
-- [ ] A forced refresh reflects a change made to the calendar seconds earlier.
-- [ ] The available-time arithmetic is pure and pinned by tests with a fake clock and no network.
-- [ ] Buffers apply per event, with the location default, and a per-event override wins.
-- [ ] Pausing the feature stops all network activity, verified by request log.
+- [x] A confirmed, busy, timed event within 24 hours reaches the cache; an all-day, declined,
+      tentative or "free" one never does. `isCommitment` and `applySync`, pinned in
+      `test/calendar.test.ts`.
+- [x] A forced refresh reflects a change made to the calendar seconds earlier.
+      `calendarSync.refreshNow()`, pinned against a fake fetch returning different pages on
+      successive calls.
+- [x] The available-time arithmetic is pure and pinned by tests with a fake clock and no network.
+      `minutesUntilLeaveBy` takes a cache and a clock reading, nothing else.
+- [x] Buffers apply per event, with the location default, and a per-event override wins.
+      `bufferMinutesFor` — 10 minutes plain, 15 with a location, an explicit override beats both.
+- [x] Pausing the feature stops all network activity, verified by request log. `enabled()` is
+      checked before the timer is even armed and again before `ensureAccessToken` is called, so a
+      paused or disconnected sync makes zero requests — pinned by asserting the request log stays
+      empty, not just that the cache is unchanged.
+
+**Everything above is testable without a real Google account, unlike NAV-108's one open
+criterion.** `main/calendar-sync.ts` takes the store, the clock, the timer and the network call as
+dependencies the same way `reminders.ts` does, so a full sync, an incremental one, an expired sync
+token falling back to a full resync, a failed request leaving the cache untouched, and a paused or
+disconnected sync making no request at all all run under test with no network. Wired into
+`main/index.ts` next to the connection: `calendar:connect` triggers a forced refresh on success,
+`calendar:disconnect` stops the sync and clears `calendar.json`, and `enabled()` is currently just
+"is a calendar connected" — the seam NAV-113's pause switch plugs into, not built yet because that
+switch is NAV-113's own ticket.
+
+**The 15-30 minute cadence is 20.** Anywhere in the band satisfies the requirement; the forced
+refresh is what actually guarantees freshness at decision time; the number in between just bounds
+staleness the rest of the time.
 
 ### NAV-114: Leave-by reminder (Backlog — P0, the thin slice)
 **User Story:**
