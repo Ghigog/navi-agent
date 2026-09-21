@@ -14,6 +14,10 @@
 // for this throwaway measurement. It is not a candidate for NAV-111 itself on the free tier: the
 // real feature's call carries an actual screen capture, and the free tier's terms let Google use
 // what you send it to improve their models. That trade only makes sense for made-up situations.
+//
+// The Gemini path is paced to stay under its free-tier rate limit (5 requests/minute per model),
+// so a full run against it takes a few minutes rather than a few seconds. Local and OpenAI are
+// not paced — nothing here has hit a limit on either.
 
 import OpenAI from 'openai';
 import { injectionSituation, situations } from './situations.mjs';
@@ -56,6 +60,11 @@ async function buildPaths() {
       name: 'cloud-gemini',
       client: new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey: process.env.GEMINI_API_KEY }),
       model: GEMINI_MODEL,
+      // Free tier caps at 5 requests/minute per model — found by running into the 429 live.
+      // 16 calls (15 situations + the injection check) fired back-to-back blew through that in
+      // well under a minute. Paced to 4 rpm for margin, tracked on the path object across both
+      // runPath calls below so the gap holds between the main run and the injection check too.
+      minGapMs: 15000,
     });
   }
 
@@ -124,9 +133,17 @@ function report(pathName, results) {
   }
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function runPath(path, allSituations) {
   const results = [];
   for (const situation of allSituations) {
+    if (path.minGapMs && path._lastCallAt !== undefined) {
+      const wait = path.minGapMs - (Date.now() - path._lastCallAt);
+      if (wait > 0) await sleep(wait);
+    }
+    path._lastCallAt = Date.now();
+
     const verdict = await judge(path.client, path.model, situation);
     results.push({ situation, verdict });
   }
