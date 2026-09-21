@@ -31,6 +31,8 @@ import { createCalendarConnection } from './calendar-connection.js';
 import { createCalendarTokenStore } from './calendar-store.js';
 import { createCalendarSync, type CalendarSync } from './calendar-sync.js';
 import { clear as clearCalendarCache, load as loadCalendarCache, save as saveCalendarCache } from './calendar-cache-store.js';
+import { clear as clearLeaveBy, load as loadLeaveBy, save as saveLeaveBy } from './leave-by-store.js';
+import { leaveByMessage, reconcileLeaveByNotes } from '../shared/leave-by.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
 import { load as loadMemory, reset as resetMemory, save as saveMemory } from './memory-store.js';
 import { createMemoryTools } from '../agent/recall.js';
@@ -87,6 +89,7 @@ let speaker: Speaker | null = null;
 // built before the conversation that owns one.
 let conversation: Conversation | null = null;
 let reminders: Reminders | null = null;
+let leaveByReminders: Reminders | null = null;
 let calendarSync: CalendarSync | null = null;
 /** What she was feeling last, so a change can be spotted (emotions.md §9.2). */
 let lastEmotion: Emotion | null = null;
@@ -573,7 +576,13 @@ app.whenReady().then(() => {
    */
   calendarSync = createCalendarSync({
     read: loadCalendarCache,
-    write: (next) => saveCalendarCache(next),
+    write: (next) => {
+      saveCalendarCache(next);
+      // Arms a leave-by note for every commitment as it appears, and drops one already armed
+      // for a commitment that just vanished (cancelled, declined, aged out) — NAV-114.
+      saveLeaveBy(reconcileLeaveByNotes(next, loadLeaveBy(), Date.now()));
+      leaveByReminders?.refresh();
+    },
     ensureAccessToken: () => calendarConnection.ensureAccessToken(),
     enabled: () => calendarConnection.status().state === 'connected',
   });
@@ -587,7 +596,40 @@ app.whenReady().then(() => {
     await calendarConnection.disconnect();
     calendarSync?.stop();
     clearCalendarCache();
+    clearLeaveBy();
+    leaveByReminders?.refresh();
   });
+
+  /**
+   * The leave-by reminder (NAV-114). Time to leave is arithmetic, not an opinion, so this reuses
+   * `main/reminders.ts` rather than a second timer or a model call — `reconcileLeaveByNotes`
+   * above is what keeps this store in step with the commitment cache; this is only the timer and
+   * how she says it once a leave-by moment actually arrives.
+   */
+  leaveByReminders = createReminders({
+    read: loadLeaveBy,
+    write: (next) => saveLeaveBy(next),
+    fire: (due) => {
+      const emotion = loadEmotion().emotion;
+      const said = due.map((note) => ({ note, text: leaveByMessage(emotion, note.text) }));
+      for (const { text } of said) {
+        // Same path as NAV-100's reminders: kept in the transcript, never steals focus (NAV-112).
+        chat?.send('chat:event', { type: 'reminder', text });
+        if (load().voiceOutput) {
+          speaker?.push(`${text} `);
+          void speaker?.finish();
+        }
+      }
+      const [first, ...rest] = said;
+      if (win && first) {
+        const text = rest.length === 0 ? first.text : `${first.text} (+${rest.length} more)`;
+        bubble?.show(win, { text: `⏰ ${text}` });
+      }
+      win?.webContents.send('summoned');
+    },
+  });
+  // Picks up anything already in a cache loaded from a previous session that was never armed.
+  saveLeaveBy(reconcileLeaveByNotes(loadCalendarCache(), loadLeaveBy(), Date.now()));
 
   /** The memory viewer (NAV-93): anything she remembers, the user can see and remove. */
   ipcMain.handle('memory:get', () => loadMemory());
@@ -692,6 +734,7 @@ app.whenReady().then(() => {
 
   // Sweeps anything that came due while the app was closed, then arms for the next one.
   reminders.start();
+  leaveByReminders.start();
 
   // Only arms a timer at all when a calendar is already connected — nothing to sync otherwise.
   calendarSync.start();
@@ -710,6 +753,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   reminders?.stop();
+  leaveByReminders?.stop();
   calendarSync?.stop();
   guidance?.abort();
   speaker?.stop();
