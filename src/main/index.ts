@@ -38,6 +38,8 @@ import { load as loadMemory, reset as resetMemory, save as saveMemory } from './
 import { createMemoryTools } from '../agent/recall.js';
 import { createNoteTools } from '../agent/notes.js';
 import { load as loadNotes, save as saveNotes } from './notes-store.js';
+import { load as loadOutcomeLog, save as saveOutcomeLog } from './outcome-log-store.js';
+import { EMPTY_OUTCOME_LOG, isMuted, muteActivity, muteSubject, recordOutcome, unmuteActivity, unmuteSubject, type OutcomeLog } from '../shared/outcome-log.js';
 import { createReminders, type Reminders } from './reminders.js';
 import { createGate, type Gate } from './gate.js';
 import { createActivitySignal, type ActivitySignal } from './activity-signal.js';
@@ -127,20 +129,31 @@ let interruptionState: InterruptionState = INITIAL_INTERRUPTION_STATE;
 let activityLog: ActivityLogEntry[] = [];
 let judgementLog: JudgementLogEntry[] = [];
 /**
- * The subject a currently-showing bubble is a remark about, or null when the bubble on screen (if
- * any) is a reminder rather than a judgement. `remarkResponded` only applies to the latter.
+ * NAV-115's durable record: every remark's outcome, and the permanent per-subject/per-activity
+ * mutes. Empty until `app.whenReady` loads the real one — `app.getPath` is not safe to call
+ * before then, the same reason every other on-disk store here is loaded inside that callback.
  */
-let activeRemarkSubject: string | null = null;
+let outcomeLog: OutcomeLog = EMPTY_OUTCOME_LOG;
+/**
+ * What a currently-showing bubble is a remark about, or null when the bubble on screen (if any)
+ * is a reminder rather than a judgement. `remarkResponded` and NAV-115's log only apply to the
+ * latter, which is what this being non-null distinguishes.
+ */
+let activeRemark: { subject: string; activity: string; remark: string } | null = null;
 
 /**
  * A bubble left the screen without an explicit answer counting as heard. Called before showing
  * any *other* bubble over a still-open remark, and from the bubble's own collapse clock — the two
  * ways an unanswered remark actually ends.
+ *
+ * Also where NAV-115's durable log is written, in the same place the in-memory backoff above
+ * updates, so the two can never drift out of step with each other.
  */
 function clearActiveRemark(response: RemarkResponse = 'ignored'): void {
-  if (activeRemarkSubject === null) return;
+  if (activeRemark === null) return;
   interruptionState = remarkResponded(interruptionState, response);
-  activeRemarkSubject = null;
+  outcomeLog = saveOutcomeLog(recordOutcome(outcomeLog, { at: Date.now(), ...activeRemark, outcome: response }));
+  activeRemark = null;
 }
 
 /** Pending confirmation cards, keyed by the id the chat window answers with (NAV-91). */
@@ -149,6 +162,7 @@ let nextConfirmation = 0;
 
 app.whenReady().then(() => {
   const current = load();
+  outcomeLog = loadOutcomeLog();
 
   win = createOverlay();
   // One poll, two readers. Click-through and following both act on the cursor, and two timers
@@ -511,17 +525,19 @@ app.whenReady().then(() => {
   });
 
   /**
-   * The bubble (NAV-112). NAV-118 is its first caller with something to decide between: any
-   * button click is "heard" (NAV-110's `acknowledged`), whichever button it was — agreeing and
-   * overriding both mean she was heard, and `RemarkResponse` does not distinguish them. Either
-   * way the surface itself stays generic; it is `clearActiveRemark` that knows what a click means.
+   * The bubble (NAV-112), one channel for every button on it — the surface itself stays generic
+   * (`bubble-window.ts` just renders whatever `{ id, label }` pairs it is given); this is what
+   * gives each id a meaning. "Thanks" (`ack`) is `acknowledged`. "Not now" (`dismiss`) and "Stop
+   * bringing this up" (`mute`) are both `dismissed` — the user was heard and said no either way,
+   * and NAV-110's backoff widens the same amount for both. `mute` additionally records a
+   * permanent per-subject mute (NAV-115) before the response is recorded, so the entry
+   * `clearActiveRemark` writes to the durable log already reflects it.
    */
-  ipcMain.on('bubble:action', () => {
-    clearActiveRemark('acknowledged');
-    bubble?.dismiss();
-  });
-  ipcMain.on('bubble:dismiss', () => {
-    clearActiveRemark('dismissed');
+  ipcMain.on('bubble:action', (_e, id: unknown) => {
+    if (id === 'mute' && activeRemark !== null) {
+      outcomeLog = saveOutcomeLog(muteSubject(outcomeLog, activeRemark.subject));
+    }
+    clearActiveRemark(id === 'dismiss' || id === 'mute' ? 'dismissed' : 'acknowledged');
     bubble?.dismiss();
   });
 
@@ -691,6 +707,7 @@ app.whenReady().then(() => {
     const now = Date.now();
     const facts = factsFor(loadCalendarCache(), now);
     const subject = event.app.bundleId;
+    const activity = event.app.name;
 
     const decision = mayInterrupt({
       state: interruptionState,
@@ -701,6 +718,8 @@ app.whenReady().then(() => {
       relevant: true,
       subject,
       quietHours: quietHoursFrom(s),
+      // NAV-115: resolved here, once, so `mayInterrupt` itself never has to read the outcome log.
+      muted: isMuted(outcomeLog, subject, activity),
     });
 
     if (!decision.mayAsk) {
@@ -751,13 +770,15 @@ app.whenReady().then(() => {
 
     // A remark still showing when this one arrives never got an answer either.
     clearActiveRemark('ignored');
-    activeRemarkSubject = subject;
+    activeRemark = { subject, activity, remark: result.remark };
     if (win) {
       bubble?.show(win, {
         text: result.remark,
         buttons: [
           { id: 'ack', label: 'Thanks' },
           { id: 'dismiss', label: 'Not now' },
+          // NAV-115: a permanent mute, layered on top of the ordinary "Not now" backoff.
+          { id: 'mute', label: 'Stop bringing this up' },
         ],
       });
     }
@@ -790,6 +811,26 @@ app.whenReady().then(() => {
       hasCloudProvider: load().openaiApiKey !== '',
     }),
   );
+
+  /**
+   * The outcome log's mutes (NAV-115), surfaced in Settings. Read-only history plus the two mute
+   * lists; unmuting is the only edit offered from here — the bubble's "Stop bringing this up" is
+   * still the only way to add a subject mute, but an activity can be muted directly by name too,
+   * for a remark that has not happened yet.
+   */
+  ipcMain.handle('outcomes:get', () => outcomeLog);
+  ipcMain.handle('outcomes:unmuteSubject', (_e, subject: unknown) => {
+    if (typeof subject === 'string') outcomeLog = saveOutcomeLog(unmuteSubject(outcomeLog, subject));
+    return outcomeLog;
+  });
+  ipcMain.handle('outcomes:unmuteActivity', (_e, activity: unknown) => {
+    if (typeof activity === 'string') outcomeLog = saveOutcomeLog(unmuteActivity(outcomeLog, activity));
+    return outcomeLog;
+  });
+  ipcMain.handle('outcomes:muteActivity', (_e, activity: unknown) => {
+    if (typeof activity === 'string' && activity.trim() !== '') outcomeLog = saveOutcomeLog(muteActivity(outcomeLog, activity.trim()));
+    return outcomeLog;
+  });
 
   /**
    * The leave-by reminder (NAV-114). Time to leave is arithmetic, not an opinion, so this reuses

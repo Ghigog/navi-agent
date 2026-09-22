@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('naviSettings', {
   ambientDeleteData: () => ipcRenderer.invoke('ambient:deleteData'),
   /** The "what Navi sees" panel (NAV-118). Read-only: a snapshot of what section 5 already has. */
   ambientSnapshot: () => ipcRenderer.invoke('ambient:snapshot'),
+  /** The outcome log's mutes (NAV-115): who has been told to stop, and by subject or by activity. */
+  outcomes: () => ipcRenderer.invoke('outcomes:get'),
+  outcomesUnmuteSubject: (subject: string) => ipcRenderer.invoke('outcomes:unmuteSubject', subject),
+  outcomesUnmuteActivity: (activity: string) => ipcRenderer.invoke('outcomes:unmuteActivity', activity),
+  outcomesMuteActivity: (activity: string) => ipcRenderer.invoke('outcomes:muteActivity', activity),
   emotion: () => ipcRenderer.invoke('emotion:get'),
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */
