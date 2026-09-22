@@ -147,6 +147,15 @@ the goal — building the narrow version is the main way to get this wrong.
 
 Then the judgement half: NAV-110 → NAV-109 → NAV-111 → NAV-113 → NAV-118 → NAV-115.
 
+**NAV-111 — the judgement turn — is built as a call, not wired in.** `agent/judgement.ts` and
+`prompt/judgement.ts` are the SILENT/SPEAK: model call itself — timeout, defensive parsing, a
+validator that rejects any number the model didn't get from the facts it was handed, tone folded
+in from `emotionBody`. 29 offline tests, no live model reached. What it does not have: a caller.
+Nothing yet runs NAV-110's `mayInterrupt`, feeds the result here, or shows a remark through
+NAV-112's bubble — that needs NAV-113's settings flag to exist first. And the actual verdict
+NAV-107 was supposed to produce before this got built — is the judgement good enough on a real
+cloud model — is still open; see that ticket's own entry for why.
+
 **NAV-110 — the interruption gate — is done.** `shared/interruption.ts`: the daily cap, the
 minimum gap with backoff, the "never twice about the same thing" rule, quiet hours with no
 override, the pre-filter, and the facts bundle NAV-111 will be handed, all pure and tested with a

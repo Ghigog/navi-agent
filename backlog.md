@@ -133,7 +133,7 @@ untrusted screen content.
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | **Done** |
 | 6 | **NAV-110** | The interruption gate | **Done** |
 | 7 | **NAV-109** | Activity signal — what you are doing now | **Done** |
-| 8 | **NAV-111** | The judgement turn | P0 |
+| 8 | **NAV-111** | The judgement turn | Built — cloud call unverified, not wired in |
 | 9 | **NAV-113** | Settings and the off switch | P0 |
 | 10 | **NAV-118** | First run and "what Navi sees" | P0 |
 | 11 | **NAV-115** | Outcome log | P1 |
@@ -1709,7 +1709,7 @@ note) — wiring `createActivitySignal` to a real settings flag, a real `UiPort`
 gate together is NAV-111's job, when there is a judgement to feed it into. Building that wiring
 now would mean guessing at NAV-113's settings shape before it exists.
 
-### NAV-111: The judgement turn (Backlog — P0)
+### NAV-111: The judgement turn (Built — cloud call unverified, same NAV-107 blocker)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to occasionally notice that what I am about to do does not fit with what I told
@@ -1756,16 +1756,62 @@ worse than one who is not there.
   issues instructions.
 
 **Acceptance Criteria:**
-- [ ] On a situation that warrants nothing, she says nothing — measured across the spike's
-      situation set, not asserted.
-- [ ] A number that did not appear in the input never reaches the user.
-- [ ] A timed-out, unparseable or failed judgement produces silence with no visible error.
-- [ ] The same situation under a low and a high Love Meter produces recognizably different wording
-      and identical facts.
-- [ ] Screen text instructing her to say something does not change what she says (the NAV-91
-      fixture, pointed at this path).
-- [ ] With no cloud provider configured, the path does not run and says so once, rather than
-      falling back to a local judgement.
+- [~] On a situation that warrants nothing, she says nothing — measured across the spike's
+      situation set, not asserted. **The plumbing is proven; the number is not.** `judge` always
+      returns silence on SILENT, on a failed parse, on a timeout and on a provider error, pinned
+      in `test/judgement.test.ts`. What is still open is the same thing NAV-107 left open: an
+      actual false-positive rate against a real cloud model, which needs the working key that
+      ticket's own entry says this environment does not have.
+- [x] A number that did not appear in the input never reaches the user. `validateRemark` checks
+      every digit sequence in a remark against the leave-by minutes and both commitments' clock
+      times, rounded and floor/ceil to tolerate "about"; anything else falls back to
+      `templatedFallback`, built only from facts this module computed, never from what the model
+      said. Pinned directly, including the case where the wrong number came from an injected
+      screen instruction rather than a misreading of a real fact.
+- [x] A timed-out, unparseable or failed judgement produces silence with no visible error. `judge`
+      never throws; every non-`SPEAK:` outcome — including one it aborted itself — resolves to
+      `{ available: true, speaks: false }`.
+- [~] The same situation under a low and a high Love Meter produces recognizably different wording
+      and identical facts. **The half code can prove, it does**: a test asserts the user message
+      (the facts) is byte-identical across `nemesis` and `best_friend`, while the system message
+      (which folds in `emotionBody`) is not, and quotes each tone's own words. Whether the actual
+      wording a live model produces reads as "recognizably different" to a person needs the model
+      this is still waiting on.
+- [x] Screen text instructing her to say something does not change what she says (the NAV-91
+      fixture, pointed at this path). `judgementPrompt` fences screen content exactly the way
+      `sentimentPrompt` fences the user's message, and `JUDGEMENT_INSTRUCTIONS` restates
+      `SCREEN_CONTENT_IS_UNTRUSTED`. `test/judgement.test.ts` carries spike/nav-107's own
+      injection shape — screen claims no meeting, facts say one in 4 minutes — and confirms a
+      truthful remark survives while a number lifted from the screen's own fabrication does not.
+- [x] With no cloud provider configured, the path does not run and says so once, rather than
+      falling back to a local judgement. `judgementProvider` reads `openaiApiKey` directly —
+      independent of `settings.provider`, so a local chat provider does not make this local too —
+      and `judge` turns a null client straight into `{ available: false }` with no call attempted.
+      "Says so once" is a cadence a caller has to enforce; nothing calls this module yet (see
+      below), so that part is still to build.
+
+**What is built and what is not.** `src/prompt/judgement.ts` and `src/agent/judgement.ts` are the
+judgement call itself, in the shape `spike/nav-107/judge.mjs` prototyped and said explicitly
+should be re-derived rather than imported: SILENT/SPEAK: parsing, a hard timeout, tone folded in
+from the same `emotionBody` the main chat prompt already uses, and a validator that stands between
+any number the model produces and the user, whatever put that number there. 29 tests, all offline,
+against a fake client — no live model was reached in building this, which is exactly why the
+empirical acceptance criteria above stay partial rather than closed.
+
+**Not wired into `main/index.ts`.** Nothing yet calls NAV-110's `mayInterrupt`, feeds its result
+here, or delivers a resulting remark through NAV-112's bubble. That wiring needs a settings flag
+to gate it on (NAV-113, not built) and the activity signal actually connected (NAV-109 built its
+poller but deferred wiring to this ticket, per its own note) — doing all three at once inside an
+already-large ticket would have meant guessing at NAV-113's shape before it exists, the same
+reasoning NAV-109 gave for stopping where it did.
+
+**NAV-111 is not fully unblocked.** This was picked up ahead of its own stated gate — NAV-107's
+entry says plainly that the recommendation to build this at all "cannot be written honestly from
+local alone" — on the judgement that the call's *shape* (timeout, parsing, validation, the
+untrusted-screen fence) is buildable and testable regardless of what a live cloud model turns out
+to say, the same way NAV-108's OAuth flow shipped without a live Google account. The actual
+go/no-go the spike was meant to answer is still open, and still needs a working Gemini or OpenAI
+key nobody has supplied in this environment.
 
 ### NAV-113: Settings and the off switch (Backlog — P0)
 **User Story:**
