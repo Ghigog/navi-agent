@@ -320,11 +320,13 @@ and whisper have to actually be installed for voice to make a sound. The suite p
 arithmetic, the ordering and the failure copy, which is everything that was previously wrong —
 but none of it has been seen working on a Mac.
 
-**She cannot act on your machine.** She can see it, point at it, and talk about it. She cannot
-click or type, because NAV-90's native helper does not exist: Godot could not do it and neither
-can Electron, so it needs a Swift helper reading the accessibility tree. The safety gate it will
-pass through is already built and tested (NAV-91) — deliberately, since a gate written after the
-capability is a gate written to let the existing behaviour through.
+**She can act on your machine, through NAV-90's helper.** `observe_ui` reads the accessibility
+tree, `act_on_ui` clicks, types and focuses by element handle, and both pass through NAV-91's gate
+first — built and tested ahead of the capability, deliberately, since a gate written after the
+capability is a gate written to let the existing behaviour through. What has not been done is the
+hand check: the fixture-app tests need Accessibility granted to run past a skip, and whether
+"click the Save button" actually works on a real window is an eye test like the rest of this
+section.
 
 **Ambient presence.** NAV-96: she speaks only when spoken to. Sequenced after the helper, because
 ambient observation widens exactly the prompt-injection surface the gate exists to close.

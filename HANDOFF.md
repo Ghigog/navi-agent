@@ -150,21 +150,34 @@ Then the judgement half: NAV-110 → NAV-109 → NAV-111 → NAV-113 → NAV-118
 **NAV-110 — the interruption gate — is done.** `shared/interruption.ts`: the daily cap, the
 minimum gap with backoff, the "never twice about the same thing" rule, quiet hours with no
 override, the pre-filter, and the facts bundle NAV-111 will be handed, all pure and tested with a
-fake clock — no store, no wiring, per this section's own seams. **NAV-109 is next in this order but
-is blocked on NAV-90's window enumeration**, which needs a Mac; **NAV-111 is blocked on NAV-107's
-recommendation**, which needs a cloud API key and a reachable local Ollama that do not exist in
-this environment. Neither blocker is new — both were already stated where each ticket lives.
+fake clock — no store, no wiring, per this section's own seams.
+
+**NAV-109 — the activity signal — is done, and its stated blocker was already stale.** This
+section had NAV-109 waiting on NAV-90's window enumeration needing a Mac — but NAV-90 merged on
+2026-09-11 (`c206d54`, PR #13), which is *before* this section was even written on 2026-09-19; the
+backlog's status table and this file both simply never caught up. `frontmostApp()` was already on
+`UiPort`. `shared/activity.ts` is the pure debounce (first sample is a silent baseline, a settled
+switch is one event, alt-tabbing never reaches the window); `main/activity-signal.ts` is the poll
+loop around it, same dependency-injected shape as `calendar-sync.ts`. Not wired into
+`main/index.ts` and not persisted, same position NAV-110 stated for itself — that is NAV-111's
+job, once there is a settings flag (NAV-113) and a judgement to feed. **NAV-111 is still blocked
+on NAV-107's recommendation**, which needs a cloud API key that does not exist in this
+environment — a reachable local Ollama does exist here, but NAV-111's decision to be cloud-only
+for the spike stands regardless, so that does not unblock it.
 
 **NAV-96 is section 5 now.** Its ID and body stay in section 4 and point there. Do not close it —
 that is exactly how the guidance work went quiet before NAV-106 found it by diffing deleted
 GDScript.
 
-**NAV-90 — the native accessibility helper — is still open and still needs a Mac**, Swift, and
-Accessibility granted. It is the "agent second" half of what Navi is, and NAV-89 is queued behind
-it. Section 5 does *not* block on it: only NAV-109's activity signal wants its window enumeration,
-and that is the seventh item. Two things its ticket says at the top: NAV-91 is done and waiting on
-it for two honest inputs (`secureField` from a real `AXSecureTextField` read, `app` from an
-OS-reported bundle id), and the wire protocol must be platform-neutral from day one.
+**NAV-90 — the native accessibility helper — is built and merged, not "still open."** Read the
+correction at the top of its ticket in `backlog.md` before trusting anything else this file says
+about it: the code (`helper/`, `main/helper.ts`, `agent/ui.ts`) is in place and wired through
+NAV-91's gate, but the fixture-app tests need Accessibility granted to run past a skip, and the
+two eye-test acceptance criteria have not been tried by hand — both still need a human. NAV-89 is
+queued behind it for the same reason (a signed build, an Apple developer account). Two things its
+ticket says at the top, unaffected by this correction: NAV-91 is done and waiting on it for two
+honest inputs (`secureField` from a real `AXSecureTextField` read, `app` from an OS-reported
+bundle id), and the wire protocol must be platform-neutral from day one.
 
 ### Step 4 — things that will save you an hour
 
