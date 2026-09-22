@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ambientEnabled,
   applyUpdate,
   coerce,
   DEFAULTS,
@@ -143,5 +144,36 @@ describe('voice settings (NAV-104)', () => {
     const stored = coerce({ local_thinking_model: 'x', cloud_thinking_model: 'y' });
     expect(Object.keys(stored)).not.toContain('local_thinking_model');
     expect(Object.keys(stored)).not.toContain('cloud_thinking_model');
+  });
+});
+
+describe('presence settings (NAV-113)', () => {
+  it('starts off: paused is false, but so is everything it would gate', () => {
+    // Not a contradiction — off by default (NAV-97) is what actually stops anything happening,
+    // the same way `ambientPaused: false` alone. `noticeActivity: false` is the reason nothing
+    // reads the foreground app yet, not the pause switch.
+    expect(DEFAULTS.ambientPaused).toBe(false);
+    expect(DEFAULTS.noticeActivity).toBe(false);
+  });
+
+  it('has no quiet hours by default — equal start and end, which inQuietHours already reads as off', () => {
+    expect(DEFAULTS.quietHoursStart).toBe(DEFAULTS.quietHoursEnd);
+  });
+
+  it('wraps a quiet-hours minute into a single day rather than propagating an out-of-range one', () => {
+    expect(coerce({ quietHoursStart: 1500 }).quietHoursStart).toBe(1500 - 1440);
+    expect(coerce({ quietHoursStart: -30 }).quietHoursStart).toBe(1440 - 30);
+    expect(coerce({ quietHoursEnd: Number.NaN }).quietHoursEnd).toBe(DEFAULTS.quietHoursEnd);
+  });
+
+  it('keeps an ordinary minute-of-day value untouched', () => {
+    expect(coerce({ quietHoursStart: 1320 }).quietHoursStart).toBe(1320);
+  });
+
+  describe('ambientEnabled', () => {
+    it('is true until the pause switch is on', () => {
+      expect(ambientEnabled({ ...DEFAULTS, ambientPaused: false })).toBe(true);
+      expect(ambientEnabled({ ...DEFAULTS, ambientPaused: true })).toBe(false);
+    });
   });
 });

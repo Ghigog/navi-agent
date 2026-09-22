@@ -94,6 +94,29 @@ export interface Settings {
 
   /** Global shortcut that halts anything in flight, immediately. */
   killHotkey: string;
+
+  /**
+   * The one-click pause for backlog.md section 5 — unprompted presence (NAV-113). Stops calendar
+   * reads, the activity signal, and any judgement call at once. Off by default alongside
+   * everything it pauses (NAV-97): turning presence on at all is opt-in, and turning it back off
+   * has to be one switch a user annoyed with her can reach for, not four.
+   */
+  ambientPaused: boolean;
+
+  /**
+   * Whether the foreground-activity signal (NAV-109) may run at all — the "what she may notice"
+   * watch list. Off by default, same reasoning as `ambientPaused`.
+   */
+  noticeActivity: boolean;
+
+  /**
+   * Quiet hours for section 5's remarks, in minutes since local midnight (`shared/interruption.ts`
+   * reads them the same way it already reads everything else). Equal values mean no quiet hours —
+   * `inQuietHours` already treats that as disabled, so there is nothing new to coerce here beyond
+   * the range.
+   */
+  quietHoursStart: number;
+  quietHoursEnd: number;
 }
 
 export const DEFAULTS: Settings = {
@@ -118,6 +141,10 @@ export const DEFAULTS: Settings = {
   allowedApps: '',
   halted: false,
   killHotkey: 'Shift+Command+Escape',
+  ambientPaused: false,
+  noticeActivity: false,
+  quietHoursStart: 0,
+  quietHoursEnd: 0,
 };
 
 export const PROVIDERS: readonly Settings['provider'][] = ['ollama', 'openai'];
@@ -136,6 +163,11 @@ export const SPEED_MAX = 2;
 
 const fps = (value: number, fallback: number): number =>
   Number.isFinite(value) ? Math.min(FPS_MAX, Math.max(FPS_MIN, Math.round(value))) : fallback;
+
+/** Minutes since local midnight. A wall-clock time, not a duration, so it wraps rather than clamps. */
+const MINUTES_PER_DAY = 24 * 60;
+const minuteOfDay = (value: number, fallback: number): number =>
+  Number.isFinite(value) ? ((Math.round(value) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY : fallback;
 
 /**
  * Merges stored settings over the defaults, dropping unknown keys and keys whose stored type no
@@ -169,7 +201,21 @@ export function coerce(stored: unknown): Settings {
     ? Math.min(SPEED_MAX, Math.max(SPEED_MIN, out.voiceSpeed))
     : DEFAULTS.voiceSpeed;
 
+  out.quietHoursStart = minuteOfDay(out.quietHoursStart, DEFAULTS.quietHoursStart);
+  out.quietHoursEnd = minuteOfDay(out.quietHoursEnd, DEFAULTS.quietHoursEnd);
+
   return out;
+}
+
+/**
+ * Whether backlog.md section 5 — the calendar sync, the activity signal, and any judgement call
+ * they feed — may read or call anything at all right now. The one-click pause (NAV-113): a
+ * caller checks this alongside its own "is there anything connected" state, the same way
+ * `main/calendar-sync.ts`'s `enabled` already combines a connection check with whatever this
+ * becomes.
+ */
+export function ambientEnabled(settings: Settings): boolean {
+  return !settings.ambientPaused;
 }
 
 /**

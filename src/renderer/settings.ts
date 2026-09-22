@@ -19,6 +19,8 @@ import { factTokens, FACT_BUDGET, MAX_EPISODES, type Memory } from '../shared/me
 import { upcoming, type Notes } from '../shared/notes.js';
 import { describeWhen } from '../shared/when.js';
 import { describeEntry, type AuditEntry } from '../shared/policy.js';
+import { statusMessage, type CalendarStatus } from '../shared/calendar-oauth.js';
+import { AMBIENT_CAPTURE_STATEMENT } from '../shared/ambient.js';
 
 import type { PromptRecord } from '../prompt/inspector.js';
 import type { SettingsView } from '../shared/settings.js';
@@ -42,6 +44,10 @@ declare global {
       policyLog(): Promise<AuditEntry[]>;
       policyHalted(): Promise<boolean>;
       policyResume(): Promise<boolean>;
+      calendarStatus(): Promise<CalendarStatus>;
+      calendarConnect(): Promise<CalendarStatus>;
+      calendarDisconnect(): Promise<void>;
+      ambientDeleteData(): Promise<void>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
@@ -65,6 +71,10 @@ const relationship = $('relationship');
 const keyInput = $<HTMLInputElement>('openaiApiKey');
 const keyNote = $('key-note');
 const providerNote = $('provider-note');
+// NAV-113: minutes-since-midnight in Settings, a clock on screen — handled by hand like the key
+// field above, rather than the generic binder, because the conversion is not a straight round-trip.
+const quietStart = $<HTMLInputElement>('quietHoursStart');
+const quietEnd = $<HTMLInputElement>('quietHoursEnd');
 
 /** Every input that maps straight onto a settings key. The key field is handled on its own. */
 const bound = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-setting]')];
@@ -114,6 +124,21 @@ function render(view: SettingsView): void {
   keyNote.textContent = view.hasOpenaiApiKey
     ? 'A key is saved. Type a new one to replace it; leaving this empty keeps it.'
     : 'Stored on this machine, and never shown again once saved.';
+
+  quietStart.value = minutesToClock(s.quietHoursStart);
+  quietEnd.value = minutesToClock(s.quietHoursEnd);
+}
+
+function minutesToClock(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function clockToMinutes(clock: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(clock);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 async function save(patch: Record<string, unknown>): Promise<void> {
@@ -461,3 +486,79 @@ resumeButton.addEventListener('click', async () => {
 $('refresh-log').addEventListener('click', () => void loadPolicy());
 
 void loadPolicy();
+
+// ---------------------------------------------------------------------------
+// Presence (NAV-113) — the controls for backlog.md section 5. The first-run flow and the
+// "what Navi sees" transparency panel are NAV-118; this is only the switches and the off switch.
+// ---------------------------------------------------------------------------
+
+$('ambient-capture-statement').textContent = AMBIENT_CAPTURE_STATEMENT;
+
+const calendarStatusLabel = $('calendar-status');
+const calendarConnectButton = $<HTMLButtonElement>('calendar-connect');
+const calendarDisconnectButton = $<HTMLButtonElement>('calendar-disconnect');
+const calendarNote = $('calendar-note');
+
+function renderCalendarStatus(status: CalendarStatus): void {
+  const labels: Record<CalendarStatus['state'], string> = {
+    disconnected: 'Not connected.',
+    connected: 'Connected.',
+    'reconnect-required': 'Lost access — reconnect below.',
+    'admin-blocked': 'Blocked by your Google Workspace admin.',
+  };
+  calendarStatusLabel.textContent = labels[status.state];
+  calendarConnectButton.hidden = status.state === 'connected';
+  calendarDisconnectButton.hidden = status.state !== 'connected';
+  calendarNote.textContent = statusMessage(status) ?? '';
+}
+
+async function loadCalendarStatus(): Promise<void> {
+  const status = await window.naviSettings?.calendarStatus();
+  if (status) renderCalendarStatus(status);
+}
+
+calendarConnectButton.addEventListener('click', async () => {
+  const status = await window.naviSettings?.calendarConnect();
+  if (status) renderCalendarStatus(status);
+  flashSaved();
+});
+calendarDisconnectButton.addEventListener('click', async () => {
+  await window.naviSettings?.calendarDisconnect();
+  await loadCalendarStatus();
+  flashSaved();
+});
+void loadCalendarStatus();
+
+/**
+ * Quiet hours (NAV-110's `QuietHours`) are stored as minutes since midnight, the form the gate
+ * already reads, but a person thinks in a clock — so these two fields are `type="time"` and
+ * convert on the way in and out rather than carrying `data-setting`, the same reason the API key
+ * field above is handled by hand instead of the generic binder.
+ */
+for (const [el, key] of [
+  [quietStart, 'quietHoursStart'],
+  [quietEnd, 'quietHoursEnd'],
+] as const) {
+  el.addEventListener('change', () => {
+    const minutes = clockToMinutes(el.value);
+    if (minutes !== null) void save({ [key]: minutes });
+  });
+}
+
+const ambientDelete = $<HTMLButtonElement>('ambient-delete');
+const disarmAmbientDelete = (): void => {
+  ambientDelete.dataset['armed'] = 'false';
+  ambientDelete.textContent = 'Delete all data';
+};
+ambientDelete.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (ambientDelete.dataset['armed'] !== 'true') {
+    ambientDelete.dataset['armed'] = 'true';
+    ambientDelete.textContent = 'Really delete it?';
+    return;
+  }
+  await window.naviSettings?.ambientDeleteData();
+  disarmAmbientDelete();
+  flashSaved();
+});
+document.addEventListener('click', disarmAmbientDelete);
