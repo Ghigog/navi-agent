@@ -58,7 +58,16 @@ export interface BubbleWindow {
   dismiss(): void;
 }
 
-export function createBubbleWindow(): BubbleWindow {
+export interface BubbleWindowDeps {
+  /**
+   * Told when a bubble collapses to its marker on the clock alone — nobody clicked a button and
+   * nothing dismissed it explicitly. NAV-118's "ignored" outcome (`shared/interruption.ts`'s
+   * `RemarkResponse`) reads this; nothing else in this file knows what a remark is.
+   */
+  onCollapse?(): void;
+}
+
+export function createBubbleWindow(deps: BubbleWindowDeps = {}): BubbleWindow {
   const win = new BrowserWindow({
     ...BUBBLE_SIZE,
     show: false,
@@ -127,6 +136,7 @@ export function createBubbleWindow(): BubbleWindow {
     // whatever is underneath, the same reason `marker.ts`'s cursor ring is click-through.
     win.setIgnoreMouseEvents(true);
     vanishTimer = setTimeout(vanish, MARKER_VISIBLE_MS);
+    deps.onCollapse?.();
   };
 
   const show = (nextAnchor: BrowserWindow, message: BubbleMessage): void => {

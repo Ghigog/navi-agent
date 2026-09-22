@@ -40,6 +40,26 @@ import { createNoteTools } from '../agent/notes.js';
 import { load as loadNotes, save as saveNotes } from './notes-store.js';
 import { createReminders, type Reminders } from './reminders.js';
 import { createGate, type Gate } from './gate.js';
+import { createActivitySignal, type ActivitySignal } from './activity-signal.js';
+import type { ActivityEvent } from '../shared/activity.js';
+import {
+  factsFor,
+  mayInterrupt,
+  quietHoursFrom,
+  remarkMade,
+  remarkResponded,
+  INITIAL_INTERRUPTION_STATE,
+  type InterruptionState,
+  type RemarkResponse,
+} from '../shared/interruption.js';
+import { judge, judgementProvider } from '../agent/judgement.js';
+import {
+  recordActivity,
+  recordJudgement,
+  type ActivityLogEntry,
+  type AmbientSnapshot,
+  type JudgementLogEntry,
+} from '../shared/ambient-log.js';
 import { addNote, addReminder, deleteNote, searchNotes, upcoming } from '../shared/notes.js';
 import { forget, markUsed, prefer, recall, recordEpisode, remember } from '../shared/memory.js';
 import { createProvider } from '../agent/client.js';
@@ -95,6 +115,33 @@ let calendarSync: CalendarSync | null = null;
 let lastEmotion: Emotion | null = null;
 let gate: Gate | null = null;
 let helper: HelperHandle | null = null;
+let activitySignal: ActivitySignal | null = null;
+
+/**
+ * Section 5's decision engine (NAV-109 → NAV-110 → NAV-111 → NAV-112), wired here for the first
+ * time (NAV-118). `interruptionState` is in-memory only, the same as the gate's own audit log
+ * below — NAV-115's durable, per-subject record is a separate, later store, not this one.
+ */
+let interruptionState: InterruptionState = INITIAL_INTERRUPTION_STATE;
+/** The "what Navi sees" panel's own log (NAV-118) — bounded, and keeps the silent judgements on purpose. */
+let activityLog: ActivityLogEntry[] = [];
+let judgementLog: JudgementLogEntry[] = [];
+/**
+ * The subject a currently-showing bubble is a remark about, or null when the bubble on screen (if
+ * any) is a reminder rather than a judgement. `remarkResponded` only applies to the latter.
+ */
+let activeRemarkSubject: string | null = null;
+
+/**
+ * A bubble left the screen without an explicit answer counting as heard. Called before showing
+ * any *other* bubble over a still-open remark, and from the bubble's own collapse clock — the two
+ * ways an unanswered remark actually ends.
+ */
+function clearActiveRemark(response: RemarkResponse = 'ignored'): void {
+  if (activeRemarkSubject === null) return;
+  interruptionState = remarkResponded(interruptionState, response);
+  activeRemarkSubject = null;
+}
 
 /** Pending confirmation cards, keyed by the id the chat window answers with (NAV-91). */
 const pendingConfirmations = new Map<number, (said: boolean) => void>();
@@ -123,7 +170,11 @@ app.whenReady().then(() => {
       if (!open) void conversation?.endSession();
     },
   });
-  bubble = createBubbleWindow();
+  bubble = createBubbleWindow({
+    // The bubble's own clock decided nobody answered — NAV-110's "ignored" outcome, which widens
+    // the backoff the same way an explicit dismissal does.
+    onCollapse: () => clearActiveRemark('ignored'),
+  });
   settings = createSettingsWindow();
   onboarding = createOnboardingWindow();
 
@@ -209,6 +260,8 @@ app.whenReady().then(() => {
       const [first, ...rest] = due;
       if (win && first) {
         const text = rest.length === 0 ? first.text : `${first.text} (+${rest.length} more)`;
+        // A remark still showing when a reminder pre-empts it never got an answer either.
+        clearActiveRemark('ignored');
         bubble?.show(win, { text: `⏰ ${text}` });
       }
       win?.webContents.send('summoned');
@@ -458,12 +511,19 @@ app.whenReady().then(() => {
   });
 
   /**
-   * The bubble (NAV-112). Nothing yet gives it more than an acknowledgement button, so any click
-   * just dismisses it — the surface is generic ahead of NAV-114, which will be its first caller
-   * with something to decide between.
+   * The bubble (NAV-112). NAV-118 is its first caller with something to decide between: any
+   * button click is "heard" (NAV-110's `acknowledged`), whichever button it was — agreeing and
+   * overriding both mean she was heard, and `RemarkResponse` does not distinguish them. Either
+   * way the surface itself stays generic; it is `clearActiveRemark` that knows what a click means.
    */
-  ipcMain.on('bubble:action', () => bubble?.dismiss());
-  ipcMain.on('bubble:dismiss', () => bubble?.dismiss());
+  ipcMain.on('bubble:action', () => {
+    clearActiveRemark('acknowledged');
+    bubble?.dismiss();
+  });
+  ipcMain.on('bubble:dismiss', () => {
+    clearActiveRemark('dismissed');
+    bubble?.dismiss();
+  });
 
   /**
    * A finished recording. Transcribed locally, then sent as an ordinary turn — so everything
@@ -606,15 +666,130 @@ app.whenReady().then(() => {
   /**
    * "Delete all data" (NAV-113): section 5's own stores, and only those. The connection itself is
    * untouched — that is what "Disconnect" above is for — this clears what has been read and
-   * cached, which resyncs from Google on its own the next time reading is allowed. NAV-109's
-   * activity events and NAV-115's remark log are not persisted anywhere yet (see their own
-   * tickets), so there is nothing further to clear until one of them ships a store.
+   * cached, which resyncs from Google on its own the next time reading is allowed. The activity
+   * and judgement logs (NAV-118) are in-memory, not on disk, but they are still hers to clear —
+   * NAV-115's durable, per-subject remark log is a separate store this does not touch yet.
    */
   ipcMain.handle('ambient:deleteData', () => {
     clearCalendarCache();
     clearLeaveBy();
     leaveByReminders?.refresh();
+    activityLog = [];
+    judgementLog = [];
+    interruptionState = INITIAL_INTERRUPTION_STATE;
   });
+
+  /**
+   * The activity signal, the gate and the judgement call — section 5's decision engine, wired
+   * together for the first time (NAV-118). NAV-109 built the poller, NAV-110 the gate and
+   * NAV-111 the judgement call; none of them called each other yet. This is the caller each of
+   * their own tickets deferred to "whichever ticket wires the activity signal and the judgement
+   * turn together" (backlog.md).
+   */
+  const handleActivityChange = async (event: ActivityEvent): Promise<void> => {
+    const s = load();
+    const now = Date.now();
+    const facts = factsFor(loadCalendarCache(), now);
+    const subject = event.app.bundleId;
+
+    const decision = mayInterrupt({
+      state: interruptionState,
+      now,
+      changed: true,
+      // NAV-109's own signal *is* the relevance filter — the foreground app changing at all is
+      // the whole thing it watches for, with no further filtering by which app it was.
+      relevant: true,
+      subject,
+      quietHours: quietHoursFrom(s),
+    });
+
+    if (!decision.mayAsk) {
+      judgementLog = recordJudgement(judgementLog, { at: now, facts, outcome: 'gated', reason: decision.reason, remark: null });
+      return;
+    }
+
+    const client = judgementProvider(s);
+    if (client === null) {
+      judgementLog = recordJudgement(judgementLog, {
+        at: now,
+        facts,
+        outcome: 'unavailable',
+        reason: 'No cloud provider configured for this.',
+        remark: null,
+      });
+      return;
+    }
+
+    // Not automatic screen capture: NAV-96's own note is that ambient observation widens the
+    // prompt-injection surface NAV-91 closes, and building that in here — ahead of anything that
+    // asked for it — is exactly the speculative work this repo's own working agreements avoid.
+    // `screen: ''` renders as "(nothing captured)" (`judgementPrompt`) and the judgement proceeds
+    // on the calendar and memory facts alone.
+    const result = await judge({
+      client,
+      model: s.openaiModel,
+      input: { facts, memory: recall(loadMemory(), event.app.name).lines, screen: '', emotion: loadEmotion() },
+    });
+
+    if (!result.available) {
+      judgementLog = recordJudgement(judgementLog, {
+        at: now,
+        facts,
+        outcome: 'unavailable',
+        reason: 'No cloud provider configured for this.',
+        remark: null,
+      });
+      return;
+    }
+    if (!result.speaks) {
+      judgementLog = recordJudgement(judgementLog, { at: now, facts, outcome: 'silent', reason: 'Nothing worth saying.', remark: null });
+      return;
+    }
+
+    interruptionState = remarkMade(interruptionState, now, subject);
+    judgementLog = recordJudgement(judgementLog, { at: now, facts, outcome: 'spoke', reason: 'Eligible.', remark: result.remark });
+
+    // A remark still showing when this one arrives never got an answer either.
+    clearActiveRemark('ignored');
+    activeRemarkSubject = subject;
+    if (win) {
+      bubble?.show(win, {
+        text: result.remark,
+        buttons: [
+          { id: 'ack', label: 'Thanks' },
+          { id: 'dismiss', label: 'Not now' },
+        ],
+      });
+    }
+  };
+
+  activitySignal = createActivitySignal({
+    // Read lazily: `helper` does not exist yet at this point in startup, the same reason
+    // `guidance`'s `speak` closes over `speaker` before it exists either — safe, because nothing
+    // polls until `.start()` runs, well after both are assigned.
+    frontmostApp: () => helper?.port.frontmostApp() ?? Promise.resolve(null),
+    enabled: () => ambientEnabled(load()) && load().noticeActivity,
+    onChange: (event) => {
+      activityLog = recordActivity(activityLog, event);
+      void handleActivityChange(event);
+    },
+  });
+
+  /**
+   * The "what Navi sees" panel (NAV-118): everything already known, read straight from the logs
+   * and the caches above. No model call and no network request of its own — it is a read of state
+   * this file already keeps, not a new observation.
+   */
+  ipcMain.handle(
+    'ambient:snapshot',
+    (): AmbientSnapshot => ({
+      calendar: loadCalendarCache(),
+      calendarStatus: calendarConnection.status(),
+      activity: activityLog,
+      judgements: judgementLog,
+      hasCloudProvider: load().openaiApiKey !== '',
+    }),
+  );
 
   /**
    * The leave-by reminder (NAV-114). Time to leave is arithmetic, not an opinion, so this reuses
@@ -639,6 +814,7 @@ app.whenReady().then(() => {
       const [first, ...rest] = said;
       if (win && first) {
         const text = rest.length === 0 ? first.text : `${first.text} (+${rest.length} more)`;
+        clearActiveRemark('ignored');
         bubble?.show(win, { text: `⏰ ${text}` });
       }
       win?.webContents.send('summoned');
@@ -755,6 +931,10 @@ app.whenReady().then(() => {
   // Only arms a timer at all when a calendar is already connected — nothing to sync otherwise.
   calendarSync.start();
 
+  // `enabled()` is what actually decides whether this reads anything (NAV-113's pause switch and
+  // the watch-list setting); starting it unconditionally matches `calendarSync` right above.
+  activitySignal.start();
+
   // The overlay is the app. It has no frame and cannot be closed by hand, but if it ever goes
   // away the hidden windows must not keep the process alive with nothing on screen.
   win.on('closed', () => app.quit());
@@ -771,6 +951,7 @@ app.on('will-quit', () => {
   reminders?.stop();
   leaveByReminders?.stop();
   calendarSync?.stop();
+  activitySignal?.stop();
   guidance?.abort();
   speaker?.stop();
   clickThrough?.stop();

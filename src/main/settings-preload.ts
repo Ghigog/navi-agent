@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('naviSettings', {
   calendarConnect: () => ipcRenderer.invoke('calendar:connect'),
   calendarDisconnect: () => ipcRenderer.invoke('calendar:disconnect'),
   ambientDeleteData: () => ipcRenderer.invoke('ambient:deleteData'),
+  /** The "what Navi sees" panel (NAV-118). Read-only: a snapshot of what section 5 already has. */
+  ambientSnapshot: () => ipcRenderer.invoke('ambient:snapshot'),
   emotion: () => ipcRenderer.invoke('emotion:get'),
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */

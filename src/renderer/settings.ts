@@ -21,6 +21,8 @@ import { describeWhen } from '../shared/when.js';
 import { describeEntry, type AuditEntry } from '../shared/policy.js';
 import { statusMessage, type CalendarStatus } from '../shared/calendar-oauth.js';
 import { AMBIENT_CAPTURE_STATEMENT } from '../shared/ambient.js';
+import { nextCommitment } from '../shared/calendar.js';
+import type { AmbientSnapshot } from '../shared/ambient-log.js';
 
 import type { PromptRecord } from '../prompt/inspector.js';
 import type { SettingsView } from '../shared/settings.js';
@@ -48,6 +50,7 @@ declare global {
       calendarConnect(): Promise<CalendarStatus>;
       calendarDisconnect(): Promise<void>;
       ambientDeleteData(): Promise<void>;
+      ambientSnapshot(): Promise<AmbientSnapshot>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
@@ -521,11 +524,13 @@ calendarConnectButton.addEventListener('click', async () => {
   const status = await window.naviSettings?.calendarConnect();
   if (status) renderCalendarStatus(status);
   flashSaved();
+  void loadAmbientSnapshot();
 });
 calendarDisconnectButton.addEventListener('click', async () => {
   await window.naviSettings?.calendarDisconnect();
   await loadCalendarStatus();
   flashSaved();
+  void loadAmbientSnapshot();
 });
 void loadCalendarStatus();
 
@@ -560,5 +565,94 @@ ambientDelete.addEventListener('click', async (e) => {
   await window.naviSettings?.ambientDeleteData();
   disarmAmbientDelete();
   flashSaved();
+  void loadAmbientSnapshot();
 });
 document.addEventListener('click', disarmAmbientDelete);
+
+// ---------------------------------------------------------------------------
+// "What Navi sees" (NAV-118) — read-only, no model call and no network request of its own.
+// ---------------------------------------------------------------------------
+
+const ambientStatusNote = $('ambient-status-note');
+const ambientCalendarSnapshot = $('ambient-calendar-snapshot');
+const ambientActivity = $('ambient-activity');
+const ambientJudgements = $('ambient-judgements');
+
+/** One line per judgement, including the silent ones — the panel's whole point (backlog.md). */
+function describeJudgement(entry: AmbientSnapshot['judgements'][number]): string {
+  const time = new Date(entry.at).toLocaleTimeString();
+  const facts =
+    entry.facts.commitment === null
+      ? 'nothing coming up'
+      : `"${entry.facts.commitment.title}" in ${Math.round(entry.facts.minutesUntilLeaveBy ?? 0)} min`;
+
+  if (entry.outcome === 'spoke') return `${time} — said: "${entry.remark ?? ''}" (${facts})`;
+  if (entry.outcome === 'silent') return `${time} — thought about it, said nothing (${facts})`;
+  return `${time} — stayed quiet: ${entry.reason} (${facts})`;
+}
+
+/**
+ * No silent failure here either (NAV-118's own rule, applied to itself): every reason the panel
+ * could be empty is named, with what to do about it — not an inert screen.
+ */
+function ambientCauses(snapshot: AmbientSnapshot, settings: SettingsView['settings']): string[] {
+  const causes: string[] = [];
+  if (snapshot.calendarStatus.state !== 'connected') {
+    causes.push('No calendar connected — connect one above so she has something to notice.');
+  }
+  if (!snapshot.hasCloudProvider) {
+    causes.push('No cloud key set in Settings › Model — the judgement call needs one and stays silent without it.');
+  }
+  if (settings.ambientPaused) {
+    causes.push('Presence is paused above — nothing here is being read right now.');
+  } else if (!settings.noticeActivity) {
+    causes.push('"What she may notice" is off above — she is not watching which app has your attention.');
+  }
+  return causes;
+}
+
+async function loadAmbientSnapshot(): Promise<void> {
+  const snapshot = await window.naviSettings?.ambientSnapshot();
+  if (!snapshot || !current) return;
+
+  ambientStatusNote.textContent = ambientCauses(snapshot, current.settings).join(' ');
+
+  const next = nextCommitment(snapshot.calendar, Date.now());
+  ambientCalendarSnapshot.textContent =
+    snapshot.calendarStatus.state !== 'connected'
+      ? 'Not connected.'
+      : next === null
+        ? `Connected. ${snapshot.calendar.events.length} event(s) cached, nothing coming up soon.`
+        : `Connected. Next: "${next.title}" at ${new Date(next.start).toLocaleTimeString()}.`;
+
+  ambientActivity.replaceChildren();
+  if (snapshot.activity.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Nothing noticed yet.';
+    ambientActivity.append(empty);
+  } else {
+    // Newest first, the same rule the audit log and the memory viewer already follow.
+    for (const event of [...snapshot.activity].reverse()) {
+      const line = document.createElement('div');
+      line.textContent = `${new Date(event.at).toLocaleTimeString()} — ${event.app.name}`;
+      ambientActivity.append(line);
+    }
+  }
+
+  ambientJudgements.replaceChildren();
+  if (snapshot.judgements.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'No judgements made yet.';
+    ambientJudgements.append(empty);
+  } else {
+    for (const entry of [...snapshot.judgements].reverse()) {
+      const line = document.createElement('div');
+      line.textContent = describeJudgement(entry);
+      if (entry.outcome !== 'spoke') line.classList.add('silent');
+      ambientJudgements.append(line);
+    }
+  }
+}
+
+$('refresh-ambient').addEventListener('click', () => void loadAmbientSnapshot());
+void loadAmbientSnapshot();
