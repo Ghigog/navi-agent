@@ -76,7 +76,7 @@ to click them, and pointing is NAV-103.
 | Order | Ticket | State |
 |---|---|---|
 | 10 | **NAV-91** Safety model | **Done.** Deny-by-default allowlist, immovable denied apps, secure-field rule, confirmation tiers, per-turn write limit, kill switch, append-only audit log. Two inputs wait on NAV-90 and its ticket says so. |
-| 11 | **NAV-90** Native accessibility helper | **Next, and the only thing left that a machine here cannot do.** Needs Swift, a Mac and Accessibility granted. Define the wire protocol platform-neutrally on day one — Windows and Linux are wanted eventually, and leaking `AXUIElement` specifics means rewriting every call site later. |
+| 11 | **NAV-90** Native accessibility helper | **Built and merged (`c206d54`, PR #13), wired into `agent/ui.ts` — this row was stale.** `observe_ui`/`act_on_ui` exist, gate-checked, with `frontmostApp()` already exposed. What is still unconfirmed is the fixture-app AC (`helper/Tests` needs Accessibility granted to run past a skip) and the two eye-test ACs — see the ticket's own note below. |
 | 12 | **NAV-89** Prebuilt signed helper | Folds into 11, and needs an Apple developer account nobody but the owner has. |
 | 13 | **NAV-96** Ambient presence | Last by its own dependency: ambient observation widens the prompt-injection surface NAV-91 closes, and on local models its real cost is battery and fan noise rather than tokens. |
 
@@ -132,7 +132,7 @@ untrusted screen content.
 | 4 | **NAV-117** | Calendar sync and the commitment cache | **Done** |
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | **Done** |
 | 6 | **NAV-110** | The interruption gate | **Done** |
-| 7 | **NAV-109** | Activity signal — what you are doing now | P0 |
+| 7 | **NAV-109** | Activity signal — what you are doing now | **Done** |
 | 8 | **NAV-111** | The judgement turn | P0 |
 | 9 | **NAV-113** | Settings and the off switch | P0 |
 | 10 | **NAV-118** | First run and "what Navi sees" | P0 |
@@ -952,11 +952,28 @@ for real.
 
 ---
 
-### NAV-90: Native accessibility and input-synthesis helper (Backlog)
+### NAV-90: Native accessibility and input-synthesis helper (Built — status corrected 2026-09-22)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to focus windows, click, and type on my behalf
 - **So that:** She can complete tasks instead of only describing and pointing at them
+
+**Status correction, found while picking up NAV-109.** This ticket's code shipped as `c206d54`
+(PR #13) — `helper/Sources/NaviHelperCore/*.swift`, `main/helper.ts`, `agent/ui.ts` — but the
+backlog's status table and HANDOFF.md were never updated to say so, and both went on describing
+this as blocked on a Mac that this session already had. `list_windows`, `dump_tree`,
+`click_element`, `set_value`, the `CGEvent` fallbacks, and `frontmostApp` are all implemented and
+wired; `observe_ui`/`act_on_ui` are registered tools gated through NAV-91's `gate.attempt`, same
+as any other write.
+
+**What is not confirmed, and why the acceptance criteria below are left unchecked rather than
+assumed from the code existing:** `swift test` here skips the fixture-app test ("the fixture
+window did not register with the accessibility subsystem in time") and one other test crashed
+with a signal — both consistent with this process not being Accessibility-trusted, which nothing
+short of a human granting it in System Settings can fix. The two genuinely eye-test ACs ("Focus
+my browser and tell me the tab title", "Click the Save button") were not tried by hand. Do not
+flip these boxes without actually running them — that is exactly the gap this correction exists
+to name honestly rather than paper over.
 
 **Context:**
 
@@ -1589,7 +1606,7 @@ in this file assumes one shape for that over another.
 says something about the last few remarks, not about the calendar, so a day boundary does not
 reset it. `remarksToday` and `closedSubjects` are explicitly about *today*, so they do.
 
-### NAV-109: Activity signal — what you are doing now (Backlog — P0)
+### NAV-109: Activity signal — what you are doing now (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to notice when I have started doing something different
@@ -1605,6 +1622,13 @@ Sequence after NAV-90 lands window/process enumeration — this is the same prim
 a second one is the duplicated platform surface that ticket warns about. What she *sees* once
 triggered is NAV-103's existing capture, not a new sensor.
 
+**NAV-90 already exposes this.** `helper/Sources/NaviHelperCore` and `main/helper.ts`'s `UiPort`
+were merged well before this ticket was picked up (`c206d54`, PR #13) but the backlog's own
+status table never caught up — it still read "Next, and the only thing left that a machine here
+cannot do" when this ticket was started, which is what "blocked" below refers to. `frontmostApp()`
+is already on `UiPort`, already implemented in `WindowList.swift`, and already has one caller
+(`act_on_ui`'s scroll gating in `agent/ui.ts`). This ticket is its second caller, not new surface.
+
 **Requirements:**
 - Emit a normalized event when the foreground application changes: app identity, timestamp. Nothing
   else — no window titles, no content, no per-keystroke anything.
@@ -1616,10 +1640,34 @@ triggered is NAV-103's existing capture, not a new sensor.
   to the judgement, not a rule that decides anything.
 
 **Acceptance Criteria:**
-- [ ] Switching to a different application emits exactly one event, after debounce.
-- [ ] Rapid alt-tabbing produces one event, not a burst.
-- [ ] Nothing beyond app identity and timestamp is recorded or transmitted.
-- [ ] With the feature off, the signal is not collected at all.
+- [x] Switching to a different application emits exactly one event, after debounce.
+      `shared/activity.ts`'s `sample` — pure, no clock, no timer — plus `test/activity.test.ts`.
+- [x] Rapid alt-tabbing produces one event, not a burst. Five flips inside the debounce window
+      move the candidate but never settle it; pinned at both the pure and the polling layer.
+- [x] Nothing beyond app identity and timestamp is recorded or transmitted. `ActivityEvent` is
+      `{ app: AppInfo, at: number }` and nothing else — no window title, no content.
+- [x] With the feature off, the signal is not collected at all. `main/activity-signal.ts` checks
+      `enabled()` *before* calling `frontmostApp()`, every poll, not just at `start()` — off means
+      no read happens, not merely a discarded one. `test/activity-signal.test.ts` asserts zero
+      reads.
+
+**Two files, same split as `interruption.ts` / the ticket it feeds.** `shared/activity.ts` is the
+debounce itself — pure, synchronous, no clock — because the alt-tab property should be provable
+with plain numbers, the way NAV-110 made its budget provable. `main/activity-signal.ts` is the
+poll loop around it: dependency-injected clock and timer, same shape as `calendar-sync.ts`, so it
+runs under test with no helper process. The first sample ever taken establishes a silent
+baseline rather than firing — there is nothing for it to have changed *from* — which is a
+deliberate reading of "notice when I have started doing something different" and not asserted by
+name in the ticket, so it is worth stating: the AC's "switching" language implies a prior state,
+and firing on launch would mean an event a few seconds into every session regardless of anything
+actually changing.
+
+**Not wired into `main/index.ts`, and not persisted.** Same position NAV-110 stated for itself:
+this ticket is a pure signal and its poller, not the integration. There is no settings toggle to
+read `enabled()` from yet (NAV-113) and no store for `InterruptionState` (NAV-110's own open
+note) — wiring `createActivitySignal` to a real settings flag, a real `UiPort`, and NAV-110's
+gate together is NAV-111's job, when there is a judgement to feed it into. Building that wiring
+now would mean guessing at NAV-113's settings shape before it exists.
 
 ### NAV-111: The judgement turn (Backlog — P0)
 **User Story:**
