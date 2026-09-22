@@ -130,7 +130,7 @@ untrusted screen content.
 | 2 | **NAV-112** | A surface that never steals focus | **Done** |
 | 3 | **NAV-108** | Connect a Google Calendar | Built — unrun against a real Google account |
 | 4 | **NAV-117** | Calendar sync and the commitment cache | **Done** |
-| 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | P0 |
+| 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | **Done** |
 | 6 | **NAV-110** | The interruption gate | P0 |
 | 7 | **NAV-109** | Activity signal — what you are doing now | P0 |
 | 8 | **NAV-111** | The judgement turn | P0 |
@@ -1459,7 +1459,7 @@ switch is NAV-113's own ticket.
 refresh is what actually guarantees freshness at decision time; the number in between just bounds
 staleness the rest of the time.
 
-### NAV-114: Leave-by reminder (Backlog — P0, the thin slice)
+### NAV-114: Leave-by reminder (Done)
 **User Story:**
 - **As a:** User
 - **I want:** To be told when I actually need to leave
@@ -1492,12 +1492,36 @@ Navi says, once, that it is time to go.
   event the user put in their own calendar, which is the opposite of a nag.
 
 **Acceptance Criteria:**
-- [ ] A commitment at a known time produces exactly one reminder at the right moment, and never a
-      second.
-- [ ] It fires with another application focused and does not take focus (NAV-112).
-- [ ] It survives an app restart between arming and firing.
-- [ ] A machine asleep through the moment gets the reminder late rather than never.
-- [ ] No model call occurs anywhere in this path.
+- [x] A commitment at a known time produces exactly one reminder at the right moment, and never a
+      second. `shared/leave-by.ts`'s `reconcileLeaveByNotes` derives a deterministic note id from
+      the calendar event id, so a resync that sees the same commitment again is a no-op — pinned
+      in `test/leave-by.test.ts`.
+- [x] It fires with another application focused and does not take focus. It reuses the exact
+      `fire` path NAV-100's reminders already use — `chat.send`, the bubble, no `chat.show` — so
+      NAV-112's no-steal property carries over rather than being reimplemented.
+- [x] It survives an app restart between arming and firing. Persisted in its own `leave-by.json`
+      via `main/leave-by-store.ts`, swept by `main/reminders.ts`'s existing `start()`.
+- [x] A machine asleep through the moment gets the reminder late rather than never — the same
+      chained, clamped timer NAV-100 built, reused rather than duplicated.
+- [x] No model call occurs anywhere in this path. `leaveByMessage` is a table lookup and a string
+      substitution.
+
+**A second store, not a table in `notes.json`.** These are calendar-derived, not the user's own
+words, and NAV-113 will need to clear "this section's" data — calendar cache, activity, this —
+without touching a note the user actually wrote. `main/leave-by-store.ts` mirrors
+`notes-store.ts` for exactly that reason, and a second `createReminders` instance points at it;
+nothing about the timer itself is new.
+
+**The wording is chosen when she says it, not when the reminder is armed.** The note stores the
+event's title; `leaveByMessage` picks the line from whatever emotion is current at fire time, in
+`main/index.ts`'s `fire` callback — the same reason a reply's tone is read from live state rather
+than frozen at the start of a turn.
+
+**A cancelled commitment loses its reminder too.** `reconcileLeaveByNotes` runs after every sync
+and drops a pending (not-yet-fired) note whose commitment is no longer in the cache — declined,
+cancelled, or aged out. A note that already fired is left alone; it is the record that she said
+it. Not asked for by the acceptance criteria, but the alternative was a reminder to leave for a
+meeting that no longer exists.
 
 ### NAV-110: The interruption gate (Backlog — P0)
 **User Story:**
