@@ -39,6 +39,19 @@ Ask before doing, or stop and tell me, only when:
 
 Otherwise pick the sensible option, note it in one line, and keep going.
 
+## Watching a PR
+
+Open it, subscribe to its activity, then stop. Do not self-schedule a recurring check-in to poll
+a PR that is just sitting there — CI passed, no conflict, nothing waiting on you. That is what the
+GitHub subscription is for: it wakes you when something actually happens (a review, a new commit,
+a CI failure). Polling on top of it hourly all night is noise, not diligence.
+
+If you do schedule a one-off check-in for something genuinely in flight (a run that's still
+executing, a fix you expect imminently), fine — but the moment a check finds nothing changed and
+nothing pending on your side, stop rescheduling. Say once that it's waiting on review, then let
+the subscription do its job silently. I will tell you if I want it watched more actively than
+that.
+
 ## The work itself
 
 Conventions are in `README.md` — one app now, at the repository root (NAV-105). Run `npm test`
