@@ -18,6 +18,7 @@
  */
 
 import { minutesUntilLeaveBy, nextCommitment, type CommitmentCache } from './calendar.js';
+import type { Settings } from './settings.js';
 
 // ---------------------------------------------------------------------------
 // Budget state
@@ -85,6 +86,14 @@ export interface QuietHours {
   startMinute: number;
   /** Minutes since local midnight, exclusive. Less than `startMinute` means the window wraps past midnight. */
   endMinute: number;
+}
+
+/**
+ * Quiet hours straight from Settings (NAV-113), read fresh on every call rather than cached
+ * anywhere — a change made in the settings window has to reach `mayInterrupt` without a restart.
+ */
+export function quietHoursFrom(settings: Pick<Settings, 'quietHoursStart' | 'quietHoursEnd'>): QuietHours {
+  return { startMinute: settings.quietHoursStart, endMinute: settings.quietHoursEnd };
 }
 
 /** Quiet hours suppress everything, with no override — not even for the model. There is no such thing as an urgent nudge here. */

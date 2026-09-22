@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld('naviSettings', {
   policyLog: () => ipcRenderer.invoke('policy:log'),
   policyHalted: () => ipcRenderer.invoke('policy:halted'),
   policyResume: () => ipcRenderer.invoke('policy:resume'),
+  /** Section 5's presence controls (NAV-113): the calendar connection and its own data. */
+  calendarStatus: () => ipcRenderer.invoke('calendar:status'),
+  calendarConnect: () => ipcRenderer.invoke('calendar:connect'),
+  calendarDisconnect: () => ipcRenderer.invoke('calendar:disconnect'),
+  ambientDeleteData: () => ipcRenderer.invoke('ambient:deleteData'),
   emotion: () => ipcRenderer.invoke('emotion:get'),
   resetEmotion: () => ipcRenderer.invoke('emotion:reset'),
   /** The renderer has no reliable clipboard on a file:// page; the main process does. */

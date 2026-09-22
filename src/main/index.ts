@@ -55,7 +55,7 @@ import { createPlayer, createRunner, speakerPaths, whisperPaths } from './exec.j
 import { lastPrompt } from '../prompt/inspector.js';
 import { describe, tintFor, type Emotion } from '../shared/emotion.js';
 import { emojiFor } from '../shared/emoji.js';
-import { view, type Settings } from '../shared/settings.js';
+import { ambientEnabled, view, type Settings } from '../shared/settings.js';
 
 /**
  * NAV-108: a Desktop-app OAuth client ID is meant to ship inside the artifact — Google's own docs
@@ -584,7 +584,10 @@ app.whenReady().then(() => {
       leaveByReminders?.refresh();
     },
     ensureAccessToken: () => calendarConnection.ensureAccessToken(),
-    enabled: () => calendarConnection.status().state === 'connected',
+    // Connected is necessary but not sufficient: NAV-113's one-click pause has to stop reads too,
+    // and it is checked fresh here rather than cached, the same reason `allowedApps` is read per
+    // call in the gate above — a settings change takes effect without a restart.
+    enabled: () => calendarConnection.status().state === 'connected' && ambientEnabled(load()),
   });
   ipcMain.handle('calendar:status', () => calendarConnection.status());
   ipcMain.handle('calendar:connect', async () => {
@@ -595,6 +598,19 @@ app.whenReady().then(() => {
   ipcMain.handle('calendar:disconnect', async () => {
     await calendarConnection.disconnect();
     calendarSync?.stop();
+    clearCalendarCache();
+    clearLeaveBy();
+    leaveByReminders?.refresh();
+  });
+
+  /**
+   * "Delete all data" (NAV-113): section 5's own stores, and only those. The connection itself is
+   * untouched — that is what "Disconnect" above is for — this clears what has been read and
+   * cached, which resyncs from Google on its own the next time reading is allowed. NAV-109's
+   * activity events and NAV-115's remark log are not persisted anywhere yet (see their own
+   * tickets), so there is nothing further to clear until one of them ships a store.
+   */
+  ipcMain.handle('ambient:deleteData', () => {
     clearCalendarCache();
     clearLeaveBy();
     leaveByReminders?.refresh();

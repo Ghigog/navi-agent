@@ -105,6 +105,7 @@
   input[type='text'],
   input[type='password'],
   input[type='number'],
+  input[type='time'],
   textarea,
   select {
     box-sizing: border-box;
@@ -455,6 +456,66 @@
           <button class="plain" id="refresh-log" type="button">Refresh</button>
         </div>
         <div id="policy-log"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Presence</h2>
+      <p class="note" id="ambient-capture-statement"></p>
+      <div class="field">
+        <label>Calendar</label>
+        <div class="row">
+          <span id="calendar-status">…</span>
+          <button class="plain" id="calendar-connect" type="button">Connect</button>
+          <button class="plain" id="calendar-disconnect" type="button" hidden>Disconnect</button>
+        </div>
+        <p class="note" id="calendar-note"></p>
+        <p class="note">
+          Google Calendar, read-only. Powers the leave-by reminder, and — once she may notice
+          things — her sense of what is coming up.
+        </p>
+      </div>
+      <div class="field">
+        <label for="noticeActivity">What she may notice</label>
+        <div class="row">
+          <input type="checkbox" id="noticeActivity" data-setting="noticeActivity" />
+          <span class="note" style="margin: 0">which app has your attention</span>
+        </div>
+        <p class="note">Off by default. She never watches your screen for this without it.</p>
+      </div>
+      <div class="field">
+        <label>Quiet hours</label>
+        <div class="row">
+          <input type="time" id="quietHoursStart" />
+          <span class="note" style="margin: 0">to</span>
+          <input type="time" id="quietHoursEnd" />
+        </div>
+        <p class="note">
+          Equal times means no quiet hours. Nothing overrides this, not even something she thinks
+          is urgent.
+        </p>
+      </div>
+      <div class="field">
+        <label for="ambientPaused">Pause</label>
+        <div class="row">
+          <input type="checkbox" id="ambientPaused" data-setting="ambientPaused" />
+          <span class="note" style="margin: 0"
+            >stop calendar reads, watching your activity, and anything it would say — all at
+            once</span
+          >
+        </div>
+      </div>
+      <div class="field">
+        <label>Her data on this</label>
+        <div class="row">
+          <button class="plain danger" id="ambient-delete" type="button" data-armed="false">
+            Delete all data
+          </button>
+        </div>
+        <p class="note">
+          Clears the calendar cache and anything she noticed. Your settings, memory and notes are
+          untouched.
+        </p>
       </div>
     </section>
 

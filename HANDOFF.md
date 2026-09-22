@@ -147,6 +147,17 @@ the goal — building the narrow version is the main way to get this wrong.
 
 Then the judgement half: NAV-110 → NAV-109 → NAV-111 → NAV-113 → NAV-118 → NAV-115.
 
+**NAV-113 — settings and the off switch — is done, the controls half.** `ambientPaused` and
+`noticeActivity` (`shared/settings.ts`), quiet hours as minutes-since-midnight, a "Presence"
+section in the settings panel with the calendar connect/disconnect NAV-108 built but never exposed
+to a window, and "Delete all data" for the calendar cache. `main/calendar-sync.ts`'s `enabled` now
+reads the pause switch as well as the connection. `test/ambient.test.ts` proves the pause against
+the real `createCalendarSync`/`createActivitySignal` modules with a request log, and against
+`quietHoursFrom`/`mayInterrupt` directly. Deferred, and said so in the ticket rather than silently:
+choosing a calendar and a default/per-event buffer (only `primary` is read at all), sound, reduced
+motion, and the "say so at most weekly" disconnected notice — none of the five ACs needed them, and
+nothing yet calls the settings this ticket does not have a caller for.
+
 **NAV-111 — the judgement turn — is built as a call, not wired in.** `agent/judgement.ts` and
 `prompt/judgement.ts` are the SILENT/SPEAK: model call itself — timeout, defensive parsing, a
 validator that rejects any number the model didn't get from the facts it was handed, tone folded

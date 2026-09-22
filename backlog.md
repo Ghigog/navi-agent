@@ -134,7 +134,7 @@ untrusted screen content.
 | 6 | **NAV-110** | The interruption gate | **Done** |
 | 7 | **NAV-109** | Activity signal — what you are doing now | **Done** |
 | 8 | **NAV-111** | The judgement turn | Built — cloud call unverified, not wired in |
-| 9 | **NAV-113** | Settings and the off switch | P0 |
+| 9 | **NAV-113** | Settings and the off switch | **Done** — the controls; calendar picking/buffer, sound, reduced motion and the weekly disconnected-notice deferred, see the ticket |
 | 10 | **NAV-118** | First run and "what Navi sees" | P0 |
 | 11 | **NAV-115** | Outcome log | P1 |
 | — | **NAV-116** | League client phase precision | Optional |
@@ -1813,7 +1813,7 @@ to say, the same way NAV-108's OAuth flow shipped without a live Google account.
 go/no-go the spike was meant to answer is still open, and still needs a working Gemini or OpenAI
 key nobody has supplied in this environment.
 
-### NAV-113: Settings and the off switch (Backlog — P0)
+### NAV-113: Settings and the off switch (Done — the controls; see the notes below for what is deferred)
 **User Story:**
 - **As a:** User
 - **I want:** To control what she watches and switch the whole thing off in one click
@@ -1842,13 +1842,57 @@ companion who speaks first without being invited has taken a decision that was t
   already uses, and stay quiet otherwise.
 
 **Acceptance Criteria:**
-- [ ] One-click pause stops all calendar reads, all activity signal and all model calls at once,
-      verified by request log.
-- [ ] "Delete all data" removes this section's stores and provably touches no other.
-- [ ] With nothing connected, nothing is read and nothing is sent anywhere.
-- [ ] The unprompted-capture statement is in the panel, not a footnote, and a test pins that it
-      says so.
-- [ ] Quiet hours and the watch list reach NAV-110's gate without a restart.
+- [x] One-click pause stops all calendar reads, all activity signal and all model calls at once,
+      verified by request log. `ambientPaused` (`shared/settings.ts`) and `ambientEnabled()`, the
+      pure read of it; `main/calendar-sync.ts`'s `enabled` now reads `connected && ambientEnabled(load())`
+      instead of connection state alone. `test/ambient.test.ts` proves it against the real
+      `createCalendarSync` and `createActivitySignal` modules with a request/read log, the same
+      DI seam NAV-117 and NAV-109 already built and tested pausing through. "All model calls" is
+      the weakest leg of this: nothing calls NAV-111's `judge` yet, so there is no live call site
+      to gate — `ambientEnabled` is what that wiring will read when NAV-111 does the wiring its
+      own ticket deferred to this one, and it is proven correct here ahead of that caller existing.
+- [x] "Delete all data" removes this section's stores and provably touches no other. `ambient:deleteData`
+      clears the calendar cache and the leave-by notes derived from it — not the connection itself,
+      which is what "Disconnect" is for. NAV-109's activity events and NAV-115's remark log are not
+      persisted anywhere yet (both tickets say so themselves), so there is nothing there to clear
+      until one of them ships a store; this handler is where that clearing will go.
+- [x] With nothing connected, nothing is read and nothing is sent anywhere. Pinned in
+      `test/ambient.test.ts`: `enabled` false on the connection half alone, independent of the
+      pause switch, makes zero requests.
+- [x] The unprompted-capture statement is in the panel, not a footnote, and a test pins that it
+      says so. `shared/ambient.ts#AMBIENT_CAPTURE_STATEMENT`, one constant the settings panel
+      renders and `test/ambient.test.ts` asserts the content of directly — the same reason
+      `shared/onboarding.ts#PERMISSION_COPY` lives apart from the window that shows it.
+- [x] Quiet hours and the watch list reach NAV-110's gate without a restart. `quietHoursFrom`
+      (`shared/interruption.ts`) reads `Settings` fresh on every call — nothing caches it — and
+      `noticeActivity` is read the same way by the activity-signal `enabled` a future caller wires
+      up. Both are proven live against `mayInterrupt` and `createActivitySignal` directly rather
+      than asserted from the settings file alone.
+
+**What shipped versus what is still open.** The five acceptance criteria above are met. Left for
+later, honestly, because none of them are load-bearing for the AC list and several depend on code
+that does not exist yet:
+
+- **Choosing a calendar, a default buffer, and per-event overrides.** `main/calendar-sync.ts` only
+  ever reads the `primary` calendar (NAV-108's own scope), and `shared/calendar.ts#bufferMinutesFor`
+  is not yet parameterised by a setting — both are real features, neither is exercised by an AC, and
+  wiring a per-event override map (keyed by an opaque Google event id nothing in the UI names yet)
+  without a test to hold it in place seemed like exactly the kind of thing this repo's own working
+  agreements ask not to do speculatively.
+- **Sound and reduced motion.** Not built. `renderer/bubble.html` already answers the OS-level
+  `prefers-reduced-motion` query; an app-level override is a small renderer change with nothing here
+  to test it against, since `main/bubble-window.ts` itself carries no test file (Electron-only glue,
+  same as `chat-window.ts`'s DOM half).
+- **"Say so at most weekly" when disconnected or unconfigured.** Not built. NAV-92's own cadence for
+  this is "checked at launch," not literally weekly — nothing in the codebase implements a weekly
+  timer for a notice, and adding one to track a single `lastNoticedAt` timestamp for a message
+  nothing yet sends (no caller reads `noticeActivity` or the calendar's disconnected state to speak
+  about it — that is NAV-111's and NAV-118's job) would have been built ahead of anything that uses
+  it.
+- **The panel only has what a user can act on today.** Connect/Disconnect (NAV-108's IPC, exposed to
+  the settings window for the first time here), what she may notice, quiet hours, the pause switch,
+  and delete-all-data. Calendar status renders all four `CalendarStatus` states, including
+  `reconnect-required` and `admin-blocked` (NAV-108's own two non-generic failures).
 
 ### NAV-118: First run and "what Navi sees" (Backlog — P0)
 **User Story:**

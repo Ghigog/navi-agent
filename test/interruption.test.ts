@@ -17,12 +17,14 @@ import {
   factsFor,
   inQuietHours,
   mayInterrupt,
+  quietHoursFrom,
   remarkMade,
   remarkResponded,
   type GateInput,
   type InterruptionState,
   type QuietHours,
 } from '../src/shared/interruption.js';
+import { DEFAULTS } from '../src/shared/settings.js';
 import { applySync, EMPTY_CACHE, minutesUntilLeaveBy, type CommitmentCache, type GoogleEvent } from '../src/shared/calendar.js';
 
 const NOW = new Date(2026, 8, 22, 10, 0).getTime(); // a Tuesday, 10:00 local
@@ -274,3 +276,23 @@ describe('day rollover', () => {
 function dayKeyOf(now: number): string {
   return new Date(now).toDateString();
 }
+
+describe('quietHoursFrom (NAV-113)', () => {
+  it('derives straight from whatever Settings currently holds — nothing cached in between', () => {
+    // "Reaches the gate without a restart" is this being pure: two calls against two different
+    // settings values give two different answers, with no state anywhere to go stale.
+    const off = quietHoursFrom(DEFAULTS);
+    expect(inQuietHours(off, new Date(2026, 8, 22, 23, 0).getTime())).toBe(false);
+
+    const overnight = quietHoursFrom({ quietHoursStart: 22 * 60, quietHoursEnd: 7 * 60 });
+    expect(inQuietHours(overnight, new Date(2026, 8, 22, 23, 0).getTime())).toBe(true);
+    expect(inQuietHours(overnight, new Date(2026, 8, 22, 12, 0).getTime())).toBe(false);
+  });
+
+  it('mayInterrupt reads it the same way it reads anything else in GateInput', () => {
+    const quietHours = quietHoursFrom({ quietHoursStart: 22 * 60, quietHoursEnd: 7 * 60 });
+    const decision = mayInterrupt(input({ now: new Date(2026, 8, 22, 23, 30).getTime(), quietHours }));
+    expect(decision.mayAsk).toBe(false);
+    expect(decision.reason).toMatch(/quiet hours/i);
+  });
+});
