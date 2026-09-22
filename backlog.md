@@ -133,9 +133,9 @@ untrusted screen content.
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | **Done** |
 | 6 | **NAV-110** | The interruption gate | **Done** |
 | 7 | **NAV-109** | Activity signal — what you are doing now | **Done** |
-| 8 | **NAV-111** | The judgement turn | Built — cloud call unverified, not wired in |
+| 8 | **NAV-111** | The judgement turn | Built and wired (NAV-118) — cloud call itself still unverified, see the ticket |
 | 9 | **NAV-113** | Settings and the off switch | **Done** — the controls; calendar picking/buffer, sound, reduced motion and the weekly disconnected-notice deferred, see the ticket |
-| 10 | **NAV-118** | First run and "what Navi sees" | P0 |
+| 10 | **NAV-118** | First run and "what Navi sees" | **Done** — also wires NAV-109→110→111→112 together for the first time |
 | 11 | **NAV-115** | Outcome log | P1 |
 | — | **NAV-116** | League client phase precision | Optional |
 
@@ -1702,14 +1702,13 @@ name in the ticket, so it is worth stating: the AC's "switching" language implie
 and firing on launch would mean an event a few seconds into every session regardless of anything
 actually changing.
 
-**Not wired into `main/index.ts`, and not persisted.** Same position NAV-110 stated for itself:
-this ticket is a pure signal and its poller, not the integration. There is no settings toggle to
-read `enabled()` from yet (NAV-113) and no store for `InterruptionState` (NAV-110's own open
-note) — wiring `createActivitySignal` to a real settings flag, a real `UiPort`, and NAV-110's
-gate together is NAV-111's job, when there is a judgement to feed it into. Building that wiring
-now would mean guessing at NAV-113's settings shape before it exists.
+**Wired into `main/index.ts` by NAV-118.** `createActivitySignal` now runs for real there, reading
+`noticeActivity` and `ambientEnabled` fresh from Settings (NAV-113) and calling NAV-90's real
+`UiPort` through `helper.port.frontmostApp()` — the handoff this note used to say was still
+missing. `InterruptionState` remains in-memory only, the position NAV-110 stated for itself and
+still true: nothing here has built a store for it.
 
-### NAV-111: The judgement turn (Built — cloud call unverified, same NAV-107 blocker)
+### NAV-111: The judgement turn (Built and wired by NAV-118 — cloud call itself still unverified, same NAV-107 blocker)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to occasionally notice that what I am about to do does not fit with what I told
@@ -1798,12 +1797,15 @@ any number the model produces and the user, whatever put that number there. 29 t
 against a fake client — no live model was reached in building this, which is exactly why the
 empirical acceptance criteria above stay partial rather than closed.
 
-**Not wired into `main/index.ts`.** Nothing yet calls NAV-110's `mayInterrupt`, feeds its result
-here, or delivers a resulting remark through NAV-112's bubble. That wiring needs a settings flag
-to gate it on (NAV-113, not built) and the activity signal actually connected (NAV-109 built its
-poller but deferred wiring to this ticket, per its own note) — doing all three at once inside an
-already-large ticket would have meant guessing at NAV-113's shape before it exists, the same
-reasoning NAV-109 gave for stopping where it did.
+**Wired into `main/index.ts` by NAV-118.** `main/index.ts#handleActivityChange` is now the caller
+this note said did not exist: it calls NAV-110's `mayInterrupt`, calls `judge` when the gate says
+yes, and delivers a resulting remark through NAV-112's bubble (with buttons, so NAV-110's
+acknowledged/dismissed/ignored responses are real rather than theoretical). Every call, including
+the silent ones, is recorded in NAV-118's own log for the "what Navi sees" panel. What this does
+**not** change: no automatic screen capture feeds the call (`screen: ''` — a deliberate
+simplification, see `main/index.ts`'s own comment on it), and the empirical go/no-go this ticket's
+acceptance criteria still mark `[~]` is exactly as open as it was — this wiring makes the call
+reachable, not the missing cloud key appear.
 
 **NAV-111 is not fully unblocked.** This was picked up ahead of its own stated gate — NAV-107's
 entry says plainly that the recommendation to build this at all "cannot be written honestly from
@@ -1847,15 +1849,17 @@ companion who speaks first without being invited has taken a decision that was t
       pure read of it; `main/calendar-sync.ts`'s `enabled` now reads `connected && ambientEnabled(load())`
       instead of connection state alone. `test/ambient.test.ts` proves it against the real
       `createCalendarSync` and `createActivitySignal` modules with a request/read log, the same
-      DI seam NAV-117 and NAV-109 already built and tested pausing through. "All model calls" is
-      the weakest leg of this: nothing calls NAV-111's `judge` yet, so there is no live call site
-      to gate — `ambientEnabled` is what that wiring will read when NAV-111 does the wiring its
-      own ticket deferred to this one, and it is proven correct here ahead of that caller existing.
+      DI seam NAV-117 and NAV-109 already built and tested pausing through. "All model calls" was
+      the weakest leg of this at the time — nothing called NAV-111's `judge` yet — and NAV-118 is
+      the caller: `activitySignal`'s own `enabled()` in `main/index.ts` reads this exact function,
+      so pausing stops the poll before `judge` could ever be reached, not merely its result.
 - [x] "Delete all data" removes this section's stores and provably touches no other. `ambient:deleteData`
       clears the calendar cache and the leave-by notes derived from it — not the connection itself,
-      which is what "Disconnect" is for. NAV-109's activity events and NAV-115's remark log are not
-      persisted anywhere yet (both tickets say so themselves), so there is nothing there to clear
-      until one of them ships a store; this handler is where that clearing will go.
+      which is what "Disconnect" is for. At the time this was written, NAV-109's activity events
+      and NAV-115's remark log were not persisted anywhere, so there was nothing further to clear;
+      NAV-118 gave the activity and judgement logs an in-memory home of their own, and the same
+      handler now clears both — NAV-115's durable, per-subject remark log is still its own store,
+      not yet built, and still untouched by this.
 - [x] With nothing connected, nothing is read and nothing is sent anywhere. Pinned in
       `test/ambient.test.ts`: `enabled` false on the connection half alone, independent of the
       pause switch, makes zero requests.
@@ -1894,7 +1898,7 @@ that does not exist yet:
   and delete-all-data. Calendar status renders all four `CalendarStatus` states, including
   `reconnect-required` and `admin-blocked` (NAV-108's own two non-generic failures).
 
-### NAV-118: First run and "what Navi sees" (Backlog — P0)
+### NAV-118: First run and "what Navi sees" (Done)
 **User Story:**
 - **As a:** User
 - **I want:** To see exactly what she can see, including the times she decided to stay quiet
@@ -1920,10 +1924,49 @@ to discover it.
   feature paused — has a visible cause and a next step, which is NAV-92's rule applied here.
 
 **Acceptance Criteria:**
-- [ ] A clean account reaches a working example remark through the in-app flow alone.
-- [ ] The panel lists judgements that resulted in silence, with what she was told at the time.
-- [ ] Each unmet requirement shows a cause and a next step rather than an inert screen.
-- [ ] Opening the panel makes no model call and no network request of its own.
+- [x] A clean account reaches a working example remark through the in-app flow alone. Settings ›
+      Presence gained a "Getting started" guide, above the existing connect/notice controls, with
+      the three steps and a static example remark rendered inline. It is not a live model call —
+      see the deviation note below for why that is deliberate rather than a shortcut.
+- [x] The panel lists judgements that resulted in silence, with what she was told at the time.
+      "What Navi sees" (Settings, below Presence) reads `JudgementLogEntry[]` from a new bounded,
+      in-memory log (`shared/ambient-log.ts`) that records every outcome — `gated`, `unavailable`
+      and `silent` included — with the `Facts` NAV-111 was, or would have been, handed.
+- [x] Each unmet requirement shows a cause and a next step rather than an inert screen.
+      `ambientCauses` (`renderer/settings.ts`) names each of: no calendar connected, no cloud key,
+      presence paused, and "what she may notice" off — the same four conditions `handleActivityChange`
+      itself checks before ever reaching a judgement.
+- [x] Opening the panel makes no model call and no network request of its own. `ambient:snapshot`
+      reads `loadCalendarCache()`, `calendarConnection.status()` (a synchronous read of the local
+      token store) and the two in-memory logs — nothing here calls out.
+
+**The bigger part of this ticket, not named in its own acceptance criteria: wiring the loop.**
+NAV-109, NAV-110, NAV-111 and NAV-112 each shipped as an island — their own notes said so plainly.
+`main/index.ts#handleActivityChange` is the caller that was missing: the activity signal's change
+event reaches NAV-110's `mayInterrupt`, an eligible one reaches NAV-111's `judge`, and a remark
+that comes back reaches NAV-112's bubble with real buttons — the bubble's first caller with
+anything to decide between. NAV-110's `remarkMade`/`remarkResponded` are both live now:
+`clearActiveRemark` reads how a bubble actually ended (a button, an explicit dismiss, or its own
+collapse clock — `bubble-window.ts` gained an `onCollapse` hook for exactly this) and feeds it
+back in, including when a reminder bubble pre-empts a remark nobody had answered yet.
+
+**Two deliberate simplifications, stated plainly rather than left implicit:**
+- **No automatic screen capture.** NAV-111's `JudgementInput` takes a `screen` field; this wiring
+  always passes `''`. Capturing the screen on every foreground-app change to feed an unprompted,
+  cloud-bound judgement call is exactly the widened prompt-injection surface NAV-96's own backlog
+  entry flags as a reason it sits last in its section — building it into NAV-118 ahead of anything
+  that asked for it would be the speculative work this repo's working agreements avoid. The
+  judgement proceeds on calendar and memory facts alone; `judgementPrompt` already renders a
+  missing capture as "(nothing captured)" rather than failing.
+- **The first-run guide is inline in Settings, not a separate window.** NAV-92's guide is its own
+  `BrowserWindow` with its own preload; building a second one for three lines of text and a static
+  example seemed like ceremony this ticket's own AC did not ask for — "reachable again from
+  Settings" is satisfied by it living there permanently rather than by matching NAV-92's window
+  shape exactly. If section 5 grows a real first-run wizard later, this is the seam to promote out.
+
+**`InterruptionState` is still in-memory only.** NAV-110 said so about itself and nothing here
+changes it — a restart resets the daily cap and the closed-subjects list. Not a regression this
+ticket introduced, and not claimed as fixed.
 
 ### NAV-115: Outcome log (Backlog — P1)
 **User Story:**

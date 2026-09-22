@@ -295,6 +295,49 @@
   [hidden] {
     display: none !important;
   }
+
+  /* The presence guide and "what Navi sees" panel (NAV-118). */
+  #presence-guide {
+    margin-top: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+  #presence-guide summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  #presence-guide ol {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    color: var(--dim);
+  }
+  #presence-guide li {
+    margin-bottom: 4px;
+  }
+  .example-bubble {
+    margin-top: 10px;
+    max-width: 320px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(22, 23, 30, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+  }
+  .log-list {
+    margin-top: 8px;
+    max-height: 190px;
+    overflow-y: auto;
+    font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #cdd2e2;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .log-list div {
+    padding: 2px 0;
+    border-top: 1px solid var(--line);
+  }
+  .log-list div.silent {
+    color: var(--faint);
+  }
 </style>
 
 <div id="tabs">
@@ -462,6 +505,25 @@
     <section>
       <h2>Presence</h2>
       <p class="note" id="ambient-capture-statement"></p>
+
+      <details id="presence-guide">
+        <summary>Getting started</summary>
+        <ol>
+          <li>Connect your calendar, below — read-only, and it only powers the leave-by reminder
+            until the next step is on.</li>
+          <li>Turn on "what she may notice" to let her watch which app has your attention.</li>
+          <li>She stays quiet almost always. When she does speak, it reads like this:</li>
+        </ol>
+        <div class="example-bubble">
+          Worth a glance: "Standup" is coming up in 8 minutes.
+        </div>
+        <p class="note">
+          That is the whole shape of it — one short sentence, said rarely. "What Navi sees" below
+          shows every judgement she has actually made since this window opened, including the
+          ones that stayed silent.
+        </p>
+      </details>
+
       <div class="field">
         <label>Calendar</label>
         <div class="row">
@@ -516,6 +578,30 @@
           Clears the calendar cache and anything she noticed. Your settings, memory and notes are
           untouched.
         </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>What Navi sees</h2>
+      <p class="note">
+        Everything section 5 currently knows — including the times she decided to stay quiet.
+        Reading this makes no model call and no network request of its own.
+      </p>
+      <p class="note" id="ambient-status-note"></p>
+      <div class="field">
+        <label>Calendar snapshot</label>
+        <p class="note" id="ambient-calendar-snapshot" style="margin-top: 0"></p>
+      </div>
+      <div class="field">
+        <label>Recent activity</label>
+        <div id="ambient-activity" class="log-list"></div>
+      </div>
+      <div class="field">
+        <label>Recent judgements</label>
+        <div id="ambient-judgements" class="log-list"></div>
+      </div>
+      <div class="field">
+        <button class="plain" id="refresh-ambient" type="button">Refresh</button>
       </div>
     </section>
 
