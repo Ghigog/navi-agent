@@ -23,6 +23,7 @@ import { statusMessage, type CalendarStatus } from '../shared/calendar-oauth.js'
 import { AMBIENT_CAPTURE_STATEMENT } from '../shared/ambient.js';
 import { nextCommitment } from '../shared/calendar.js';
 import type { AmbientSnapshot } from '../shared/ambient-log.js';
+import type { OutcomeLog } from '../shared/outcome-log.js';
 
 import type { PromptRecord } from '../prompt/inspector.js';
 import type { SettingsView } from '../shared/settings.js';
@@ -51,6 +52,10 @@ declare global {
       calendarDisconnect(): Promise<void>;
       ambientDeleteData(): Promise<void>;
       ambientSnapshot(): Promise<AmbientSnapshot>;
+      outcomes(): Promise<OutcomeLog>;
+      outcomesUnmuteSubject(subject: string): Promise<OutcomeLog>;
+      outcomesUnmuteActivity(activity: string): Promise<OutcomeLog>;
+      outcomesMuteActivity(activity: string): Promise<OutcomeLog>;
       emotion(): Promise<string>;
       resetEmotion(): Promise<string>;
       copy(text: string): Promise<void>;
@@ -654,5 +659,70 @@ async function loadAmbientSnapshot(): Promise<void> {
   }
 }
 
-$('refresh-ambient').addEventListener('click', () => void loadAmbientSnapshot());
+$('refresh-ambient').addEventListener('click', () => {
+  void loadAmbientSnapshot();
+  void loadOutcomeLog();
+});
 void loadAmbientSnapshot();
+
+// ---------------------------------------------------------------------------
+// Muted (NAV-115) — permanent, separate from the bubble's own backoff. A mute here is the same
+// store "Stop bringing this up" writes to; this panel is where one is reviewed, added by hand, or
+// undone.
+// ---------------------------------------------------------------------------
+
+const outcomeMutedList = $('outcome-muted-list');
+const outcomeMuteAdd = $<HTMLInputElement>('outcome-mute-add');
+
+function mutedRow(label: string, onUnmute: () => Promise<unknown>): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'memory-item';
+
+  const text = document.createElement('span');
+  text.className = 'text';
+  text.textContent = label;
+  row.append(text);
+
+  const unmute = document.createElement('button');
+  unmute.className = 'plain';
+  unmute.textContent = 'Unmute';
+  unmute.addEventListener('click', async () => {
+    await onUnmute();
+    flashSaved();
+    void loadOutcomeLog();
+  });
+  row.append(unmute);
+
+  return row;
+}
+
+async function loadOutcomeLog(): Promise<void> {
+  const log = await window.naviSettings?.outcomes();
+  outcomeMutedList.replaceChildren();
+  if (!log || (log.mutedActivities.length === 0 && log.mutedSubjects.length === 0)) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Nothing muted.';
+    outcomeMutedList.append(empty);
+    return;
+  }
+
+  for (const activity of log.mutedActivities) {
+    outcomeMutedList.append(mutedRow(activity, () => window.naviSettings!.outcomesUnmuteActivity(activity)));
+  }
+  // The subject id (a bundle id today) is not a name anyone typed, so it is labelled as what it
+  // is rather than dressed up as an activity name it might not match.
+  for (const subject of log.mutedSubjects) {
+    outcomeMutedList.append(mutedRow(`app: ${subject}`, () => window.naviSettings!.outcomesUnmuteSubject(subject)));
+  }
+}
+
+$('outcome-mute-add-button').addEventListener('click', async () => {
+  const value = outcomeMuteAdd.value.trim();
+  if (value === '') return;
+  outcomeMuteAdd.value = '';
+  await window.naviSettings?.outcomesMuteActivity(value);
+  flashSaved();
+  void loadOutcomeLog();
+});
+
+void loadOutcomeLog();

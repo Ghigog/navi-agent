@@ -120,6 +120,13 @@ export interface GateInput {
   /** Identifies what a remark would be about (e.g. the app, or the commitment id), for the "never twice" rule. */
   subject: string;
   quietHours: QuietHours | null;
+  /**
+   * NAV-115's permanent suppression, already resolved by the caller (`isMuted` against the
+   * outcome log) — this file stays pure and never reads that store itself. Checked ahead of the
+   * daily cap and the minimum gap: a mute is not a backoff that eventually lifts, it is "never",
+   * until the user removes it.
+   */
+  muted: boolean;
 }
 
 export interface GateDecision {
@@ -140,6 +147,9 @@ export function mayInterrupt(input: GateInput): GateDecision {
   }
   if (!input.relevant) {
     return { mayAsk: false, reason: 'What changed is not relevant.' };
+  }
+  if (input.muted) {
+    return { mayAsk: false, reason: 'Muted.' };
   }
   if (state.closedSubjects.includes(input.subject)) {
     return { mayAsk: false, reason: 'Already raised today.' };

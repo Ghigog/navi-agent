@@ -136,7 +136,7 @@ untrusted screen content.
 | 8 | **NAV-111** | The judgement turn | Built and wired (NAV-118) — cloud call itself still unverified, see the ticket |
 | 9 | **NAV-113** | Settings and the off switch | **Done** — the controls; calendar picking/buffer, sound, reduced motion and the weekly disconnected-notice deferred, see the ticket |
 | 10 | **NAV-118** | First run and "what Navi sees" | **Done** — also wires NAV-109→110→111→112 together for the first time |
-| 11 | **NAV-115** | Outcome log | P1 |
+| 11 | **NAV-115** | Outcome log | **Done** |
 | — | **NAV-116** | League client phase precision | Optional |
 
 The order is not the PRD's. The surface comes first because nothing may speak before it exists and
@@ -1858,8 +1858,11 @@ companion who speaks first without being invited has taken a decision that was t
       which is what "Disconnect" is for. At the time this was written, NAV-109's activity events
       and NAV-115's remark log were not persisted anywhere, so there was nothing further to clear;
       NAV-118 gave the activity and judgement logs an in-memory home of their own, and the same
-      handler now clears both — NAV-115's durable, per-subject remark log is still its own store,
-      not yet built, and still untouched by this.
+      handler now clears both. NAV-115 has since built the durable, per-subject remark log
+      (`main/outcome-log-store.ts`) and this handler still does not touch it — deliberately: a
+      mute is a standing instruction the user gave on purpose, not data she merely noticed, and
+      "Delete all data" clearing it as a side effect would undo a "stop bringing this up" nobody
+      asked to undo.
 - [x] With nothing connected, nothing is read and nothing is sent anywhere. Pinned in
       `test/ambient.test.ts`: `enabled` false on the connection half alone, independent of the
       pause switch, makes zero requests.
@@ -1968,7 +1971,7 @@ back in, including when a reminder bubble pre-empts a remark nobody had answered
 changes it — a restart resets the daily cap and the closed-subjects list. Not a regression this
 ticket introduced, and not claimed as fixed.
 
-### NAV-115: Outcome log (Backlog — P1)
+### NAV-115: Outcome log (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Navi to stop bringing up things I have told her to drop
@@ -1985,9 +1988,27 @@ the controls the user actually needs — mute this, stop raising that — have t
 - Feed dismissals back into NAV-110's backoff — this is the log's real job, not analytics.
 
 **Acceptance Criteria:**
-- [ ] "Stop bringing this up" suppresses that subject permanently and nothing else.
-- [ ] Muting an activity stops remarks about it without deleting its history.
-- [ ] Dismissal counts reach the gate and measurably change its behaviour.
+- [x] "Stop bringing this up" suppresses that subject permanently and nothing else. A third
+      bubble button (`shared/outcome-log.ts#muteSubject`), checked in `mayInterrupt` ahead of the
+      daily cap and the minimum gap — a mute does not wear off the way backoff does.
+- [x] Muting an activity stops remarks about it without deleting its history. `mutedActivities`
+      is a separate list from `entries`; unmuting reads back from the same durable file
+      (`main/outcome-log-store.ts`), surfaced in Settings › What Navi sees, with a text field to
+      mute one by name as well as the bubble's own button.
+- [x] Dismissal counts reach the gate and measurably change its behaviour. Unchanged from
+      NAV-110's own `remarkResponded`/`currentMinGapMs` — what this ticket adds is that the
+      response is now durably logged, not only held in memory.
+
+**"Overridden" in this ticket's own acceptance criteria is `dismissed` in code.** NAV-110 already
+had a three-way `RemarkResponse`; this reuses it rather than inventing a second vocabulary for the
+same three outcomes.
+
+**A real bug surfaced while wiring the third button.** `bubble:action` was sent the clicked
+button's id and then ignored it — every click, "Thanks" or "Not now" alike, was recorded as
+`acknowledged`. `bubble:dismiss`/`naviBubble.dismiss` existed to handle the "Not now" case and was
+never called from anywhere. Fixed as part of this ticket, since the mute button could not be wired
+correctly without reading the id at all: `bubble:action` now branches on it, and the dead channel
+is gone.
 
 ### NAV-116: League client phase precision (Backlog — optional, probably never)
 **User Story:**

@@ -10,6 +10,6 @@ contextBridge.exposeInMainWorld('naviBubble', {
   onShow: (fn: (message: unknown) => void) => ipcRenderer.on('bubble:show', (_e, message: unknown) => fn(message)),
   /** Told to shrink to the marker, on the schedule `bubble-window.ts` alone decides. */
   onCollapse: (fn: () => void) => ipcRenderer.on('bubble:collapse', () => fn()),
+  /** Which button was pressed, by id. `main/index.ts`'s one `bubble:action` handler is what gives each id a meaning. */
   action: (id: string) => ipcRenderer.send('bubble:action', id),
-  dismiss: () => ipcRenderer.send('bubble:dismiss'),
 });

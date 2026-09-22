@@ -39,6 +39,7 @@ function input(over: Partial<GateInput> = {}): GateInput {
     relevant: true,
     subject: 'league-of-legends',
     quietHours: null,
+    muted: false,
     ...over,
   };
 }
@@ -220,6 +221,24 @@ describe('quiet hours', () => {
 
   it('a zero-length window is treated as no quiet hours at all', () => {
     expect(inQuietHours({ startMinute: 60, endMinute: 60 }, NOW)).toBe(false);
+  });
+});
+
+describe('muted (NAV-115)', () => {
+  it('suppresses an otherwise-eligible remark', () => {
+    const decision = mayInterrupt(input({ muted: true }));
+    expect(decision.mayAsk).toBe(false);
+    expect(decision.reason).toMatch(/mut/i);
+  });
+
+  it('is checked independently of the daily cap and the minimum gap — nothing here can wear it off', () => {
+    const decision = mayInterrupt(input({ state: INITIAL_INTERRUPTION_STATE, muted: true, now: NOW + 30 * 24 * HOUR }));
+    expect(decision.mayAsk).toBe(false);
+  });
+
+  it('an unmuted subject is unaffected', () => {
+    const decision = mayInterrupt(input({ muted: false }));
+    expect(decision.mayAsk).toBe(true);
   });
 });
 
