@@ -147,6 +147,14 @@ the goal — building the narrow version is the main way to get this wrong.
 
 Then the judgement half: NAV-110 → NAV-109 → NAV-111 → NAV-113 → NAV-118 → NAV-115.
 
+**NAV-110 — the interruption gate — is done.** `shared/interruption.ts`: the daily cap, the
+minimum gap with backoff, the "never twice about the same thing" rule, quiet hours with no
+override, the pre-filter, and the facts bundle NAV-111 will be handed, all pure and tested with a
+fake clock — no store, no wiring, per this section's own seams. **NAV-109 is next in this order but
+is blocked on NAV-90's window enumeration**, which needs a Mac; **NAV-111 is blocked on NAV-107's
+recommendation**, which needs a cloud API key and a reachable local Ollama that do not exist in
+this environment. Neither blocker is new — both were already stated where each ticket lives.
+
 **NAV-96 is section 5 now.** Its ID and body stay in section 4 and point there. Do not close it —
 that is exactly how the guidance work went quiet before NAV-106 found it by diffing deleted
 GDScript.

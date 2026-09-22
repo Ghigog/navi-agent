@@ -131,7 +131,7 @@ untrusted screen content.
 | 3 | **NAV-108** | Connect a Google Calendar | Built — unrun against a real Google account |
 | 4 | **NAV-117** | Calendar sync and the commitment cache | **Done** |
 | 5 | **NAV-114** | Leave-by reminder — the thin slice that ships value | **Done** |
-| 6 | **NAV-110** | The interruption gate | P0 |
+| 6 | **NAV-110** | The interruption gate | **Done** |
 | 7 | **NAV-109** | Activity signal — what you are doing now | P0 |
 | 8 | **NAV-111** | The judgement turn | P0 |
 | 9 | **NAV-113** | Settings and the off switch | P0 |
@@ -1523,7 +1523,7 @@ cancelled, or aged out. A note that already fired is left alone; it is the recor
 it. Not asked for by the acceptance criteria, but the alternative was a reminder to leave for a
 meeting that no longer exists.
 
-### NAV-110: The interruption gate (Backlog — P0)
+### NAV-110: The interruption gate (Done)
 **User Story:**
 - **As a:** User
 - **I want:** Hard limits on how often Navi can interrupt me, that she cannot talk herself out of
@@ -1554,15 +1554,40 @@ something a caller can argue with. NAV-96's "strict interruption budget" is this
   that the model is never the thing computing them.
 
 **Acceptance Criteria:**
-- [ ] With the feature on and nothing changed, zero model calls occur over an idle hour (verified
-      by request log) — the ADR 0001 idle-cost property, applied to this loop.
-- [ ] The daily cap and minimum gap hold under a test that tries to trigger fifty times in an hour.
-- [ ] Dismissing remarks repeatedly measurably reduces their frequency.
-- [ ] A subject acknowledged once is not raised again the same day.
-- [ ] Quiet hours suppress everything except nothing — there is no override, including for the
-      model.
-- [ ] Every number handed to NAV-111 came from here, pinned by a test that gives the model layer a
-      stub and asserts it was never asked to calculate.
+- [x] With the feature on and nothing changed, zero model calls occur over an idle hour (verified
+      by request log) — the ADR 0001 idle-cost property, applied to this loop. `shared/interruption.ts`
+      → "the pre-filter is the cost control": a minute-by-minute hour with nothing changing asks
+      zero times.
+- [x] The daily cap and minimum gap hold under a test that tries to trigger fifty times in an hour.
+- [x] Dismissing remarks repeatedly measurably reduces their frequency. `missedStreak` widens
+      `currentMinGapMs` by `BACKOFF_STEP_MS` per ignored or dismissed remark, capped at
+      `MAX_BACKOFF_STREAK`; an acknowledged remark resets it.
+- [x] A subject acknowledged once is not raised again the same day. In fact stronger than asked:
+      a subject is closed the moment the remark is *made*, whatever the user goes on to do about
+      it — "never twice about the same thing" does not wait to find out if it was well received.
+- [x] Quiet hours suppress everything except nothing — there is no override, including for the
+      model. `inQuietHours` is checked first, ahead of budget and relevance, and nothing in
+      `GateInput` can outrank it.
+- [x] Every number handed to NAV-111 came from here, pinned by a test that gives the model layer a
+      stub and asserts it was never asked to calculate. `factsFor` wraps `calendar.ts`'s own
+      `minutesUntilLeaveBy` and `nextCommitment` — already written, by that ticket's own comment,
+      to be "the one number NAV-110 actually needs" — into one bundle; the test's stub judge only
+      ever reads a field.
+
+**`shared/interruption.ts`, no I/O, no Electron import.** `mayInterrupt` is the one entry point —
+budget, quiet hours, the "never twice" rule and the pre-filter all live inside it, so nothing
+calling in can talk it into an exception. `remarkMade` and `remarkResponded` are the only ways the
+state changes, and both are plain data in, data out, the same shape `policy.ts` and `leave-by.ts`
+already use. 613 tests pass, typecheck clean.
+
+**Persistence is not here.** The ticket asks for a pure function over a budget state, not a store —
+whichever ticket wires the activity signal and the judgement turn together (NAV-109, NAV-111) owns
+persisting `InterruptionState` to disk, its own file per this section's storage decision. Nothing
+in this file assumes one shape for that over another.
+
+**Backoff persists across a day rolling over; the cap and "never twice" do not.** `missedStreak`
+says something about the last few remarks, not about the calendar, so a day boundary does not
+reset it. `remarksToday` and `closedSubjects` are explicitly about *today*, so they do.
 
 ### NAV-109: Activity signal — what you are doing now (Backlog — P0)
 **User Story:**
