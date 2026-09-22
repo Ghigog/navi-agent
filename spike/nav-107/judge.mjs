@@ -8,7 +8,12 @@
 // shape against real code review, real tests, and the real prompt-assembly layer. What survives
 // from here is the verdict, not the implementation.
 
-const TIMEOUT_MS = 8000;
+// 8000 was the original bound; raised for this run because gemini-3.6-flash, the only model
+// left on this account's free tier (2.5-flash is retired for new callers as of this run),
+// defaults to an internal "thinking" pass and measured 8-11s end to end even for a one-word
+// reply — comfortably clearing 8s on every call tried. Not tuned further than "clears what was
+// actually observed"; this is still a spike bound, not a product one.
+const TIMEOUT_MS = 20000;
 const MAX_TOKENS = 120;
 
 export const SYSTEM_PROMPT = `

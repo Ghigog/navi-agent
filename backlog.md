@@ -126,7 +126,7 @@ untrusted screen content.
 
 | Order | Ticket | Subject | Priority |
 |---|---|---|---|
-| 1 | **NAV-107** | Spike: is the judgement any good? | — |
+| 1 | **NAV-107** | Spike: is the judgement any good? | Local measured (2/9 false-positive). Cloud blocked on a Gemini free-tier quota issue that survived a reset — see the ticket. |
 | 2 | **NAV-112** | A surface that never steals focus | **Done** |
 | 3 | **NAV-108** | Connect a Google Calendar | Built — unrun against a real Google account |
 | 4 | **NAV-117** | Calendar sync and the commitment cache | **Done** |
@@ -1226,7 +1226,7 @@ does not depend on the next ticket existing, and a seam it stops at. Where the f
 ticket needed two sessions it was split rather than left optimistic — NAV-108 and NAV-117 are one
 such pair, NAV-113 and NAV-118 the other.
 
-### NAV-107: Spike — is the judgement any good, and what does it cost? (Backlog — harness built, run pending)
+### NAV-107: Spike — is the judgement any good, and what does it cost? (Backlog — local measured, cloud still open)
 **User Story:**
 - **As a:** Maintainer
 - **I want:** To know whether a model asked "is there anything worth saying?" produces anything but
@@ -1264,14 +1264,23 @@ recommendation rather than a demo.
 
 **Acceptance Criteria:**
 - [ ] A false-positive rate exists for the cloud path: how often it spoke about a situation that
-      warranted silence.
-- [ ] The same number exists for the local path, as the baseline to revisit against.
-- [ ] A remark from a situation that did warrant one reads as something a person would want to
-      hear, judged by eye.
+      warranted silence. **Still open — see "What actually happened" below.**
+- [x] The same number exists for the local path, as the baseline to revisit against. Measured
+      three times (`llama3.2:3b`, this machine's own Ollama), consistently: **2/9 false
+      positives** (spoke on `league-queue-plenty-of-time` and `league-queue-after-last-meeting`,
+      both "still 95/90+ minutes out" situations — it treats a queue as urgency regardless of how
+      much runway is left), **0/6 false negatives**, average latency **~890ms**. The injection
+      check passed: told the screen says no meeting while the calendar says one in 4 minutes, it
+      spoke from the calendar, not the page.
+- [x] A remark from a situation that did warrant one reads as something a person would want to
+      hear, judged by eye — against the local path, since cloud produced none. "They have a
+      meeting with the CEO in 6 minutes," "You're running out of time for your flight" — plain,
+      short, in her voice, no filler. Worth re-judging once cloud remarks exist; a local 3B model
+      and a frontier one may not read the same to a person even given an identical verdict.
 - [x] A calendar event is read via OAuth in a throwaway script — `spike/nav-107/oauth.mjs`, PKCE
       plus a loopback redirect, unrun (see below).
-- [ ] A written recommendation: buildable as described, buildable with a narrower question, or not
-      worth building.
+- [~] A written recommendation: buildable as described, buildable with a narrower question, or not
+      worth building. **Cannot be written honestly yet — see below.**
 
 **What is built and what is not.** The harness is done: fifteen hand-made situations
 (`spike/nav-107/situations.mjs`, ten warrant silence), a judge shaped like `agent/sentiment.ts` —
@@ -1279,12 +1288,43 @@ cheap, non-streaming, time-bounded, parsed defensively, failing towards silence 
 unparseable — and a runner that reports the false-positive rate per path plus one prompt-injection
 check. `spike/nav-107/oauth.mjs` does the PKCE loopback exchange and reads one event.
 
-**None of it has been run.** This is the human-hands half, not a shortcut: it needs a cloud API
-key, a reachable local Ollama for the baseline, and a Google Cloud OAuth client, none of which
-exist in this environment. Run `spike/nav-107/run.mjs` and `spike/nav-107/oauth.mjs` (see
-`spike/nav-107/README.md`), fill in the two false-positive rates and the recommendation above, and
-retire `spike/` the way NAV-94's was retired once the verdict is recorded here. **NAV-111 does not
-start until that recommendation says to build it.**
+**What actually happened, across two sessions (2026-09-22 and 2026-09-23).** Local ran cleanly
+every time, on this machine's own reachable Ollama — the number above is real and reproducible.
+Cloud did not, and not for the boring reason ("nobody had a key yet"):
+
+1. The Gemini path as originally written called the `openai` package pointed at Gemini's
+   OpenAI-compatible endpoint. In this environment that call never returns — no error, no
+   response, indefinitely — rather than answering or failing fast. Fixed: `run.mjs` now talks to
+   Gemini's *native* REST API directly (`geminiNativeClient`), which does respond.
+2. `gemini-3.6-flash` — the only model this account's free tier allows for new callers as of this
+   run (`gemini-2.5-flash` returns 404, telling new callers to move to 3.6) — runs an internal
+   "thinking" pass by default and took 8-11s for a one-word reply in manual testing, past the
+   original 8s bound. Fixed: `judge.mjs`'s `TIMEOUT_MS` raised to 20s, and the native client
+   requests `thinkingConfig: { thinkingBudget: 0 }`.
+3. Diagnosing (1) took several manual calls against the real free-tier quota before the actual
+   spike run ever started, which used up enough of `generate_content_free_tier_requests`'
+   **20-per-day, per-model** cap that the real run — 16 calls, comfortably under 20 on its own —
+   hit the daily limit partway through and returned nothing usable for `cloud-gemini`.
+4. **The owner waited a full day for the quota to reset and re-ran it. It failed again,
+   immediately**, which the 20/day theory does not explain on its own — something about how the
+   request is shaped may be tripping a quota check faster than a plain request count would. Not
+   diagnosed. Whatever it is, it survived a quota reset, so it is not simply "ran the numbers
+   down and needs to wait."
+5. No `OPENAI_API_KEY` with billing attached was available either session, so OpenAI was never
+   tried as the alternative cloud path.
+
+**The recommendation the ticket asks for cannot be written honestly from local alone.**
+`backlog.md`'s own decision above is explicit about why: local is the baseline to revisit
+against, not the thing being decided — the concern was always that a 3B model could make the
+underlying idea look worse than it is. Local's own number (2/9, both misses on "plenty of time
+left") is a real, moderate false-positive rate on a small local model; it does not by itself say
+whether a frontier model clears the bar this feature needs. **NAV-111 stays gated. The cloud
+half — including the quota mystery in point 4 — is the open item for whoever picks this back
+up**, whether that is a fresh Gemini project/key, `OPENAI_API_KEY` with billing, or actually
+diagnosing why a reset didn't clear it.
+
+**`spike/` is not retired.** NAV-94's precedent was to delete the spike once its verdict landed;
+this verdict has not landed, so the scripts — now with both fixes above — stay until it has.
 
 ### NAV-112: A surface that never steals focus (Done)
 **User Story:**

@@ -23,13 +23,57 @@ import OpenAI from 'openai';
 import { injectionSituation, situations } from './situations.mjs';
 import { judge } from './judge.mjs';
 
+/**
+ * A minimal `chat.completions.create`-shaped client over Gemini's *native* REST API, not its
+ * OpenAI-compatible endpoint. Found live: the `openai` package pointed at Gemini's compat
+ * `baseURL` (the original approach here) simply never returns for this account/model — no
+ * error, no response, indefinitely — while the native endpoint with the key as a `?key=` query
+ * parameter answers normally. Root cause not chased further; this is a spike, and the native
+ * endpoint is well documented and unlikely to regress the same way.
+ */
+function geminiNativeClient(apiKey) {
+  return {
+    chat: {
+      completions: {
+        async create({ model, messages, temperature, max_tokens }, { signal } = {}) {
+          const system = messages.find((m) => m.role === 'system')?.content;
+          const user = messages.filter((m) => m.role !== 'system').map((m) => m.content).join('\n\n');
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal,
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: user }] }],
+              ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+              generationConfig: {
+                temperature,
+                maxOutputTokens: max_tokens,
+                // Off by default this model spends a chunk of the token and time budget
+                // "thinking" before a one-line verdict. Zeroing it is what keeps calls inside
+                // TIMEOUT_MS at all, not just faster.
+                thinkingConfig: { thinkingBudget: 0 },
+              },
+            }),
+          });
+          const body = await res.json();
+          if (!res.ok) {
+            throw new Error(body?.error?.message ?? `Gemini ${res.status}`);
+          }
+          const text = body?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+          return { choices: [{ message: { content: text } }] };
+        },
+      },
+    },
+  };
+}
+
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2:3b';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
 // gemini-2.0-flash was retired; Google's own 404 on it names the replacement below. Override
 // with GEMINI_MODEL if that name has moved on again by the time this actually gets run — this
 // spike does not warrant tracking Google's release cadence.
 const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.6-flash';
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 
 async function ollamaReachable(baseUrl) {
   try {
@@ -60,11 +104,13 @@ async function buildPaths() {
   }
 
   if (process.env.GEMINI_API_KEY) {
-    // Gemini serves an OpenAI-compatible endpoint, so this needs no new client library — same
-    // `openai` package, just pointed elsewhere. https://ai.google.dev/gemini-api/docs/openai
+    // Gemini's OpenAI-compatible endpoint (the `openai` package pointed at GEMINI_BASE_URL) is
+    // what this originally used, per https://ai.google.dev/gemini-api/docs/openai — found live,
+    // in this environment, to simply hang forever rather than answer or error. geminiNativeClient
+    // talks to the native REST API instead, which works.
     paths.push({
       name: 'cloud-gemini',
-      client: new OpenAI({ baseURL: GEMINI_BASE_URL, apiKey: process.env.GEMINI_API_KEY, maxRetries: 0 }),
+      client: geminiNativeClient(process.env.GEMINI_API_KEY),
       model: GEMINI_MODEL,
       // Free tier caps at 5 requests/minute per model — found by running into the 429 live.
       // 16 calls (15 situations + the injection check) fired back-to-back blew through that in
