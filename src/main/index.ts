@@ -78,6 +78,7 @@ import { lastPrompt } from '../prompt/inspector.js';
 import { describe, tintFor, type Emotion } from '../shared/emotion.js';
 import { emojiFor } from '../shared/emoji.js';
 import { ambientEnabled, view, type Settings } from '../shared/settings.js';
+import { resolveReducedMotion } from '../shared/motion.js';
 
 /**
  * NAV-108: a Desktop-app OAuth client ID is meant to ship inside the artifact — Google's own docs
@@ -160,6 +161,13 @@ function clearActiveRemark(response: RemarkResponse = 'ignored'): void {
 const pendingConfirmations = new Map<number, (said: boolean) => void>();
 let nextConfirmation = 0;
 
+/**
+ * The OS's own `prefers-reduced-motion`, as the overlay renderer sees it — main has no way to
+ * read this itself. `resolveReducedMotion` combines it with the app setting (NAV-113 deferral);
+ * `follow.ts` reads the result live, on every tick, rather than once.
+ */
+let osPrefersReducedMotion = false;
+
 app.whenReady().then(() => {
   const current = load();
   outcomeLog = loadOutcomeLog();
@@ -175,6 +183,7 @@ app.whenReady().then(() => {
     // The renderer draws the pointing arrow but cannot know which way to aim it; this is the
     // one place that knows both her window's position and where she is going (NAV-103).
     onFlight: (relative) => win?.webContents.send('point', relative),
+    reducedMotion: () => resolveReducedMotion(load().reducedMotion, osPrefersReducedMotion),
   });
   chat = createChatWindow({
     onVisibility: (open) => {
@@ -188,6 +197,7 @@ app.whenReady().then(() => {
     // The bubble's own clock decided nobody answered — NAV-110's "ignored" outcome, which widens
     // the backoff the same way an explicit dismissal does.
     onCollapse: () => clearActiveRemark('ignored'),
+    onReady: () => bubble?.setReducedMotion(resolveReducedMotion(load().reducedMotion, osPrefersReducedMotion)),
   });
   settings = createSettingsWindow();
   onboarding = createOnboardingWindow();
@@ -525,6 +535,16 @@ app.whenReady().then(() => {
   });
 
   /**
+   * The overlay renderer is the only process that can read `prefers-reduced-motion` — main has
+   * no window of its own to ask. Sent once on load and again on every OS-level change; see
+   * `app.ts`.
+   */
+  ipcMain.on('motion:os-preference', (_e, reduced: unknown) => {
+    osPrefersReducedMotion = reduced === true;
+    bubble?.setReducedMotion(resolveReducedMotion(load().reducedMotion, osPrefersReducedMotion));
+  });
+
+  /**
    * The bubble (NAV-112), one channel for every button on it — the surface itself stays generic
    * (`bubble-window.ts` just renders whatever `{ id, label }` pairs it is given); this is what
    * gives each id a meaning. "Thanks" (`ack`) is `acknowledged`. "Not now" (`dismiss`) and "Stop
@@ -627,6 +647,7 @@ app.whenReady().then(() => {
     const voiceHotkeyRegistered = registerVoiceHotkey(next);
     registerKillHotkey(next);
     sendRates(next);
+    bubble?.setReducedMotion(resolveReducedMotion(next.reducedMotion, osPrefersReducedMotion));
     speaker?.stop();
     speaker = buildSpeaker(next);
     conversation?.describeState();
@@ -780,6 +801,8 @@ app.whenReady().then(() => {
           // NAV-115: a permanent mute, layered on top of the ordinary "Not now" backoff.
           { id: 'mute', label: 'Stop bringing this up' },
         ],
+        // NAV-113 deferral: the sound setting is this remark's business, not a reminder's.
+        sound: s.sound,
       });
     }
   };

@@ -1886,10 +1886,16 @@ that does not exist yet:
   wiring a per-event override map (keyed by an opaque Google event id nothing in the UI names yet)
   without a test to hold it in place seemed like exactly the kind of thing this repo's own working
   agreements ask not to do speculatively.
-- **Sound and reduced motion.** Not built. `renderer/bubble.html` already answers the OS-level
-  `prefers-reduced-motion` query; an app-level override is a small renderer change with nothing here
-  to test it against, since `main/bubble-window.ts` itself carries no test file (Electron-only glue,
-  same as `chat-window.ts`'s DOM half).
+- **Sound and reduced motion.** Built (T-2). `shared/settings.ts#sound` and `#reducedMotion`, both
+  surfaced in the Presence section of the settings window via the existing generic `data-setting`
+  binder. The decision logic — app setting or OS preference, either is enough — is
+  `shared/motion.ts#resolveReducedMotion`, a pure function pinned by `test/motion.test.ts`;
+  `main/follow.ts`'s new `reducedMotion` option reads it live and snaps instead of easing, pinned by
+  `test/follow.test.ts`. `renderer/bubble.html` still answers the OS-level `prefers-reduced-motion`
+  query on its own, and now also gets the resolved value pushed to it by
+  `main/bubble-window.ts#setReducedMotion` for the app-only half nothing else could tell it about.
+  Sound is a synthesised tone in `bubble.html` itself — no asset to ship — played only for an
+  unprompted remark's own bubble (`main/index.ts`'s `handleActivityChange`), never a reminder's.
 - **"Say so at most weekly" when disconnected or unconfigured.** Not built. NAV-92's own cadence for
   this is "checked at launch," not literally weekly — nothing in the codebase implements a weekly
   timer for a notice, and adding one to track a single `lastNoticedAt` timestamp for a message

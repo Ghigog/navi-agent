@@ -5,6 +5,7 @@ import {
   followTarget,
   FOLLOW_OFFSET,
   LERP_SPEED,
+  resolveReducedMotion,
   settled,
 } from '../src/shared/motion.js';
 
@@ -68,5 +69,23 @@ describe('settled', () => {
   it('is true within a rounding error and false outside it', () => {
     expect(settled({ x: 10.2, y: 10.2 }, { x: 10, y: 10 })).toBe(true);
     expect(settled({ x: 10.6, y: 10 }, { x: 10, y: 10 })).toBe(false);
+  });
+});
+
+describe('resolveReducedMotion', () => {
+  it('is off only when both the app setting and the OS preference are off', () => {
+    expect(resolveReducedMotion(false, false)).toBe(false);
+  });
+
+  it('is on when the app setting overrides an OS preference that is off', () => {
+    expect(resolveReducedMotion(true, false)).toBe(true);
+  });
+
+  it('is on when the OS prefers it even though the app setting does not force it', () => {
+    expect(resolveReducedMotion(false, true)).toBe(true);
+  });
+
+  it('is on when both agree', () => {
+    expect(resolveReducedMotion(true, true)).toBe(true);
   });
 });

@@ -22,6 +22,7 @@ declare global {
       onActing(fn: (acting: boolean) => void): void;
       onEmoji(fn: (char: string) => void): void;
       requestChat(): void;
+      setReducedMotionPreference(reduced: boolean): void;
     };
   }
 }
@@ -86,3 +87,12 @@ canvas.addEventListener('click', () => {
   window.navi?.requestChat();
   loop.markActive();
 });
+
+// `prefers-reduced-motion` is only readable from a renderer — main has no window of its own to
+// ask (NAV-113 deferral). Reported once on load and again on every change, so `follow.ts` can
+// combine it with the app setting live via `shared/motion.ts#resolveReducedMotion`.
+const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+if (reducedMotionQuery) {
+  window.navi?.setReducedMotionPreference(reducedMotionQuery.matches);
+  reducedMotionQuery.addEventListener('change', (e) => window.navi?.setReducedMotionPreference(e.matches));
+}

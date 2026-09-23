@@ -117,6 +117,22 @@ export interface Settings {
    */
   quietHoursStart: number;
   quietHoursEnd: number;
+
+  /**
+   * Whether an unprompted remark (section 5) plays a sound when it appears (NAV-113 deferral).
+   * On by default — unlike `voiceOutput`, this has no external dependency to fail quietly about,
+   * and a remark she chose to interrupt you for is exactly the case a cue is for.
+   */
+  sound: boolean;
+
+  /**
+   * Forces reduced motion on, even when the OS-level `prefers-reduced-motion` is off (NAV-113
+   * deferral). Off by default: the OS setting alone already does the right thing for anyone who
+   * has it on, so this is only for someone who wants it and their OS does not say so.
+   * `shared/motion.ts#resolveReducedMotion` combines the two into the value the bubble and the
+   * fairy's own motion actually read.
+   */
+  reducedMotion: boolean;
 }
 
 export const DEFAULTS: Settings = {
@@ -145,6 +161,8 @@ export const DEFAULTS: Settings = {
   noticeActivity: false,
   quietHoursStart: 0,
   quietHoursEnd: 0,
+  sound: true,
+  reducedMotion: false,
 };
 
 export const PROVIDERS: readonly Settings['provider'][] = ['ollama', 'openai'];

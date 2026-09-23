@@ -52,6 +52,13 @@ export interface FollowOptions {
   offset?: Point;
   speed?: number;
   /**
+   * Whether to skip the easing and go straight to the target (NAV-113 deferral). Read live, on
+   * every tick, the same reason `activity-signal.ts`'s `enabled` is a function rather than a
+   * value taken once — a setting flipped mid-flight has to take effect on the next frame, not
+   * the next restart. Callers pass `shared/motion.ts#resolveReducedMotion`'s result.
+   */
+  reducedMotion?: () => boolean;
+  /**
    * Called while she is flying, with the target expressed relative to the centre of her window,
    * and once with `null` when the flight ends (NAV-103).
    *
@@ -140,7 +147,9 @@ export function createFollow(opts: FollowOptions): Follow {
     if (target === null) return;
 
     const stuck = flight !== null && flight.startedAt !== null && t - flight.startedAt > MAX_FLIGHT_MS;
-    const next = stuck ? target : ease(pos, target, dt, speed);
+    // Reduced motion snaps for the same reason a stuck flight does: both are "stop easing and
+    // just be there," one because it is overdue and one because the user asked for no animation.
+    const next = stuck || opts.reducedMotion?.() === true ? target : ease(pos, target, dt, speed);
     pos = settled(next, target) ? { ...target } : next;
 
     const x = Math.round(pos.x);
