@@ -33,6 +33,7 @@ import { createCalendarSync, type CalendarSync } from './calendar-sync.js';
 import { clear as clearCalendarCache, load as loadCalendarCache, save as saveCalendarCache } from './calendar-cache-store.js';
 import { clear as clearLeaveBy, load as loadLeaveBy, save as saveLeaveBy } from './leave-by-store.js';
 import { leaveByMessage, reconcileLeaveByNotes } from '../shared/leave-by.js';
+import { parseBufferOverrides } from '../shared/calendar.js';
 import { load as loadEmotion, record as recordEmotion, reset as resetEmotion } from './emotion-store.js';
 import { load as loadMemory, reset as resetMemory, save as saveMemory } from './memory-store.js';
 import { createMemoryTools } from '../agent/recall.js';
@@ -656,7 +657,7 @@ app.whenReady().then(() => {
       saveCalendarCache(next);
       // Arms a leave-by note for every commitment as it appears, and drops one already armed
       // for a commitment that just vanished (cancelled, declined, aged out) — NAV-114.
-      saveLeaveBy(reconcileLeaveByNotes(next, loadLeaveBy(), Date.now()));
+      saveLeaveBy(reconcileLeaveByNotes(next, loadLeaveBy(), Date.now(), load().defaultBufferMinutes));
       leaveByReminders?.refresh();
     },
     ensureAccessToken: () => calendarConnection.ensureAccessToken(),
@@ -664,6 +665,14 @@ app.whenReady().then(() => {
     // and it is checked fresh here rather than cached, the same reason `allowedApps` is read per
     // call in the gate above — a settings change takes effect without a restart.
     enabled: () => calendarConnection.status().state === 'connected' && ambientEnabled(load()),
+    // Settings' calendar picker and per-event overrides (T-1), read fresh the same way — a change
+    // here reaches the next sync rather than needing anything rebuilt.
+    calendarIds: () =>
+      load()
+        .selectedCalendars.split(',')
+        .map((id) => id.trim())
+        .filter((id) => id !== ''),
+    overrides: () => parseBufferOverrides(load().eventBufferOverrides),
   });
   ipcMain.handle('calendar:status', () => calendarConnection.status());
   ipcMain.handle('calendar:connect', async () => {
@@ -705,7 +714,7 @@ app.whenReady().then(() => {
   const handleActivityChange = async (event: ActivityEvent): Promise<void> => {
     const s = load();
     const now = Date.now();
-    const facts = factsFor(loadCalendarCache(), now);
+    const facts = factsFor(loadCalendarCache(), now, s.defaultBufferMinutes);
     const subject = event.app.bundleId;
     const activity = event.app.name;
 
@@ -862,7 +871,7 @@ app.whenReady().then(() => {
     },
   });
   // Picks up anything already in a cache loaded from a previous session that was never armed.
-  saveLeaveBy(reconcileLeaveByNotes(loadCalendarCache(), loadLeaveBy(), Date.now()));
+  saveLeaveBy(reconcileLeaveByNotes(loadCalendarCache(), loadLeaveBy(), Date.now(), load().defaultBufferMinutes));
 
   /** The memory viewer (NAV-93): anything she remembers, the user can see and remove. */
   ipcMain.handle('memory:get', () => loadMemory());

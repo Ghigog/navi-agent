@@ -11,9 +11,11 @@
  * expired-token, offline, paused — runs under test with no real network and no real clock.
  */
 
-import { applySync, EMPTY_CACHE, type CommitmentCache, type GoogleEvent } from '../shared/calendar.js';
+import { applySync, stripCalendar, type CommitmentCache, type GoogleEvent } from '../shared/calendar.js';
 
-const EVENTS_ENDPOINT = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+function eventsEndpoint(calendarId: string): string {
+  return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+}
 
 /** Within the ticket's 15-30 minute band. */
 export const SYNC_INTERVAL_MS = 20 * 60 * 1000;
@@ -30,21 +32,24 @@ export interface CalendarSyncDeps {
   ensureAccessToken(): Promise<string | null>;
   /** False means paused (NAV-113) or no calendar connected. Checked before anything else, every time. */
   enabled(): boolean;
-  /** Per-event buffer overrides from Settings (NAV-113). Empty until that ships. */
+  /** Which calendars to read, from Settings' `selectedCalendars` (T-1). Empty means nothing is read. Defaults to `['primary']`, this file's only calendar before that setting existed. */
+  calendarIds?(): readonly string[];
+  /** Per-event buffer overrides from Settings (T-1). */
   overrides?(): Readonly<Record<string, number>>;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (handle: ReturnType<typeof setTimeout>) => void;
-  fetchPage?: (accessToken: string, syncToken: string | null, now: number) => Promise<FetchPage>;
+  /** The HTTP seam: one page of one calendar's events, keyed by calendar id so a test can pin exactly which calendars were read. */
+  fetchPage?: (calendarId: string, accessToken: string, syncToken: string | null, now: number) => Promise<FetchPage>;
 }
 
-async function defaultFetchPage(accessToken: string, syncToken: string | null, now: number): Promise<FetchPage> {
+async function defaultFetchPage(calendarId: string, accessToken: string, syncToken: string | null, now: number): Promise<FetchPage> {
   const events: GoogleEvent[] = [];
   let pageToken: string | undefined;
   let nextSyncToken: string | undefined;
 
   do {
-    const url = new URL(EVENTS_ENDPOINT);
+    const url = new URL(eventsEndpoint(calendarId));
     url.searchParams.set('singleEvents', 'true');
     if (syncToken !== null) {
       // Google disallows timeMin/timeMax/q alongside a sync token — an incremental sync returns
@@ -90,6 +95,7 @@ export function createCalendarSync(deps: CalendarSyncDeps): CalendarSync {
   const clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle));
   const fetchPage = deps.fetchPage ?? defaultFetchPage;
   const overrides = deps.overrides ?? (() => ({}));
+  const calendarIds = deps.calendarIds ?? (() => ['primary']);
 
   let handle: ReturnType<typeof setTimeout> | null = null;
   let inFlight: Promise<void> | null = null;
@@ -109,22 +115,39 @@ export function createCalendarSync(deps: CalendarSyncDeps): CalendarSync {
 
   const sync = async (): Promise<void> => {
     if (!deps.enabled()) return;
+    const ids = calendarIds();
+    if (ids.length === 0) return; // nothing selected: reads only what Settings names, and that is nothing
+
     const accessToken = await deps.ensureAccessToken();
     if (accessToken === null) return;
 
-    const cache = deps.read();
-    const page = await fetchPage(accessToken, cache.syncToken, now());
+    let cache = deps.read();
+    let changed = false;
 
-    if (page.status === 'failed') return; // try again next cadence, cache untouched
-    if (page.status === 'expired') {
-      // The sync token is dead; the only recovery is a full resync from empty.
-      const fresh = await fetchPage(accessToken, null, now());
-      if (fresh.status !== 'ok') return;
-      deps.write(applySync(EMPTY_CACHE, fresh, now(), overrides()));
-      return;
+    for (const calendarId of ids) {
+      const token = cache.syncTokens[calendarId] ?? null;
+      const page = await fetchPage(calendarId, accessToken, token, now());
+
+      if (page.status === 'failed') continue; // try again next cadence, this calendar's slice untouched
+
+      if (page.status === 'expired') {
+        // The sync token is dead; the only recovery is a full resync of this calendar from empty.
+        const fresh = await fetchPage(calendarId, accessToken, null, now());
+        if (fresh.status !== 'ok') continue;
+        cache = applySync(stripCalendar(cache, calendarId), calendarId, fresh, now(), overrides());
+        changed = true;
+        continue;
+      }
+
+      // No prior token means this was a full request too (`defaultFetchPage` windows by
+      // timeMin/timeMax rather than a syncToken), so it is as authoritative as an expired one:
+      // this calendar's whole prior slice is replaced, not merged with.
+      const base = token === null ? stripCalendar(cache, calendarId) : cache;
+      cache = applySync(base, calendarId, page, now(), overrides());
+      changed = true;
     }
 
-    deps.write(applySync(cache, page, now(), overrides()));
+    if (changed) deps.write(cache);
   };
 
   /** Runs a sync, or waits for one already running rather than racing it. Shared by the timer and a forced refresh. */

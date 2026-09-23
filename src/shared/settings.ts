@@ -3,6 +3,8 @@
  * this is testable without a running app.
  */
 
+import { DEFAULT_BUFFER_MINUTES } from './calendar.js';
+
 export interface Settings {
   /** Ollama is the daily driver and the core path must work offline (ADR 0001). */
   provider: 'ollama' | 'openai';
@@ -117,6 +119,30 @@ export interface Settings {
    */
   quietHoursStart: number;
   quietHoursEnd: number;
+
+  /**
+   * Which calendars `main/calendar-sync.ts` reads, comma-separated calendar ids (T-1, the
+   * NAV-113 deferral) — the same free-text shape `allowedApps` already uses for a list a person
+   * types by hand. Defaults to `'primary'` alone, this app's only calendar before this setting
+   * existed.
+   */
+  selectedCalendars: string;
+
+  /**
+   * The leave-by buffer `bufferMinutesFor` (`shared/calendar.ts`) falls back to when an event has
+   * no location and no override of its own (T-1). Defaults to that file's own
+   * `DEFAULT_BUFFER_MINUTES`, so a user who never touches this field sees the behaviour it always
+   * had.
+   */
+  defaultBufferMinutes: number;
+
+  /**
+   * Per-event overrides of the leave-by buffer, keyed by the Google event id (T-1): a
+   * comma-separated list of `eventId=minutes` pairs, baked into the cached event's own
+   * `bufferMinutes` at the next sync the same way `main/calendar-sync.ts`'s `overrides` dependency
+   * always meant to be wired.
+   */
+  eventBufferOverrides: string;
 }
 
 export const DEFAULTS: Settings = {
@@ -145,6 +171,9 @@ export const DEFAULTS: Settings = {
   noticeActivity: false,
   quietHoursStart: 0,
   quietHoursEnd: 0,
+  selectedCalendars: 'primary',
+  defaultBufferMinutes: DEFAULT_BUFFER_MINUTES,
+  eventBufferOverrides: '',
 };
 
 export const PROVIDERS: readonly Settings['provider'][] = ['ollama', 'openai'];
@@ -163,6 +192,10 @@ export const SPEED_MAX = 2;
 
 const fps = (value: number, fallback: number): number =>
   Number.isFinite(value) ? Math.min(FPS_MAX, Math.max(FPS_MIN, Math.round(value))) : fallback;
+
+/** A leave-by buffer can be zero (leave right at the start time) but never negative. */
+const bufferMinutes = (value: number, fallback: number): number =>
+  Number.isFinite(value) ? Math.max(0, Math.round(value)) : fallback;
 
 /** Minutes since local midnight. A wall-clock time, not a duration, so it wraps rather than clamps. */
 const MINUTES_PER_DAY = 24 * 60;
@@ -203,6 +236,8 @@ export function coerce(stored: unknown): Settings {
 
   out.quietHoursStart = minuteOfDay(out.quietHoursStart, DEFAULTS.quietHoursStart);
   out.quietHoursEnd = minuteOfDay(out.quietHoursEnd, DEFAULTS.quietHoursEnd);
+
+  out.defaultBufferMinutes = bufferMinutes(out.defaultBufferMinutes, DEFAULTS.defaultBufferMinutes);
 
   return out;
 }

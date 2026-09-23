@@ -49,7 +49,13 @@ interface Harness {
   setEnabled: (value: boolean) => void;
 }
 
-function harness(opts: { fetchPage?: (accessToken: string, syncToken: string | null, now: number) => Promise<FetchPage>; token?: string | null } = {}): Harness {
+function harness(
+  opts: {
+    fetchPage?: (calendarId: string, accessToken: string, syncToken: string | null, now: number) => Promise<FetchPage>;
+    calendarIds?: () => readonly string[];
+    token?: string | null;
+  } = {},
+): Harness {
   const c = clock();
   let current: CommitmentCache = EMPTY_CACHE;
   let enabled = true;
@@ -58,6 +64,7 @@ function harness(opts: { fetchPage?: (accessToken: string, syncToken: string | n
   const fetchPage =
     opts.fetchPage ??
     (async (): Promise<FetchPage> => ({ events: [], nextSyncToken: 'tok-default', status: 'ok' as const }));
+  const calendarIds = opts.calendarIds ?? ((): readonly string[] => ['primary']);
 
   const sync = createCalendarSync({
     read: () => current,
@@ -66,12 +73,13 @@ function harness(opts: { fetchPage?: (accessToken: string, syncToken: string | n
     },
     ensureAccessToken: async () => (opts.token === undefined ? 'access-1' : opts.token),
     enabled: () => enabled,
+    calendarIds,
     now: c.now,
     setTimer: c.setTimer,
     clearTimer: c.clearTimer,
-    fetchPage: async (accessToken, syncToken, now) => {
+    fetchPage: async (calendarId, accessToken, syncToken, now) => {
       requests.push(`${accessToken}:${syncToken ?? 'full'}`);
-      return fetchPage(accessToken, syncToken, now);
+      return fetchPage(calendarId, accessToken, syncToken, now);
     },
   });
 
@@ -140,7 +148,7 @@ describe('an expired sync token', () => {
   it('falls back to a full resync from empty', async () => {
     let call = 0;
     const h = harness({
-      fetchPage: async (_token, syncToken) => {
+      fetchPage: async (_calendarId, _token, syncToken) => {
         call++;
         if (call === 1) return { status: 'ok', events: [timed('stale', HOUR)], nextSyncToken: 'tok-1' };
         if (syncToken === 'tok-1') return { status: 'expired' };
@@ -153,7 +161,7 @@ describe('an expired sync token', () => {
 
     await h.sync.refreshNow();
     expect(h.cache().events.map((e) => e.id)).toEqual(['fresh']);
-    expect(h.cache().syncToken).toBe('tok-2');
+    expect(h.cache().syncTokens).toEqual({ primary: 'tok-2' });
   });
 });
 
@@ -191,5 +199,64 @@ describe('pausing or no calendar connected', () => {
     h.sync.start();
     h.sync.stop();
     expect(h.clock.armed()).toBeNull();
+  });
+});
+
+describe('calendar selection (T-1), tested through the injected HTTP port', () => {
+  it('reads only the calendars Settings names, not any other', async () => {
+    const seen: string[] = [];
+    const h = harness({
+      calendarIds: () => ['work', 'family'],
+      fetchPage: async (calendarId) => {
+        seen.push(calendarId);
+        return { status: 'ok', events: [], nextSyncToken: `tok-${calendarId}` };
+      },
+    });
+
+    await h.sync.refreshNow();
+    expect(seen.sort()).toEqual(['family', 'work']);
+    expect(h.cache().syncTokens).toEqual({ work: 'tok-work', family: 'tok-family' });
+  });
+
+  it('reads nothing when Settings names no calendar at all', async () => {
+    const h = harness({ calendarIds: () => [] });
+    await h.sync.refreshNow();
+    expect(h.requests).toEqual([]);
+    expect(h.cache()).toEqual(EMPTY_CACHE);
+  });
+
+  it("one calendar's events reach the cache without touching another's", async () => {
+    const h = harness({
+      calendarIds: () => ['work', 'family'],
+      fetchPage: async (calendarId) =>
+        calendarId === 'work'
+          ? { status: 'ok', events: [timed('work-1', HOUR)], nextSyncToken: 'tok-work' }
+          : { status: 'ok', events: [timed('family-1', 2 * HOUR)], nextSyncToken: 'tok-family' },
+    });
+
+    await h.sync.refreshNow();
+    expect(h.cache().events.map((e) => e.id).sort()).toEqual(['family-1', 'work-1']);
+  });
+
+  it('dropping a calendar from Settings stops reading it on the very next sync, without a restart', async () => {
+    let ids = ['work', 'family'];
+    const seen: string[] = [];
+    const h = harness({
+      // Read fresh on every call, the same way `enabled` and `overrides` already are — a change
+      // in Settings reaches the next sync rather than needing this seam rebuilt.
+      calendarIds: () => ids,
+      fetchPage: async (calendarId) => {
+        seen.push(calendarId);
+        return { status: 'ok', events: [], nextSyncToken: `tok-${calendarId}` };
+      },
+    });
+
+    await h.sync.refreshNow();
+    expect(seen.sort()).toEqual(['family', 'work']);
+
+    seen.length = 0;
+    ids = ['work'];
+    await h.sync.refreshNow();
+    expect(seen).toEqual(['work']);
   });
 });

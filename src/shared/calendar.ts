@@ -28,19 +28,21 @@ export interface CommitmentEvent {
   start: number;
   end: number;
   location: string | null;
+  /** Which calendar (Settings' `selectedCalendars`, T-1) this event was read from. Scopes a full resync to just that calendar's slice of the cache. */
+  calendarId: string;
   /** Minutes before start to treat as "should already be leaving". Set per event in Settings (NAV-113); overrides the default/location buffer when present. */
   bufferMinutes?: number;
 }
 
 export interface CommitmentCache {
   events: CommitmentEvent[];
-  /** Google's incremental sync token. Null means the next sync must be a full one. */
-  syncToken: string | null;
+  /** Google's incremental sync token, per calendar id (T-1). A calendar with no entry syncs full next time. */
+  syncTokens: Readonly<Record<string, string>>;
   /** When this cache was last refreshed, or null before the first sync. */
   syncedAt: number | null;
 }
 
-export const EMPTY_CACHE: CommitmentCache = { events: [], syncToken: null, syncedAt: null };
+export const EMPTY_CACHE: CommitmentCache = { events: [], syncTokens: {}, syncedAt: null };
 
 /** Google Calendar API's event shape, trimmed to only what this file reads. */
 export interface GoogleEvent {
@@ -79,7 +81,7 @@ function toEpochMs(iso: string): number | null {
 }
 
 /** Converts a raw event already known to pass `isCommitment` into the shape the cache stores. */
-export function toCommitmentEvent(event: GoogleEvent, bufferOverrideMinutes?: number): CommitmentEvent | null {
+export function toCommitmentEvent(event: GoogleEvent, calendarId: string, bufferOverrideMinutes?: number): CommitmentEvent | null {
   const start = toEpochMs(event.start?.dateTime ?? '');
   const end = toEpochMs(event.end?.dateTime ?? '');
   if (start === null || end === null) return null;
@@ -89,19 +91,25 @@ export function toCommitmentEvent(event: GoogleEvent, bufferOverrideMinutes?: nu
     start,
     end,
     location: event.location?.trim() || null,
+    calendarId,
     ...(bufferOverrideMinutes === undefined ? {} : { bufferMinutes: bufferOverrideMinutes }),
   };
 }
 
-/** The buffer to apply before this event: its own override, else the location default, else the plain default. */
-export function bufferMinutesFor(event: CommitmentEvent): number {
+/**
+ * The buffer to apply before this event: its own override, else the location default, else
+ * `defaultMinutes` — Settings' `defaultBufferMinutes` (T-1), read fresh by every caller so a
+ * change takes effect without a restart. Callers that predate that setting get the same
+ * `DEFAULT_BUFFER_MINUTES` this always used.
+ */
+export function bufferMinutesFor(event: CommitmentEvent, defaultMinutes: number = DEFAULT_BUFFER_MINUTES): number {
   if (event.bufferMinutes !== undefined) return event.bufferMinutes;
-  return event.location !== null ? LOCATION_BUFFER_MINUTES : DEFAULT_BUFFER_MINUTES;
+  return event.location !== null ? LOCATION_BUFFER_MINUTES : defaultMinutes;
 }
 
 /** When the user needs to leave for this event, as an epoch ms. */
-export function leaveByTime(event: CommitmentEvent): number {
-  return event.start - bufferMinutesFor(event) * 60_000;
+export function leaveByTime(event: CommitmentEvent, defaultMinutes: number = DEFAULT_BUFFER_MINUTES): number {
+  return event.start - bufferMinutesFor(event, defaultMinutes) * 60_000;
 }
 
 /** The soonest commitment that has not yet ended, or null if there is none. */
@@ -117,22 +125,29 @@ export function nextCommitment(cache: CommitmentCache, now: number): CommitmentE
  * This is the number NAV-110 is handed. It is computed here, once, so nothing downstream — least
  * of all a model — is ever asked to do the arithmetic itself.
  */
-export function minutesUntilLeaveBy(cache: CommitmentCache, now: number): number | null {
+export function minutesUntilLeaveBy(cache: CommitmentCache, now: number, defaultMinutes: number = DEFAULT_BUFFER_MINUTES): number | null {
   const next = nextCommitment(cache, now);
   if (next === null) return null;
-  return (leaveByTime(next) - now) / 60_000;
+  return (leaveByTime(next, defaultMinutes) - now) / 60_000;
 }
 
 /**
- * One incremental (or full) page of events from Google, folded into the cache.
+ * One incremental (or full) page of events from one calendar, folded into the cache.
  *
  * A `status: 'cancelled'` event, or one that no longer passes `isCommitment` (declined after being
  * accepted, marked tentative, whatever), removes that id from the cache rather than being dropped
  * silently — that is what an incremental sync page actually means. Anything outside the 24-hour
  * horizon from `now` is pruned every sync, since the horizon itself moves.
+ *
+ * `calendarId` (T-1) is only used to record which calendar's sync token this page advances —
+ * `main/calendar-sync.ts` is what decides whether a page is a full or incremental one for that
+ * calendar, and strips that calendar's stale slice first with `stripCalendar` when it is full, the
+ * same way this used to start from `EMPTY_CACHE` for an expired token when there was only ever one
+ * calendar to sync.
  */
 export function applySync(
   cache: CommitmentCache,
+  calendarId: string,
   page: { events: readonly GoogleEvent[]; nextSyncToken: string },
   now: number,
   bufferOverrides: Readonly<Record<string, number>> = {},
@@ -144,7 +159,7 @@ export function applySync(
       byId.delete(raw.id);
       continue;
     }
-    const parsed = toCommitmentEvent(raw, bufferOverrides[raw.id]);
+    const parsed = toCommitmentEvent(raw, calendarId, bufferOverrides[raw.id]);
     if (parsed === null) {
       byId.delete(raw.id);
       continue;
@@ -157,13 +172,35 @@ export function applySync(
     .filter((e) => e.end > now && e.start < horizon)
     .sort((a, b) => a.start - b.start);
 
-  return { events, syncToken: page.nextSyncToken, syncedAt: now };
+  return { events, syncTokens: { ...cache.syncTokens, [calendarId]: page.nextSyncToken }, syncedAt: now };
+}
+
+/** Drops one calendar's events from the cache, leaving every other calendar's untouched. */
+export function stripCalendar(cache: CommitmentCache, calendarId: string): CommitmentCache {
+  return { ...cache, events: cache.events.filter((e) => e.calendarId !== calendarId) };
+}
+
+/**
+ * Parses Settings' `eventBufferOverrides` (T-1): a comma-separated list of `eventId=minutes`
+ * pairs, the same free-text shape `allowedApps` already uses for a list a person types by hand.
+ * A pair that does not parse is dropped rather than failing the whole list — one bad entry should
+ * cost itself, not every override around it.
+ */
+export function parseBufferOverrides(raw: string): Readonly<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const pair of raw.split(',')) {
+    const [id, minutes] = pair.split('=').map((part) => part.trim());
+    if (!id || minutes === undefined || minutes === '') continue;
+    const n = Number(minutes);
+    if (Number.isFinite(n)) out[id] = n;
+  }
+  return out;
 }
 
 /** Same rule as every other store: a shape that no longer matches degrades to empty, never propagates. */
 export function coerceCache(stored: unknown): CommitmentCache {
   if (stored === null || typeof stored !== 'object') return EMPTY_CACHE;
-  const raw = stored as { events?: unknown; syncToken?: unknown; syncedAt?: unknown };
+  const raw = stored as { events?: unknown; syncTokens?: unknown; syncedAt?: unknown };
   if (!Array.isArray(raw.events)) return EMPTY_CACHE;
 
   const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -171,7 +208,7 @@ export function coerceCache(stored: unknown): CommitmentCache {
 
   const events = raw.events
     .map((e) => e as Partial<CommitmentEvent>)
-    .filter((e) => typeof e.id === 'string' && num(e.start) !== undefined && num(e.end) !== undefined)
+    .filter((e) => typeof e.id === 'string' && typeof e.calendarId === 'string' && num(e.start) !== undefined && num(e.end) !== undefined)
     .map(
       (e): CommitmentEvent => ({
         id: str(e.id),
@@ -179,13 +216,21 @@ export function coerceCache(stored: unknown): CommitmentCache {
         start: num(e.start)!,
         end: num(e.end)!,
         location: typeof e.location === 'string' ? e.location : null,
+        calendarId: str(e.calendarId),
         ...(num(e.bufferMinutes) === undefined ? {} : { bufferMinutes: num(e.bufferMinutes)! }),
       }),
     );
 
+  const syncTokens: Record<string, string> = {};
+  if (raw.syncTokens !== null && typeof raw.syncTokens === 'object' && !Array.isArray(raw.syncTokens)) {
+    for (const [k, v] of Object.entries(raw.syncTokens as Record<string, unknown>)) {
+      if (typeof v === 'string') syncTokens[k] = v;
+    }
+  }
+
   return {
     events,
-    syncToken: typeof raw.syncToken === 'string' ? raw.syncToken : null,
+    syncTokens,
     syncedAt: num(raw.syncedAt) ?? null,
   };
 }
