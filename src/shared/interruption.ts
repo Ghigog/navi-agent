@@ -17,7 +17,7 @@
  * fire this fifty times in a millisecond, the way `policy.ts` and `leave-by.ts` already do.
  */
 
-import { minutesUntilLeaveBy, nextCommitment, type CommitmentCache } from './calendar.js';
+import { DEFAULT_BUFFER_MINUTES, minutesUntilLeaveBy, nextCommitment, type CommitmentCache } from './calendar.js';
 import type { Settings } from './settings.js';
 
 // ---------------------------------------------------------------------------
@@ -208,11 +208,11 @@ export interface Facts {
   commitment: { title: string; start: number } | null;
 }
 
-export function factsFor(cache: CommitmentCache, now: number): Facts {
+export function factsFor(cache: CommitmentCache, now: number, defaultBufferMinutes: number = DEFAULT_BUFFER_MINUTES): Facts {
   const next = nextCommitment(cache, now);
   return {
     now,
-    minutesUntilLeaveBy: minutesUntilLeaveBy(cache, now),
+    minutesUntilLeaveBy: minutesUntilLeaveBy(cache, now, defaultBufferMinutes),
     commitment: next === null ? null : { title: next.title, start: next.start },
   };
 }

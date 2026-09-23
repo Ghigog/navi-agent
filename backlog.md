@@ -134,7 +134,7 @@ untrusted screen content.
 | 6 | **NAV-110** | The interruption gate | **Done** |
 | 7 | **NAV-109** | Activity signal — what you are doing now | **Done** |
 | 8 | **NAV-111** | The judgement turn | Built and wired (NAV-118) — cloud call itself still unverified, see the ticket |
-| 9 | **NAV-113** | Settings and the off switch | **Done** — the controls; calendar picking/buffer, sound, reduced motion and the weekly disconnected-notice deferred, see the ticket |
+| 9 | **NAV-113** | Settings and the off switch | **Done** — the controls; calendar picking/buffer shipped as T-1, sound, reduced motion and the weekly disconnected-notice still deferred, see the ticket |
 | 10 | **NAV-118** | First run and "what Navi sees" | **Done** — also wires NAV-109→110→111→112 together for the first time |
 | 11 | **NAV-115** | Outcome log | **Done** |
 | — | **NAV-116** | League client phase precision | Optional |
@@ -1880,12 +1880,20 @@ companion who speaks first without being invited has taken a decision that was t
 later, honestly, because none of them are load-bearing for the AC list and several depend on code
 that does not exist yet:
 
-- **Choosing a calendar, a default buffer, and per-event overrides.** `main/calendar-sync.ts` only
-  ever reads the `primary` calendar (NAV-108's own scope), and `shared/calendar.ts#bufferMinutesFor`
-  is not yet parameterised by a setting — both are real features, neither is exercised by an AC, and
-  wiring a per-event override map (keyed by an opaque Google event id nothing in the UI names yet)
-  without a test to hold it in place seemed like exactly the kind of thing this repo's own working
-  agreements ask not to do speculatively.
+- **Choosing a calendar, a default buffer, and per-event overrides.** Shipped as T-1.
+  `main/calendar-sync.ts` reads whichever calendars `Settings#selectedCalendars` names (a
+  comma-separated list, the same free-text shape `allowedApps` already used), tracks an
+  incremental sync token per calendar rather than one for the whole cache, and strips just that
+  calendar's slice on a full or expired resync rather than the other calendars' events too
+  (`shared/calendar.ts#stripCalendar`). `shared/calendar.ts#bufferMinutesFor` now takes the
+  default buffer as a parameter — `Settings#defaultBufferMinutes` — that every caller
+  (`factsFor`, `reconcileLeaveByNotes`) reads fresh from Settings rather than caching, so a change
+  takes effect without a restart; a per-event override still wins, same as before. Per-event
+  overrides (`Settings#eventBufferOverrides`, `eventId=minutes` pairs) are parsed by
+  `shared/calendar.ts#parseBufferOverrides` and baked into the cached event's own `bufferMinutes`
+  at the next sync, the seam `main/calendar-sync.ts`'s `overrides` dependency already had waiting.
+  All three are plain text/number Settings fields, so the settings window's existing generic
+  `data-setting` binder wires them up with no new renderer code.
 - **Sound and reduced motion.** Not built. `renderer/bubble.html` already answers the OS-level
   `prefers-reduced-motion` query; an app-level override is a small renderer change with nothing here
   to test it against, since `main/bubble-window.ts` itself carries no test file (Electron-only glue,
