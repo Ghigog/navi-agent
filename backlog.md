@@ -2041,6 +2041,32 @@ for after the general version has been lived with.
 
 ---
 
+### NAV-119: Provider choice, not provider names (Backlog)
+**User Story:**
+- **As a:** User setting Navi up
+- **I want:** To choose "local" or "cloud" and then pick which one, rather than choosing between
+  two specific vendors
+- **So that:** Adding a third provider (the owner named Gemini) is a setting, not a rewrite of
+  first run
+
+**Context:**
+Found during the first Mac testing session (2026-09-24). First run currently offers exactly
+Ollama or OpenAI by name, and defaults to one of them, which reads as "these two vendors" rather
+than "local or cloud, your choice." The owner does not want to buy an OpenAI key right now and
+would rather try Gemini later — first run should not have baked in which cloud vendor that is.
+
+**Requirements:**
+- First run asks local vs. cloud, not vendor vs. vendor.
+- Cloud path supports more than one vendor's key without the local/cloud choice itself changing
+  shape.
+- No default that favours one named vendor over another.
+
+**Acceptance Criteria:**
+- [ ] First run's provider step reads as a local/cloud choice.
+- [ ] Adding a second cloud vendor does not touch the local/cloud step, only the cloud branch.
+
+---
+
 ## Done and closed
 
 Kept as a record. `done.md` holds the older 114.

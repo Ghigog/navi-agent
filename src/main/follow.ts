@@ -24,6 +24,14 @@ export interface FollowWindow {
   getBounds(): { x: number; y: number; width: number; height: number };
   setPosition(x: number, y: number): void;
   isDestroyed(): boolean;
+  /**
+   * macOS clears a window's sticky-across-Spaces flag on some `setPosition`/`setBounds` calls
+   * (a long-standing Electron/AppKit quirk), which is silent and has no event to catch it with.
+   * Following calls `setPosition` on every tick that moves her, so without re-asserting this the
+   * overlay can stop following the user across a Mission Control Space swipe while every other,
+   * mostly-static window keeps doing so.
+   */
+  setVisibleOnAllWorkspaces?(visible: boolean, opts?: { visibleOnFullScreen?: boolean }): void;
 }
 
 /**
@@ -147,6 +155,7 @@ export function createFollow(opts: FollowOptions): Follow {
     const y = Math.round(pos.y);
     if (x !== applied.x || y !== applied.y) {
       win.setPosition(x, y);
+      win.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
       applied = { x, y };
     }
 
