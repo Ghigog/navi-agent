@@ -10,6 +10,7 @@ import {
   SPEED_MIN,
   view,
 } from '../src/shared/settings.js';
+import { DEFAULT_BUFFER_MINUTES } from '../src/shared/calendar.js';
 
 describe('coerce', () => {
   it('returns defaults for junk', () => {
@@ -175,5 +176,42 @@ describe('presence settings (NAV-113)', () => {
       expect(ambientEnabled({ ...DEFAULTS, ambientPaused: false })).toBe(true);
       expect(ambientEnabled({ ...DEFAULTS, ambientPaused: true })).toBe(false);
     });
+  });
+});
+
+describe('calendar picking, the default buffer and per-event overrides (T-1)', () => {
+  it('reads only "primary" by default, the only calendar this app ever read before', () => {
+    expect(DEFAULTS.selectedCalendars).toBe('primary');
+  });
+
+  it('defaults the leave-by buffer to what calendar.ts always used', () => {
+    expect(DEFAULTS.defaultBufferMinutes).toBe(DEFAULT_BUFFER_MINUTES);
+  });
+
+  it('has no per-event overrides by default', () => {
+    expect(DEFAULTS.eventBufferOverrides).toBe('');
+  });
+
+  it('keeps a chosen calendar list and trims a pasted one, the same as allowedApps', () => {
+    expect(coerce({ selectedCalendars: 'work, family@group.calendar.google.com' }).selectedCalendars).toBe(
+      'work, family@group.calendar.google.com',
+    );
+    expect(coerce({ selectedCalendars: '  primary ' }).selectedCalendars).toBe('primary');
+  });
+
+  it('rounds a default buffer and floors it at zero rather than going negative', () => {
+    expect(coerce({ defaultBufferMinutes: 12.6 }).defaultBufferMinutes).toBe(13);
+    expect(coerce({ defaultBufferMinutes: -5 }).defaultBufferMinutes).toBe(0);
+    expect(coerce({ defaultBufferMinutes: Number.NaN }).defaultBufferMinutes).toBe(DEFAULTS.defaultBufferMinutes);
+  });
+
+  it('keeps a well-formed event override list', () => {
+    expect(coerce({ eventBufferOverrides: 'evt-1=25,evt-2=5' }).eventBufferOverrides).toBe('evt-1=25,evt-2=5');
+  });
+
+  it('a settings-window save changes only the field it carries, like every other patch', () => {
+    const next = applyUpdate(DEFAULTS, { selectedCalendars: 'work' });
+    expect(next.selectedCalendars).toBe('work');
+    expect(next.defaultBufferMinutes).toBe(DEFAULTS.defaultBufferMinutes);
   });
 });

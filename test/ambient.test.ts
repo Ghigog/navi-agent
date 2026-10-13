@@ -70,7 +70,7 @@ describe('the one-click pause (NAV-113), verified by request log', () => {
       now: c.now,
       setTimer: c.setTimer,
       clearTimer: c.clearTimer,
-      fetchPage: async (accessToken, syncToken): Promise<FetchPage> => {
+      fetchPage: async (_calendarId, accessToken, syncToken): Promise<FetchPage> => {
         requests.push(`${accessToken}:${syncToken ?? 'full'}`);
         return { status: 'ok', events: [], nextSyncToken: 'tok-1' };
       },
@@ -127,7 +127,7 @@ describe('the one-click pause (NAV-113), verified by request log', () => {
       now: c.now,
       setTimer: c.setTimer,
       clearTimer: c.clearTimer,
-      fetchPage: async (accessToken, syncToken): Promise<FetchPage> => {
+      fetchPage: async (_calendarId, accessToken, syncToken): Promise<FetchPage> => {
         requests.push(`${accessToken}:${syncToken ?? 'full'}`);
         return { status: 'ok', events: [], nextSyncToken: 'tok-1' };
       },

@@ -538,6 +538,32 @@
         </p>
       </div>
       <div class="field">
+        <label for="selectedCalendars">Calendars to read</label>
+        <input type="text" id="selectedCalendars" data-setting="selectedCalendars" spellcheck="false"
+               placeholder="primary, family@group.calendar.google.com" />
+        <p class="note">
+          Comma-separated calendar ids. "primary" is your own default calendar; any other calendar
+          you can see in Google Calendar has an id in its settings there. Empty means she reads
+          nothing.
+        </p>
+      </div>
+      <div class="field">
+        <label for="defaultBufferMinutes">Default leave-by buffer</label>
+        <div class="row">
+          <input type="number" id="defaultBufferMinutes" data-setting="defaultBufferMinutes" min="0" step="1" />
+          <span class="note" style="margin: 0">minutes, for an event with no location and no override below</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="eventBufferOverrides">Per-event buffer overrides</label>
+        <input type="text" id="eventBufferOverrides" data-setting="eventBufferOverrides" spellcheck="false"
+               placeholder="eventId=30, eventId=5" />
+        <p class="note">
+          Comma-separated "event id = minutes" pairs. Beats both the default above and the extra
+          warning she gives an event with a location.
+        </p>
+      </div>
+      <div class="field">
         <label for="noticeActivity">What she may notice</label>
         <div class="row">
           <input type="checkbox" id="noticeActivity" data-setting="noticeActivity" />

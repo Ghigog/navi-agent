@@ -255,7 +255,7 @@ describe('the facts handed to NAV-111', () => {
   }
 
   function cacheWith(...events: GoogleEvent[]): CommitmentCache {
-    return applySync(EMPTY_CACHE, { events, nextSyncToken: 'tok-1' }, NOW);
+    return applySync(EMPTY_CACHE, 'primary', { events, nextSyncToken: 'tok-1' }, NOW);
   }
 
   it('are all null when nothing is coming', () => {

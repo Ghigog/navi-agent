@@ -9,7 +9,7 @@
  */
 
 import type { Emotion } from './emotion.js';
-import { leaveByTime, type CommitmentCache } from './calendar.js';
+import { DEFAULT_BUFFER_MINUTES, leaveByTime, type CommitmentCache } from './calendar.js';
 import type { Note, Notes } from './notes.js';
 
 /** How long before the leave-by moment she actually says something. */
@@ -59,7 +59,12 @@ export function leaveByMessage(emotion: Emotion, title: string): string {
  * emotion when she actually says it (`leaveByMessage`), not frozen at the moment it was armed,
  * which could be hours or days earlier.
  */
-export function reconcileLeaveByNotes(cache: CommitmentCache, store: Notes, now: number): Notes {
+export function reconcileLeaveByNotes(
+  cache: CommitmentCache,
+  store: Notes,
+  now: number,
+  defaultBufferMinutes: number = DEFAULT_BUFFER_MINUTES,
+): Notes {
   const liveIds = new Set(cache.events.map((e) => e.id));
   const existingIds = new Set(store.notes.map((n) => n.id));
 
@@ -78,7 +83,7 @@ export function reconcileLeaveByNotes(cache: CommitmentCache, store: Notes, now:
       text: event.title,
       tags: ['leave-by'],
       at: now,
-      due: leaveByTime(event) - LEAD_MINUTES * 60_000,
+      due: leaveByTime(event, defaultBufferMinutes) - LEAD_MINUTES * 60_000,
     });
   }
 

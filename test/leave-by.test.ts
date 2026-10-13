@@ -32,7 +32,7 @@ function timed(overrides: Partial<GoogleEvent> = {}): GoogleEvent {
 }
 
 function cacheWith(...events: GoogleEvent[]): CommitmentCache {
-  return applySync(EMPTY_CACHE, { events, nextSyncToken: 'tok-1' }, NOW);
+  return applySync(EMPTY_CACHE, 'primary', { events, nextSyncToken: 'tok-1' }, NOW);
 }
 
 describe('templated wording', () => {
@@ -104,7 +104,7 @@ describe('reconciling against the commitment cache', () => {
     const armed = reconcileLeaveByNotes(cache, empty(), NOW);
 
     // The next sync cancels the event, which removes it from the cache (NAV-117).
-    const afterCancel = applySync(cache, { events: [timed({ status: 'cancelled' })], nextSyncToken: 'tok-2' }, NOW);
+    const afterCancel = applySync(cache, 'primary', { events: [timed({ status: 'cancelled' })], nextSyncToken: 'tok-2' }, NOW);
     const reconciled = reconcileLeaveByNotes(afterCancel, armed, NOW + MINUTE);
 
     expect(reconciled.notes).toEqual([]);
@@ -115,7 +115,7 @@ describe('reconciling against the commitment cache', () => {
     const armed = reconcileLeaveByNotes(cache, empty(), NOW);
     const fired = markFired(armed, [armed.notes[0]!.id], NOW);
 
-    const afterCancel = applySync(cache, { events: [timed({ status: 'cancelled' })], nextSyncToken: 'tok-2' }, NOW);
+    const afterCancel = applySync(cache, 'primary', { events: [timed({ status: 'cancelled' })], nextSyncToken: 'tok-2' }, NOW);
     const reconciled = reconcileLeaveByNotes(afterCancel, fired, NOW + MINUTE);
 
     expect(reconciled.notes).toHaveLength(1);
