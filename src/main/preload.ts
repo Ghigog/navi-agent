@@ -29,4 +29,10 @@ contextBridge.exposeInMainWorld('navi', {
   onActing: (fn: (acting: boolean) => void) => ipcRenderer.on('acting', (_e, acting: boolean) => fn(acting)),
   /** Clicking her opens the chat window. The hotkey should not be the only way in. */
   requestChat: () => ipcRenderer.send('chat:open'),
+  /**
+   * The OS's own `prefers-reduced-motion`, which only a renderer can read (NAV-113 deferral).
+   * Sent once on load and again on every change; main combines it with the app setting via
+   * `shared/motion.ts#resolveReducedMotion`.
+   */
+  setReducedMotionPreference: (reduced: boolean) => ipcRenderer.send('motion:os-preference', reduced),
 });

@@ -49,6 +49,12 @@ export interface BubbleMessage {
   text: string;
   /** Up to three; a fourth is dropped rather than crowding the surface. */
   buttons?: readonly BubbleButton[];
+  /**
+   * Plays a short cue as it appears (NAV-113 deferral). Only ever true for an unprompted remark
+   * — a reminder she was asked to set is not the "sound" setting's business — and even then only
+   * when the setting is on; every other caller leaves this unset.
+   */
+  sound?: boolean;
 }
 
 export interface BubbleWindow {
@@ -56,6 +62,13 @@ export interface BubbleWindow {
   show(anchor: BrowserWindow, message: BubbleMessage): void;
   /** Takes it off screen now, wherever it was in its schedule, and cancels the clock. */
   dismiss(): void;
+  /**
+   * The app-level reduced-motion override (NAV-113 deferral). The OS-level half of
+   * `shared/motion.ts#resolveReducedMotion` is already answered in here, by CSS's own
+   * `prefers-reduced-motion` query — this is only the other half, which nothing but a setting
+   * change can tell it about.
+   */
+  setReducedMotion(reduced: boolean): void;
 }
 
 export interface BubbleWindowDeps {
@@ -65,6 +78,12 @@ export interface BubbleWindowDeps {
    * `RemarkResponse`) reads this; nothing else in this file knows what a remark is.
    */
   onCollapse?(): void;
+  /**
+   * The page has loaded and is listening. `setReducedMotion` sent any earlier than this would
+   * arrive before `bubble.html`'s script is there to receive it and be lost — this is the caller's
+   * cue to send the setting's current value once, rather than guessing at a delay.
+   */
+  onReady?(): void;
 }
 
 export function createBubbleWindow(deps: BubbleWindowDeps = {}): BubbleWindow {
@@ -93,6 +112,7 @@ export function createBubbleWindow(deps: BubbleWindowDeps = {}): BubbleWindow {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadFile(join(here, '../renderer/bubble.html'));
+  win.webContents.once('did-finish-load', () => deps.onReady?.());
 
   let quitting = false;
   app.on('before-quit', () => {
@@ -147,11 +167,18 @@ export function createBubbleWindow(deps: BubbleWindowDeps = {}): BubbleWindow {
     win.webContents.send('bubble:show', {
       text: message.text,
       buttons: (message.buttons ?? []).slice(0, 3),
+      sound: message.sound === true,
     });
     win.setIgnoreMouseEvents(false);
     win.showInactive();
     collapseTimer = setTimeout(collapse, BUBBLE_VISIBLE_MS);
   };
 
-  return { show, dismiss: vanish };
+  return {
+    show,
+    dismiss: vanish,
+    setReducedMotion: (reduced) => {
+      if (!win.isDestroyed()) win.webContents.send('bubble:reduced-motion', reduced);
+    },
+  };
 }

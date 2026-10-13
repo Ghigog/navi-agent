@@ -276,3 +276,50 @@ describe('the pointing arrow (NAV-103)', () => {
     follow.stop();
   });
 });
+
+describe('reduced motion (NAV-113 deferral)', () => {
+  it('snaps to the follow target instead of easing towards it', () => {
+    const cursor = fakeCursor({ x: 0, y: 0 });
+    const w = fakeWindow({ x: 0, y: 0 });
+    createFollow({ window: w.win, cursor: cursor.source, reducedMotion: () => true });
+
+    cursor.moveTo({ x: 600, y: 400 });
+    // Two ticks: the first only establishes the clock (dt is zero and nothing moves, as in the
+    // flight tests above); the second is the first frame that actually eases — or, here, snaps.
+    cursor.tick(2);
+
+    // Snapping her to the cursor is the "different and worse product" the eased default exists
+    // to avoid — except here it is exactly what was asked for.
+    expect(w.at()).toEqual({ x: 600 + FOLLOW_OFFSET.x, y: 400 + FOLLOW_OFFSET.y });
+  });
+
+  it('snaps a flight to its target on the first tick too', async () => {
+    const cursor = fakeCursor({ x: 0, y: 0 });
+    const w = fakeWindow({ x: 0, y: 0 });
+    const follow = createFollow({ window: w.win, cursor: cursor.source, reducedMotion: () => true });
+
+    const flight = follow.flyTo({ x: 800, y: 600 }, { hold: 0 });
+    cursor.tick(2);
+    expect(w.body()).toEqual({ x: 800, y: 600 });
+
+    await flight;
+    follow.stop();
+  });
+
+  it('eases normally again once the flag goes back off', () => {
+    const cursor = fakeCursor({ x: 0, y: 0 });
+    const w = fakeWindow({ x: 0, y: 0 });
+    let reduced = true;
+    createFollow({ window: w.win, cursor: cursor.source, reducedMotion: () => reduced });
+
+    cursor.moveTo({ x: 600, y: 400 });
+    cursor.tick(2);
+    expect(w.at()).toEqual({ x: 600 + FOLLOW_OFFSET.x, y: 400 + FOLLOW_OFFSET.y });
+
+    reduced = false;
+    cursor.moveTo({ x: 0, y: 0 });
+    cursor.tick(1);
+    expect(w.at().x).toBeGreaterThan(0);
+    expect(w.at().x).toBeLessThan(600 + FOLLOW_OFFSET.x);
+  });
+});

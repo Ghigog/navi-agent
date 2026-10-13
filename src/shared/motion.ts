@@ -57,3 +57,13 @@ export function ease(from: Point, to: Point, dtMs: number, speed = LERP_SPEED): 
 export function settled(a: Point, b: Point, epsilon = SETTLE_PX): boolean {
   return Math.abs(a.x - b.x) < epsilon && Math.abs(a.y - b.y) < epsilon;
 }
+
+/**
+ * Whether motion should be reduced right now (NAV-113 deferral): the app setting is a standing
+ * override, `prefers-reduced-motion` the OS default nobody had to go looking for. Either one is
+ * enough — this is what `main/follow.ts`'s `reducedMotion` option and the bubble's own resolved
+ * state both read, so the two surfaces never disagree about it.
+ */
+export function resolveReducedMotion(appSetting: boolean, osPrefersReduced: boolean): boolean {
+  return appSetting || osPrefersReduced;
+}

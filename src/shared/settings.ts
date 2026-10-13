@@ -121,6 +121,22 @@ export interface Settings {
   quietHoursEnd: number;
 
   /**
+   * Whether an unprompted remark (section 5) plays a sound when it appears (NAV-113 deferral).
+   * On by default — unlike `voiceOutput`, this has no external dependency to fail quietly about,
+   * and a remark she chose to interrupt you for is exactly the case a cue is for.
+   */
+  sound: boolean;
+
+  /**
+   * Forces reduced motion on, even when the OS-level `prefers-reduced-motion` is off (NAV-113
+   * deferral). Off by default: the OS setting alone already does the right thing for anyone who
+   * has it on, so this is only for someone who wants it and their OS does not say so.
+   * `shared/motion.ts#resolveReducedMotion` combines the two into the value the bubble and the
+   * fairy's own motion actually read.
+   */
+  reducedMotion: boolean;
+
+  /**
    * Which calendars `main/calendar-sync.ts` reads, comma-separated calendar ids (T-1, the
    * NAV-113 deferral) — the same free-text shape `allowedApps` already uses for a list a person
    * types by hand. Defaults to `'primary'` alone, this app's only calendar before this setting
@@ -171,6 +187,8 @@ export const DEFAULTS: Settings = {
   noticeActivity: false,
   quietHoursStart: 0,
   quietHoursEnd: 0,
+  sound: true,
+  reducedMotion: false,
   selectedCalendars: 'primary',
   defaultBufferMinutes: DEFAULT_BUFFER_MINUTES,
   eventBufferOverrides: '',
